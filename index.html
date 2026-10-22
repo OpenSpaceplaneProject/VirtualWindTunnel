@@ -201,6 +201,8 @@ details > .pane { gap: 10px; }
 #thermSeg { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 #thermSeg .segb { font-size: 12px; padding: 9px 2px; }
 .segb { appearance: none; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 9px 6px; font-family: var(--f-display); font-weight: 600; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; }
+.dstate { margin: 10px 0 4px; font-size: 13px; line-height: 1.4; color: var(--ink, #e8ecf4); }
+.dstate:empty { display: none; }
 .segb[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); }
 .segb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 body[data-regime="lbm"] .hyp-only, body[data-regime="hyp"] .lbm-only { display: none !important; }
@@ -346,8 +348,12 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
       <div class="sheet" id="sheet">
 
         <section class="pane" data-pane="model">
+          <div class="seg" role="radiogroup" aria-label="Model library">
+            <button class="segb" id="libBody" role="radio" aria-checked="true">Flight bodies</button>
+            <button class="segb" id="libEng" role="radio" aria-checked="false">Engines &amp; intakes</button>
+          </div>
           <div class="row2">
-            <label class="field"><span class="k">Body</span><select id="preset"></select></label>
+            <label class="field"><span class="k" id="presetK">Body</span><select id="preset"></select></label>
             <label class="btn" id="stlLabel" title="STL, OBJ, glTF/GLB, STEP or IGES">Import model<input type="file" id="stlFile" accept=".stl,.obj,.glb,.gltf,.step,.stp,.igs,.iges" hidden></label>
           </div>
           <label class="ctl"><span class="k">Size in the tunnel</span><output id="oSize"></output><input type="range" id="size" min="0.6" max="2" step="0.01"></label>
@@ -422,6 +428,35 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
         </section>
 
         <section class="pane" data-pane="engines" hidden>
+          <div id="ductBox" hidden>
+            <h3 class="grp">Air-breathing engine</h3>
+            <p class="hint lbm-only">The intake is solved by the high-speed flow solver, above Mach 0.6.</p>
+            <label class="field"><span class="k">Behind the engine face</span><select id="ductMode">
+              <option value="pb">Back pressure, set directly (intake rig)</option>
+              <option value="demand">Turbojet: compressor draws a set mass flow</option>
+              <option value="ramjet">Ramjet: combustor and choked nozzle</option>
+            </select></label>
+            <div id="ductPb"><label class="ctl" title="Static pressure at the engine face as a fraction of the freestream total pressure"><span class="k">Back pressure, of freestream total</span><output id="oDuctPb"></output><input type="range" id="ductPbr" min="0.1" max="1.2" step="0.01"></label></div>
+            <div id="ductDem"><label class="ctl" title="Mass flow the compressor draws, as a fraction of the air a fully flowing intake would capture"><span class="k">Engine demand, of capture flow</span><output id="oDuctDem"></output><input type="range" id="ductDemR" min="0.3" max="1.2" step="0.01"></label></div>
+            <div id="ductRam">
+              <label class="chk"><input type="checkbox" id="ductIgn">Fuel on</label>
+              <div class="row2">
+                <label class="field" title="Total temperature leaving the combustor. Kerosene in air reaches about 2,300 K at stoichiometric."><span class="k">Combustor exit, K</span><input type="number" id="ductTt4" min="300" max="2600" step="50"></label>
+                <label class="field" title="Nozzle throat area divided by the intake capture area. Bigger lets more out, lowering combustor pressure."><span class="k">Throat / capture</span><input type="number" id="ductAt" min="0.2" max="3" step="0.05"></label>
+              </div>
+            </div>
+            <p class="dstate" id="ductState"></p>
+            <dl class="kv" id="ductInfo"></dl>
+            <div class="row2"><button class="btn" id="btnSweep">Run intake characteristic</button><span class="msg" id="sweepMsg"></span></div>
+            <canvas class="chart" id="ductChart" aria-label="Intake characteristic: total-pressure recovery against captured mass flow"></canvas>
+            <details class="more">
+              <summary>How intakes and air-breathing engines are modelled</summary>
+              <p class="hint">The intake, spike, cowl and diffuser are geometry, so the cone and cowl shocks, the terminal shock, spillage round the lip, and buzz or unstart are all solved by the inviscid flow solver. Without viscosity there is no boundary layer, so shock–boundary-layer separation, bleed and the losses that come with them are missing: real recoveries are a few per cent lower.</p>
+              <p class="hint">At the engine face the duct ends in a boundary that sets the static pressure, as an engine does. Behind it the engine is lumped into a plenum whose pressure rises when more air arrives than leaves. A turbojet's compressor draws a fixed mass flow. A ramjet burns kerosene-class fuel to the set combustor temperature (fuel flow from the heat balance), and its choked nozzle throat passes a mass flow proportional to pressure over the square root of temperature; the exhaust then leaves the base through an ideal nozzle as a jet the solver carries on. The exhaust is treated as air (γ 1.4) and the dump into the combustor keeps the static pressure, so its losses are included. Combustion is complete and the nozzle ideal, so ramjet thrust and specific impulse are an ideal cycle: real engines read roughly 15–30 % lower.</p>
+              <p class="hint">Capture is the mass flow reaching the face over the flow through the cowl lip area in free stream. Recovery is the mass-averaged total pressure at the face over free stream. The characteristic sweep raises the back pressure step by step, then lowers it again, holding each step for one and a half flow-throughs (the shock moves only as fast as the duct fills or empties). Net thrust is uninstalled: jet momentum and pressure thrust minus the momentum of the captured air; cowl and spillage drag show in C<sub>D</sub>.</p>
+            </details>
+          </div>
+          <div id="rocketBox">
           <label class="chk"><input type="checkbox" id="engOn">Engines firing</label>
           <p class="hint lbm-only">Exhaust plumes are solved by the high-speed flow solver, above Mach 0.6. Low-speed jets come with the landing work.</p>
           <div class="row2">
@@ -463,6 +498,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             <summary>How engines are modelled</summary>
             <p class="hint">Each nozzle is ideal-rocket theory: frozen, isentropic, one-dimensional flow from the chamber to the exit area ratio, which gives exit Mach number, pressure, velocity and mass flow. Real engines lose a few per cent; the presets are representative, not certified data. In the flow solver each exit plane is a source boundary that injects that exit state, so the plume, its shock cells, base pressure and any interaction with the airframe are solved. The exhaust is carried as the solver's gas with the true exit density, velocity and pressure, so mass flow, momentum and pressure are right, while its temperature and sound speed follow air's properties. For an aerospike only the primary nozzle is modelled this way; the spike is geometry, so its thrust appears in the surface pressure. Thrust shown here is the nozzle exit thrust; pressure on the spike and base adds to it through the force coefficients.</p>
           </details>
+          </div>
         </section>
 
         <section class="pane" data-pane="solver" hidden>
@@ -1036,6 +1072,22 @@ fn sdTri2(p: vec2f, p0: vec2f, p1: vec2f, p2: vec2f) -> f32 {
                   vec2f(dot(pq2, pq2), s * (v2.x * e2.y - v2.y * e2.x)));
   return -sqrt(d.x) * sign(d.y);
 }
+// Body of revolution about the x axis from its half profile: n points (x, radius), first and last
+// on the axis, listed round the solid. Ducts, intakes and nozzles are notches in the profile.
+fn sdRev(p: vec3f, v: array<vec2f, 16>, n: u32) -> f32 {
+  var w = v;
+  let q = vec2f(p.x, length(p.yz));
+  var d = 1e9; var s = 1.0;
+  for (var i = 0u; i + 1u < n; i++) {
+    let a = w[i]; let b = w[i + 1u];
+    let e = b - a; let r = q - a;
+    let h = r - e * clamp(dot(r, e) / max(dot(e, e), 1e-12), 0.0, 1.0);
+    d = min(d, dot(h, h));
+    let c0 = q.y >= a.y; let c1 = q.y < b.y; let c2 = e.x * r.y > e.y * r.x;
+    if ((c0 && c1 && c2) || (!c0 && !c1 && !c2)) { s = -s; }
+  }
+  return s * sqrt(d);
+}
 fn naca(x: f32, t: f32) -> f32 {
   let xc = clamp(x, 0.0, 1.0);
   return 5.0 * t * (0.2969 * sqrt(xc) - 0.1260 * xc - 0.3516 * xc * xc + 0.2843 * xc * xc * xc - 0.1036 * xc * xc * xc * xc);
@@ -1438,6 +1490,41 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
       if (ax < 0.0 || ax >= a.w) { continue; }
       let rv = q - ax * b.xyz; let rr = length(rv);
       if (rr > b.w || rr < x.w) { continue; }
+      if (d.y > 0.5) {
+        // Engine face (compressor face or combustor dump plane): a subsonic outflow boundary. The
+        // engine sets the static pressure (x.z); the state at the face follows from the duct just
+        // upstream along the outgoing characteristics (entropy and the J+ Riemann invariant), so a
+        // higher engine pressure slows the outflow and drives the terminal shock upstream. Air
+        // arriving supersonic first passes a normal shock; if the engine's pressure is below even
+        // that, the shock is swallowed and the engine has no say. The face never blows back:
+        // reversed flow (buzz, unstart) stalls there instead of being fed.
+        let up = vec3i(floor(pc - b.xyz * (ax + 1.0)));
+        let m = u32(clamp(up.x, 0, i32(nx) - 1)) + nx * (u32(clamp(up.y, 0, i32(ny) - 1)) + ny * u32(clamp(up.z, 0, i32(nz) - 1)));
+        var qf = ldP(n);
+        if (flg[m] != SOLID) { qf = ldP(m); }
+        let g = E.gamma;
+        var un = dot(qf.u, b.xyz);
+        let ut = qf.u - un * b.xyz;
+        var cf = sqrt(g * qf.p / qf.r);
+        var hold = true;
+        if (un >= cf) {
+          let m2 = (un / cf) * (un / cf);
+          let p2 = qf.p * (1.0 + 2.0 * g / (g + 1.0) * (m2 - 1.0));
+          if (x.z >= p2) {
+            let rr2 = (g + 1.0) * m2 / ((g - 1.0) * m2 + 2.0);
+            qf = P(qf.r * rr2, ut + (un / rr2) * b.xyz, p2);
+            un = un / rr2; cf = sqrt(g * qf.p / qf.r);
+          } else { hold = false; }
+        }
+        if (hold) {
+          let rb = qf.r * pow(x.z / qf.p, 1.0 / g);
+          let cb = sqrt(g * x.z / rb);
+          let ub = max(un + 2.0 / (g - 1.0) * (cf - cb), 0.0);
+          qf = P(rb, ut + ub * b.xyz, x.z);
+        }
+        store(n, cons(qf));
+        return;
+      }
       var dir = b.xyz;
       if (abs(d.x) > 1e-4 && rr > 1e-3) { dir = normalize(b.xyz * cos(d.x) - (rv / rr) * sin(d.x)); }
       store(n, cons(P(x.x, dir * x.y, x.z)));
@@ -1550,8 +1637,10 @@ struct EF {
 @group(0) @binding(1) var<storage, read> st: array<f32>;
 @group(0) @binding(2) var<storage, read> flg: array<u32>;
 @group(0) @binding(3) var fieldT: texture_storage_3d<rgba16float, write>;
-@group(0) @binding(4) var<storage, read_write> frc: array<atomic<i32>, 4>;
+@group(0) @binding(4) var<storage, read_write> frc: array<atomic<i32>, 12>;
 @group(0) @binding(5) var<storage, read> nrm: array<vec2u>;
+struct ENG { count: u32, p0: u32, p1: u32, p2: u32, e: array<vec4f, 128> };
+@group(0) @binding(6) var<uniform> EN: ENG;
 
 fn idx(c: vec3i) -> u32 {
   let d = vec3i(E.dims.xyz);
@@ -1608,6 +1697,33 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       let rr = vec3f(c) + vec3f(0.5) + 0.5 * d - E.cg;
       My += rr.z * f.x - rr.x * f.z;
     }
+  }
+  // Engine face: integrate the stream arriving at the first face over a one-cell slab just upstream
+  // of it: mass flux, mass-weighted total pressure, momentum flux, static pressure, cell count.
+  for (var k = 0u; k < min(EN.count, 32u); k++) {
+    let ea = EN.e[4u * k]; let eb = EN.e[4u * k + 1u]; let ex = EN.e[4u * k + 2u]; let ed = EN.e[4u * k + 3u];
+    if (ed.y < 0.5) { continue; }
+    let q = vec3f(c) + vec3f(0.5) - ea.xyz;
+    let ax = dot(q, eb.xyz);
+    if (ax >= -1.0 && ax < 0.0) {
+      let rr = length(q - ax * eb.xyz);
+      if (rr <= eb.w && rr >= ex.w) {
+        let un = dot(u, eb.xyz);
+        var pt = p * pow(1.0 + 0.5 * (E.gamma - 1.0) * mach * mach, E.gamma / (E.gamma - 1.0));
+        // air still supersonic here meets the face's normal shock before the engine sees it
+        let mn = un / sqrt(E.gamma * p / r);
+        if (mn > 1.0) {
+          let g = E.gamma; let m2 = mn * mn;
+          pt *= pow((g + 1.0) * m2 / ((g - 1.0) * m2 + 2.0), g / (g - 1.0)) * pow((g + 1.0) / (2.0 * g * m2 - (g - 1.0)), 1.0 / (g - 1.0));
+        }
+        atomicAdd(&frc[4], i32(round(r * un * 1e4)));
+        atomicAdd(&frc[5], i32(round(r * un * pt * 1e4)));
+        atomicAdd(&frc[6], i32(round((p + r * un * un) * 1e4)));
+        atomicAdd(&frc[7], 1);
+        atomicAdd(&frc[8], i32(round(p * 1e4)));
+      }
+    }
+    break;
   }
   if (wall && E.dims.w > 0u) {
     atomicAdd(&frc[0], i32(round(F.x * 1000.0)));
@@ -2184,6 +2300,59 @@ fn sdf(p: vec3f) -> f32 {
   let spike = sdRoundCone(p, vec3f(0.8, 0.0, 0.0), vec3f(0.97, 0.0, 0.0), 0.05, 0.02);
   return min(opSmoothUnion(nose, body, 0.02), spike);
 }` },
+  pitot: { cat: "engine", name: "Pitot intake + turbojet, Mach 1.6", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 5, mass: 1500 }, flight: { V: 472, h: 11 },
+    duct: { mode: "demand", xf: 0.5, rf: 0.122, rfi: 0, rc: 0.1, dem: 0.95, pbr: 0.8 }, code:
+`// Normal-shock (pitot) intake, as on F-16-class fighters. Length 1 = 5 m nacelle; cowl lip at
+// x = 0.02, radius 0.1. The diffuser opens to the compressor face at x = 0.5. Past the face the
+// turbojet is lumped: it draws a set mass flow (Engines tab), so the intake must supply it.
+// Profile is (x, radius) round the solid, from the axis back to the axis.
+fn sdf(p: vec3f) -> f32 {
+  return sdRev(p, array<vec2f, 16>(
+    vec2f(0.53, 0), vec2f(0.53, 0.122), vec2f(0.4, 0.122), vec2f(0.02, 0.1),
+    vec2f(0.15, 0.146), vec2f(0.25, 0.15), vec2f(1, 0.15), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 8u);
+}` },
+  spike2: { cat: "engine", name: "Spike intake, external compression, Mach 2", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 4, mass: 800 }, flight: { V: 590, h: 16 },
+    duct: { mode: "pb", xf: 0.52, rf: 0.125, rfi: 0.055, rc: 0.1, pbr: 0.7 }, code:
+`// Axisymmetric nose intake with a 22° half-angle cone. At Mach 2 the cone shock (39.6°, from
+// Taylor-Maccoll) lands on the cowl lip at x = 0.122, radius 0.1: shock-on-lip design. All the
+// compression is ahead of the lip, so the duct only diverges and the intake starts at any Mach.
+// The engine face (x = 0.52) is a back-pressure boundary set on the Engines tab.
+fn sdf(p: vec3f) -> f32 {
+  return sdRev(p, array<vec2f, 16>(
+    vec2f(0, 0), vec2f(0.1211, 0.0489), vec2f(0.17, 0.055), vec2f(0.55, 0.055),
+    vec2f(0.55, 0.125), vec2f(0.3, 0.123), vec2f(0.122, 0.1), vec2f(0.22, 0.14),
+    vec2f(0.4, 0.145), vec2f(1, 0.145), vec2f(1, 0), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 11u);
+}` },
+  mixed3: { cat: "engine", name: "Mixed-compression intake, Mach 3", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 4, mass: 800 }, flight: { V: 885, h: 20 },
+    duct: { mode: "pb", xf: 0.58, rf: 0.117, rfi: 0.052, rc: 0.1, pbr: 0.35 }, code:
+`// Mixed compression: a 12° cone does part of the work outside, and the cowl turns inward to a
+// throat at x = 0.33 (throat / capture area 0.46) for the rest. Low cowl drag, but the throat is
+// tighter than the Kantrowitz self-starting limit, so it is hard to start: the solver begins
+// from a started flow, and too much back pressure expels the shock (unstart), which lowering it
+// again does not undo. Engine face at x = 0.58.
+fn sdf(p: vec3f) -> f32 {
+  return sdRev(p, array<vec2f, 16>(
+    vec2f(0, 0), vec2f(0.236, 0.0502), vec2f(0.33, 0.062), vec2f(0.42, 0.062),
+    vec2f(0.6, 0.052), vec2f(0.62, 0.052), vec2f(0.62, 0.118), vec2f(0.42, 0.105),
+    vec2f(0.33, 0.092), vec2f(0.236, 0.1), vec2f(0.34, 0.135), vec2f(0.5, 0.145),
+    vec2f(1, 0.145), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 14u);
+}` },
+  ramjet: { cat: "engine", name: "Ramjet, spike intake + dump combustor, Mach 2.5", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 4, mass: 900 }, flight: { V: 738, h: 18 },
+    duct: { mode: "ramjet", xf: 0.42, rf: 0.12, rfi: 0.066, rc: 0.1, Tt4: 2000, ign: true, At: 1.1, xe: 1.0, re: 0.135, pbr: 0.6 }, code:
+`// Ramjet: 25° cone intake (shock on the lip at Mach 2.5, x = 0.131), a short diffuser to the
+// dump plane at x = 0.42, then the combustor and nozzle, which are lumped (Engines tab): fuel heats
+// the air to the set temperature, the choked nozzle throat fixes how much mass leaves, and the
+// exhaust leaves the base (x = 1, radius 0.135) as a jet the flow solver carries on.
+fn sdf(p: vec3f) -> f32 {
+  return sdRev(p, array<vec2f, 16>(
+    vec2f(0, 0), vec2f(0.131, 0.0611), vec2f(0.18, 0.066), vec2f(0.45, 0.066),
+    vec2f(0.45, 0.12), vec2f(0.3, 0.118), vec2f(0.131, 0.1), vec2f(0.23, 0.145),
+    vec2f(0.4, 0.15), vec2f(1, 0.15), vec2f(1, 0), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 11u);
+}` },
   wing: { name: "Swept wing, NACA 0012", aoa: 6, beta: 0, size: 1, ref: "plan", code:
 `// NACA 0012, 30° quarter-sweep, chord 0.45, span 1.1, square tips.
 fn sdf(p: vec3f) -> f32 {
@@ -2245,6 +2414,8 @@ const st = {
   tps: { adiabatic: true, layers: [{ m: "rcc", t: 6 }, { m: "fibre", t: 50 }, { m: "al2024", t: 3 }] },
   tl: { profile: "shuttle", events: [] },
   eng: { on: false, type: "bell", prop: "methalox", custom: { pc: 10e6, Tc: 3400, gam: 1.2, MW: 22 }, thr: 1, n: 1, ring: 0, re: 0.6, ri: 0.4, eps: 16, x: 0.98, dir: "aft", cant: 20 },
+  lib: "body",
+  duct: null,
 };
 const D = Math.PI / 180;
 let dev, ctx, fmt, canvas;
@@ -2353,7 +2524,7 @@ async function startGPU() {
   layouts.scatter = makeLayout(["u", "r", "r", "r", "stw:rgba16float"]);
   layouts.render = makeLayout(["u", "t3", "t3", "smp", "t3", "u", "t3", "u"], GPUShaderStage.FRAGMENT);
   layouts.euler = makeLayout(["u", "r", "s", "r", "r", "u"]);
-  layouts.efield = makeLayout(["u", "r", "r", "stw:rgba16float", "s", "r"]);
+  layouts.efield = makeLayout(["u", "r", "r", "stw:rgba16float", "s", "r", "u"]);
   layouts.gather = makeLayout(["u", "r", "r", "r", "r", "s"]);
 
   for (const [name, code] of [["step", STEP_WGSL], ["macro", MACRO_WGSL], ["field", FIELD_WGSL]]) {
@@ -2477,8 +2648,8 @@ function buildGrid() {
     flags: dev.createBuffer({ size: 4 * N, usage: B.STORAGE | B.COPY_SRC }),
     mac: dev.createBuffer({ size: 16 * N, usage: B.STORAGE | B.COPY_SRC }),
     avg: dev.createBuffer({ size: 4 * N, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
-    force: dev.createBuffer({ size: 16, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
-    forceRead: dev.createBuffer({ size: 16, usage: B.MAP_READ | B.COPY_DST }),
+    force: dev.createBuffer({ size: 48, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
+    forceRead: dev.createBuffer({ size: 48, usage: B.MAP_READ | B.COPY_DST }),
     field: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
     occ: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba8unorm", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
     surf: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
@@ -2503,7 +2674,7 @@ function buildGrid() {
     bg(layouts.euler, [buf(R.eu2), buf(R.popB), buf(R.popA), buf(R.flags), buf(R.nrm), buf(R.engU)]),
   ];
   R.eInitBG = bg(layouts.euler, [buf(R.eu1), buf(R.popB), buf(R.popA), buf(R.flags), buf(R.nrm), buf(R.engU)]);
-  R.efBG = bg(layouts.efield, [buf(R.efU), buf(R.popA), buf(R.flags), R.field.createView(), buf(R.force), buf(R.nrm)]);
+  R.efBG = bg(layouts.efield, [buf(R.efU), buf(R.popA), buf(R.flags), R.field.createView(), buf(R.force), buf(R.nrm), buf(R.engU)]);
   eu.reset = true;
   makeVoxBG();
   const pairs = Math.ceil(N / 2 / 64), cells = Math.ceil(N / 64);
@@ -2718,7 +2889,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 
 // ─────────────────────────── Frame loop ───────────────────────────
-const ZERO16 = new Int32Array(4);
+const ZERO16 = new Int32Array(12);
 let measureTimer = 0;
 // Loading state: status text, and while a distance field is built live, the sweep front.
 const loadSpin = { on: false, msg: "", watch: false, sweep: -1 };
@@ -2931,6 +3102,7 @@ function wireEngines() {
 function updateHud() {
   updateChain();
   updateEngineInfo();
+  if (st.duct && st.duct.on) { updateDuctInfo(); drawDuctChart(); if (duct.sweep) $("#sweepMsg").textContent = `${duct.sweep.dir > 0 ? "Raising" : "Lowering"} back pressure · point ${duct.pts.length + 1}`; }
   const [nx, ny, nz] = R.dims;
   if (st.regime === "hyp") {
     const T = hy.traj, A = hy.aero;
@@ -3545,8 +3717,7 @@ async function loadSTL(file, orient = null, label = null, watch = true) {
       const Lm = hi - lo;
       if (Lm > 1e-4) { st.ent.L = +Lm.toPrecision(4); $("#eL").value = st.ent.L; }
     }
-    const opt = $("#preset").querySelector('option[value="stl"]');
-    opt.disabled = false; opt.textContent = label || "Imported: " + file.name;
+    PRESETS.stl.imported = true; PRESETS.stl.name = label || "Imported: " + file.name;
     applyPreset("stl");
     toast(`${file.name} loaded: ${(stl.raw.length / 9).toLocaleString("en-GB")} triangles, distance field ${stl.res} voxels along its length${pm.metres ? `, length ${st.ent.L} m from the file` : ""}. Flow is along +x.`);
     return true;
@@ -3986,33 +4157,226 @@ function engineState(env) {
   const noz = rocketNozzle(pr, E.eps, Ae, env.p, E.thr);
   return { pr, noz, Ae, ri, ro };
 }
+function engWorld(xb, yb, zb) {
+  const o = origin(), piv = [0.5, 0, 0], pb = [xb - piv[0], yb, zb];
+  return [0, 1, 2].map((r) => o[r] + lc() * (ATT[r][0] * pb[0] + ATT[r][1] * pb[1] + ATT[r][2] * pb[2] + piv[r]));
+}
 function writeEngines(env) {
   engF.fill(0); engJet = { vmax: 0, cmax: 0 };
   const E = st.eng;
+  let n = 0;
+  const g = st.hyp.gamma;
   if (E.on && env && env.V > 1 && st.regime === "hyp") {
-    const S = engineState(env), n = Math.max(1, Math.min(32, E.n | 0)), L = Math.max(st.ent.L, 1e-3), k = lc() / L;
-    const g = st.hyp.gamma, rr = S.noz.re / env.rho, uu = S.noz.ue / env.V, pp = S.noz.pe / (env.rho * env.V * env.V);
+    const S = engineState(env), L = Math.max(st.ent.L, 1e-3), k = lc() / L;
+    n = Math.max(1, Math.min(30, E.n | 0));
+    const rr = S.noz.re / env.rho, uu = S.noz.ue / env.V, pp = S.noz.pe / (env.rho * env.V * env.V);
     const cj = Math.sqrt((g * pp) / rr);
     engJet = { vmax: Math.sqrt(uu * uu + (2 / (g - 1)) * cj * cj), cmax: cj };
-    const o = origin(), piv = [0.5, 0, 0], ax = E.dir === "forward" ? -1 : 1;
+    const ax = E.dir === "forward" ? -1 : 1;
     const axW = [ATT[0][0] * ax, ATT[1][0] * ax, ATT[2][0] * ax];
     for (let i = 0; i < n; i++) {
       const ph = (2 * Math.PI * i) / n, rg = n > 1 ? E.ring / L : 0;
-      const pb = [E.x - piv[0], rg * Math.cos(ph), rg * Math.sin(ph)];
-      const pw = [0, 1, 2].map((r) => o[r] + lc() * (ATT[r][0] * pb[0] + ATT[r][1] * pb[1] + ATT[r][2] * pb[2] + piv[r]));
+      const pw = engWorld(E.x, rg * Math.cos(ph), rg * Math.sin(ph));
       engF.set([pw[0], pw[1], pw[2], 1.5, axW[0], axW[1], axW[2], S.ro * k, rr, uu, pp, S.ri * k, E.type === "aerospike" ? E.cant * D : 0, 0, 0, 0], 4 + 16 * i);
     }
-    engU32[0] = n;
   }
+  // Air-breathing flowpath: the engine face first (the field pass integrates the first face), then
+  // the ramjet exhaust.
+  const Dc = st.duct;
+  if (Dc && Dc.on && st.regime === "hyp" && eu.pinf > 0) {
+    const C = ductCells(), axW = [ATT[0][0], ATT[1][0], ATT[2][0]];
+    ductPrepare();
+    const pf = engWorld(Dc.xf, 0, 0);
+    engF.set([pf[0], pf[1], pf[2], 1.5, axW[0], axW[1], axW[2], C.ro, 0, 0, duct.P, C.ri, 0, 1, 0, 0], 4 + 16 * n);
+    n++;
+    const X = duct.exit;
+    if (Dc.mode === "ramjet" && X && X.rad > 0.5) {
+      const pe = engWorld(Dc.xe, 0, 0);
+      engF.set([pe[0], pe[1], pe[2], 1.5, axW[0], axW[1], axW[2], X.rad, X.re, X.ue, X.pe, 0, 0, 0, 0, 0], 4 + 16 * n);
+      n++;
+      const cj = Math.sqrt((g * X.pe) / X.re), vj = Math.sqrt(X.ue * X.ue + (2 / (g - 1)) * cj * cj);
+      if (vj > engJet.vmax) engJet = { vmax: vj, cmax: Math.max(cj, engJet.cmax) };
+    }
+  }
+  engU32[0] = n;
   dev.queue.writeBuffer(R.engU, 0, engAB);
 }
+
+// ─────────────── Air-breathing engines: intake, engine face, combustor, nozzle ───────────────
+// The intake is geometry, solved by the flow solver. From the engine face on, the engine is lumped
+// into a plenum (the compressor's or combustor's volume) whose pressure is the face's back pressure:
+//  · "pb"      the back pressure is set directly (an intake rig's throttling plug);
+//  · "demand"  a turbojet's compressor draws a set mass flow; the plenum fills or empties until the
+//              intake delivers it (a pump: the intake must supply what the engine asks for);
+//  · "ramjet"  fuel heats the air to Tt4 and a choked nozzle throat lets out what that pressure and
+//              temperature can pass; the plenum settles where the intake's delivery matches it
+//              (an obstruction: more flow means more pressure means more thrust).
+// Plenum: V dP/dt = γ R Tt (ṁin − ṁout), integrated in solver time, implicitly for the choked nozzle.
+// All in solver units: freestream density and speed 1, lengths in cells, so R·T∞ = p∞.
+const DUCT_DEF = { on: true, mode: "pb", xf: 0.5, rf: 0.12, rfi: 0, rc: 0.1, pbr: 0.6, dem: 0.95, Tt4: 2000, ign: true, At: 1.1, xe: 1, re: 0.135, Lp: 0.3 };
+const FUEL = { LHV: 43e6, eta: 0.98, cp: 1005 };   // kerosene-class hydrocarbon, burnt in air
+const duct = { P: 0, last: 0, key: "", meas: null, hist: [], exit: null, sweep: null, pts: [] };
+const ptOverP = (M, g) => Math.pow(1 + 0.5 * (g - 1) * M * M, g / (g - 1));
+function nsRecovery(M, g) {
+  if (M <= 1) return 1;
+  const a = ((g + 1) * M * M) / ((g - 1) * M * M + 2), b = (g + 1) / (2 * g * M * M - (g - 1));
+  return Math.pow(a, g / (g - 1)) * Math.pow(b, 1 / (g - 1));
+}
+function ductCells() {
+  const k = lc(), Dc = st.duct;
+  return { k, ro: Dc.rf * k + 0.5, ri: Dc.rfi > 0 ? Math.max(0, Dc.rfi * k - 0.5) : 0,
+    Ac: Math.PI * (Dc.rc * k) ** 2, Af: Math.PI * ((Dc.rf * k) ** 2 - (Dc.rfi * k) ** 2), Ae: Math.PI * (Dc.re * k) ** 2 };
+}
+function ductFree() {
+  const g = st.hyp.gamma, M = eu.M, pinf = eu.pinf, env = envNow();
+  const Tinf = env ? env.T : 216.65;
+  return { g, M, pinf, pt: pinf * ptOverP(M, g), Tinf, Tt: Tinf * (1 + 0.5 * (g - 1) * M * M) };
+}
+function ductBurn(F) {
+  const Dc = st.duct;
+  const Tt4 = Dc.mode === "ramjet" && Dc.ign ? Math.max(Dc.Tt4, F.Tt) : F.Tt;
+  const f = Tt4 > F.Tt ? (FUEL.cp * (Tt4 - F.Tt)) / (FUEL.eta * FUEL.LHV - FUEL.cp * Tt4) : 0;
+  return { Tt4, f: Math.max(0, f) };
+}
+// choked or unchoked flow through the nozzle throat from plenum pressure P (stagnation) at RT = R·Tt4
+function throatFlow(P, RT, At, pinf, g) {
+  const pr = pinf / Math.max(P, 1e-12), crit = Math.pow(2 / (g + 1), g / (g - 1));
+  if (pr <= crit) return { m: At * P * Math.sqrt(g / RT) * Math.pow(2 / (g + 1), (g + 1) / (2 * (g - 1))), choked: true };
+  if (pr >= 1) return { m: 0, choked: false };
+  return { m: At * P * Math.sqrt(((2 * g) / ((g - 1) * RT)) * (Math.pow(pr, 2 / g) - Math.pow(pr, (g + 1) / g))), choked: false };
+}
+// Plenum and nozzle state for the next frame. Called before each upload of the engine boundaries.
+function ductPrepare() {
+  const Dc = st.duct, F = ductFree(), C = ductCells();
+  const key = `${Dc.mode}|${R.N}|${st.size}|${F.M.toFixed(3)}|${hy.geoKey}`;
+  if (eu.reset || key !== duct.key || !(duct.P > 0)) {
+    duct.key = key; duct.last = eu.steps; duct.hist = []; duct.meas = null;
+    duct.P = Dc.mode === "pb" ? Dc.pbr * F.pt : 0.8 * nsRecovery(F.M, F.g) * F.pt;
+  }
+  if (Dc.mode === "pb") duct.P = Dc.pbr * F.pt;
+  duct.exit = Dc.mode === "ramjet" ? nozzleExit(duct.P, F, C) : null;
+}
+function nozzleExit(P, F, C) {
+  const Dc = st.duct, g = F.g, B = ductBurn(F), tau = B.Tt4 / F.Tinf, RT = F.pinf * tau;
+  const At = Dc.At * C.Ac, eps = Math.max(1, C.Ae / At);
+  const T = throatFlow(P, RT, At, F.pinf, g);
+  if (T.m <= 0) return { rad: 0, m: 0, F: -(duct.meas ? duct.meas.mdot : 0), B, choked: false, Me: 0 };
+  let Me;
+  if (T.choked) {
+    Me = machFromArea(eps, g);
+    // Summerfield: an over-expanded nozzle separates once its wall pressure falls to about 0.4 p∞,
+    // so the jet leaves at that pressure through less than the full exit
+    if (P / ptOverP(Me, g) < 0.4 * F.pinf) Me = Math.sqrt((2 / (g - 1)) * (Math.pow(P / (0.4 * F.pinf), (g - 1) / g) - 1));
+  } else Me = Math.sqrt((2 / (g - 1)) * (Math.pow(P / F.pinf, (g - 1) / g) - 1));
+  const k = 1 + 0.5 * (g - 1) * Me * Me, pe = P * Math.pow(k, -g / (g - 1)), Te = tau / k;
+  const re = pe / (F.pinf * Te), ue = Me * Math.sqrt(g * F.pinf * Te);
+  const area = T.m / (re * ue), rad = Math.sqrt(area / Math.PI);
+  const min = duct.meas ? Math.max(0, duct.meas.mdot) : 0;
+  return { rad, re, ue, pe, m: T.m, Me, choked: T.choked, area, B, RT, At,
+    F: T.m * ue + (pe - F.pinf) * area - min };   // uninstalled net thrust: gross minus ram drag
+}
+// One reading of the engine-face integrals from the field pass (scaled integers).
+function ductReading(v) {
+  const Dc = st.duct;
+  if (!Dc || !Dc.on || v.length < 9 || !(v[7] > 0)) return;
+  const F = ductFree(), C = ductCells(), g = F.g;
+  const mdot = v[4] / 1e4, ptm = v[5] / 1e4, mom = v[6] / 1e4, cnt = v[7], ps = v[8] / 1e4;
+  const pm = ps / cnt, rhoU2 = Math.max(mom - ps, 0) / cnt, mf = mdot / cnt;
+  const um = mf > 1e-9 ? rhoU2 / mf : 0, rm = um > 1e-9 ? mf / um : 0;
+  const Mf = rm > 0 ? um / Math.sqrt((g * pm) / rm) : 0;
+  const m = { mdot, mfr: mdot / C.Ac, rec: mdot > 1e-6 ? ptm / mdot / F.pt : 0, Mf, pf: pm, cnt };
+  duct.meas = m;
+  duct.hist.push(m); if (duct.hist.length > 60) duct.hist.shift();
+  // plenum
+  const dt = Math.max(0, (eu.steps - duct.last) * eu.dt); duct.last = eu.steps;
+  const Vp = Math.max(C.Af, 1) * Math.max(Dc.Lp, 0.05) * C.k;
+  if (Dc.mode === "demand" && dt > 0) {
+    const kP = (g * F.pinf * (F.Tt / F.Tinf)) / Vp, dP = dt * kP * (Math.max(mdot, 0) - Dc.dem * C.Ac);
+    duct.P = Math.min(1.2 * F.pt, Math.max(0.05 * F.pt, duct.P + Math.max(-0.1 * duct.P, Math.min(0.1 * duct.P, dP))));
+  } else if (Dc.mode === "ramjet" && dt > 0) {
+    const B = ductBurn(F), RT = F.pinf * (B.Tt4 / F.Tinf), At = Dc.At * C.Ac, kP = (g * RT) / Vp;
+    const inflow = Math.max(mdot, 0) * (1 + B.f), T = throatFlow(duct.P, RT, At, F.pinf, g);
+    let P;
+    if (T.choked) P = (duct.P + dt * kP * inflow) / (1 + dt * kP * (T.m / duct.P));   // implicit: ṁout ∝ P
+    else P = duct.P + Math.max(-0.1 * duct.P, Math.min(0.1 * duct.P, dt * kP * (inflow - T.m)));
+    duct.P = Math.min(3 * F.pt, Math.max(0.05 * F.pt, P));
+  }
+  sweepStep();
+}
+function ductMean(n = 20) {
+  const H = duct.hist.slice(-n);
+  if (!H.length) return null;
+  const o = { mdot: 0, mfr: 0, rec: 0, Mf: 0, pf: 0 };
+  for (const h of H) for (const k in o) o[k] += h[k] / H.length;
+  return o;
+}
+// Intake characteristic: step the back pressure up (and back down, to show hysteresis), holding each
+// step for long enough that the duct settles, and record capture and recovery.
+// An intake fills slowly: the terminal shock moves only as fast as the mass the duct gains or loses,
+// so each point is held 1.5 flow-throughs, and the first gets 1.5 more to settle from where it was.
+const SWEEP_HOLD = 1.5;   // flow-throughs per point
+function startSweep() {
+  const Dc = st.duct;
+  if (!Dc || !Dc.on) return;
+  if (Dc.mode !== "pb") { Dc.mode = "pb"; syncDuctUI(); }
+  const F = ductFree(), r0 = nsRecovery(F.M, F.g);
+  const lo = Math.max(0.15, 0.35 * r0), hi = Math.min(1.0, 1.05 * (F.M < 1.8 ? r0 : Math.max(r0, 0.95)));
+  const up = []; for (let i = 0; i <= 12; i++) up.push(lo + ((hi - lo) * i) / 12);
+  duct.pts = [];
+  duct.sweep = { list: up, i: 0, dir: 1, t0: ftNow() + 1.5, acc: [], maxMfr: 0, hi };
+  Dc.pbr = up[0]; syncDuctUI();
+}
+function ftNow() { return R ? (eu.steps * eu.dt) / R.dims[0] : 0; }
+function sweepStep() {
+  const S = duct.sweep, Dc = st.duct;
+  if (!S || !duct.meas) return;
+  const t = ftNow() - S.t0;
+  if (t > 0.7 * SWEEP_HOLD) S.acc.push(duct.meas);
+  if (t < SWEEP_HOLD) return;
+  if (S.acc.length) {
+    const n = S.acc.length, pt = { pbr: Dc.pbr, mfr: 0, rec: 0, dir: S.dir };
+    for (const a of S.acc) { pt.mfr += a.mfr / n; pt.rec += a.rec / n; }
+    duct.pts.push(pt); S.maxMfr = Math.max(S.maxMfr, pt.mfr);
+    // once the intake is spilling hard there is nothing more to learn on the way up
+    if (S.dir > 0 && pt.mfr < 0.55 * S.maxMfr) S.i = S.list.length - 1;
+  }
+  S.acc = []; S.t0 = ftNow(); S.i++;
+  if (S.i >= S.list.length) {
+    if (S.dir > 0) { S.list = S.list.slice(0, S.i).reverse().slice(1); S.i = 0; S.dir = -1; }
+    else { duct.sweep = null; drawDuctChart(); syncDuctUI(); return; }
+    if (!S.list.length) { duct.sweep = null; drawDuctChart(); syncDuctUI(); return; }
+  }
+  Dc.pbr = S.list[S.i];
+  syncDuctUI(); drawDuctChart();
+}
+// critical point of a recorded characteristic: best recovery at (near) full capture
+function ductCritical() {
+  const P = duct.pts.filter((p) => p.dir > 0);
+  if (P.length < 3) return null;
+  const mx = Math.max(...P.map((p) => p.mfr));
+  const full = P.filter((p) => p.mfr >= 0.98 * mx);
+  return full.reduce((a, b) => (b.rec > a.rec ? b : a), full[0]);
+}
+function ductState(m) {
+  const c = ductCritical();
+  if (!m) return "";
+  if (m.mdot < 0) return "Reversed flow at the face: inlet buzz or unstart";
+  if (c) {
+    if (m.mfr < 0.97 * c.mfr) return `Subcritical: the terminal shock stands ahead of the lip and ${Math.round(100 * (1 - m.mfr / c.mfr))} % of the air spills`;
+    if (m.rec < 0.97 * c.rec) return "Supercritical: the terminal shock is swallowed into the diffuser, recovery falls";
+    return "Critical: terminal shock at the lip, full capture at best recovery";
+  }
+  return m.mfr < 0.9 ? "Spilling: capture below 90 %" : "Full capture";
+}
+
 function writeEuler() {
   const M = eulerMach(), g = st.hyp.gamma, pinf = 1 / (g * M * M);
+  if (eu.M && Math.abs(M - eu.M) / eu.M > 0.02) eu.hist = { cl: [], cd: [], cm: [] };
+  eu.M = M; eu.pinf = pinf;
   writeEngines(envNow());
   // the time step must also resolve the fastest exhaust: exit speed plus full expansion of its enthalpy
   const dt0 = eulerDt(M, g), dt = engJet.vmax > 0 ? Math.min(dt0, 0.4 / (Math.sqrt(3) * engJet.vmax + 3 * Math.max(engJet.cmax, (1 / M) * Math.sqrt(1 + ((g - 1) / 2) * M * M)))) : dt0;
-  if (eu.M && Math.abs(M - eu.M) / eu.M > 0.02) eu.hist = { cl: [], cd: [], cm: [] };
-  eu.M = M; eu.dt = dt; eu.pinf = pinf;
+  eu.dt = dt;
   euUi[0] = R.dims[0]; euUi[1] = R.dims[1]; euUi[2] = R.dims[2]; euUi[3] = R.N;
   euF[4] = g; euF[5] = dt; euF[6] = 0; euF[7] = 1; euF[8] = pinf; euF[9] = 1; euF[10] = lc();
   dev.queue.writeBuffer(R.eu1, 0, euAB);
@@ -4030,7 +4394,15 @@ function onForcesEuler(v) {
   if (!areas) return;
   const Sref = st.refA === "plan" ? areas.plan : areas.front;
   const ld = liftDir();
-  const cd = v[0] / 1000 / Sref, cl = (v[1] * ld[1] + v[2] * ld[2]) / 1000 / Sref, cm = v[3] / 4 / (Sref * lc());
+  ductReading(v);
+  // The duct is closed behind the engine face so the face has a wall to stand on; that wall stands in
+  // for the engine and is not hardware, so its pressure (the face pressure) is taken back out.
+  let fx = v[0] / 1000, fy = v[1] / 1000, fz = v[2] / 1000;
+  if (st.duct && st.duct.on && duct.meas) {
+    const C = ductCells(), w = (2 * (duct.P - eu.pinf) * C.Af);
+    fx -= w * ATT[0][0]; fy -= w * ATT[1][0]; fz -= w * ATT[2][0];
+  }
+  const cd = fx / Sref, cl = (fy * ld[1] + fz * ld[2]) / Sref, cm = v[3] / 4 / (Sref * lc());
   flyRecord(cl, cd);
   if (!isFinite(cd) || Math.abs(cd) > 100) return;
   for (const [k, x] of [["cl", cl], ["cd", cd], ["cm", cm]]) { eu.hist[k].push(x); if (eu.hist[k].length > 120) eu.hist[k].shift(); }
@@ -4530,7 +4902,7 @@ function frameHyp(now) {
     const p = enc.beginComputePass();
     p.setPipeline(pipes.efield); p.setBindGroup(0, R.efBG); p.dispatchWorkgroups(...R.dField);
     p.end();
-    if (!forceBusy && running) { enc.copyBufferToBuffer(R.force, 0, R.forceRead, 0, 16); readF = true; forceBusy = true; }
+    if (!forceBusy && running) { enc.copyBufferToBuffer(R.force, 0, R.forceRead, 0, 48); readF = true; forceBusy = true; }
     // every 1.5 s once the flowfield has settled: boundary-layer edge conditions at the surface
     const ftNow = (eu.steps * eu.dt) / R.dims[0];
     if (!flying && !hy.gBusy && ftNow > 1.5 && hy.idxUploaded === hy.surf && R.sIdx && now - (hy.gT || 0) > 1500) {
@@ -5602,6 +5974,125 @@ function updateFlyInfo() {
     row("Gamepad", fly.gp ? "Connected" : "None detected");
 }
 
+// ── Air-breathing engine panel ──
+function syncDuctUI() {
+  const box = $("#ductBox"), Dc = st.duct, on = !!(Dc && Dc.on);
+  if (!box) return;
+  box.hidden = !on; $("#rocketBox").hidden = on;
+  if (!on) return;
+  $("#ductMode").value = Dc.mode;
+  $("#ductPb").hidden = Dc.mode !== "pb"; $("#ductDem").hidden = Dc.mode !== "demand"; $("#ductRam").hidden = Dc.mode !== "ramjet";
+  $("#ductPbr").value = Dc.pbr; $("#oDuctPb").textContent = Dc.pbr.toFixed(2);
+  $("#ductDemR").value = Dc.dem; $("#oDuctDem").textContent = Math.round(Dc.dem * 100) + " %";
+  $("#ductIgn").checked = Dc.ign; $("#ductTt4").value = Dc.Tt4; $("#ductAt").value = Dc.At;
+  const S = duct.sweep;
+  $("#btnSweep").textContent = S ? "Stop characteristic" : "Run intake characteristic";
+  $("#sweepMsg").textContent = S ? `${S.dir > 0 ? "Raising" : "Lowering"} back pressure · point ${duct.pts.length + 1}` : duct.pts.length ? `${duct.pts.length} points` : "";
+  updateDuctInfo(); drawDuctChart();
+}
+function wireDuct() {
+  const changed = () => { eu.hist = { cl: [], cd: [], cm: [] }; syncDuctUI(); };
+  $("#ductMode").addEventListener("change", (e) => {
+    const Dc = st.duct; if (!Dc) return;
+    // carry the operating point across: the plenum starts from the present face pressure
+    if (duct.P > 0 && eu.pinf > 0) Dc.pbr = Math.min(1.2, Math.max(0.1, duct.P / ductFree().pt));
+    Dc.mode = e.target.value; duct.sweep = null; changed();
+  });
+  $("#ductPbr").addEventListener("input", (e) => { st.duct.pbr = +e.target.value; duct.sweep = null; changed(); });
+  $("#ductDemR").addEventListener("input", (e) => { st.duct.dem = +e.target.value; changed(); });
+  $("#ductIgn").addEventListener("change", (e) => { st.duct.ign = e.target.checked; changed(); });
+  $("#ductTt4").addEventListener("change", (e) => { st.duct.Tt4 = Math.min(2600, Math.max(300, +e.target.value || 2000)); changed(); });
+  $("#ductAt").addEventListener("change", (e) => { st.duct.At = Math.min(3, Math.max(0.2, +e.target.value || 1)); changed(); });
+  $("#btnSweep").addEventListener("click", () => {
+    if (duct.sweep) { duct.sweep = null; syncDuctUI(); return; }
+    if (st.regime !== "hyp") { toast("Intake characteristics need the high-speed solver: set the airspeed above Mach 0.6."); return; }
+    if (!running) { running = true; syncRun(); }
+    startSweep(); syncDuctUI();
+  });
+}
+function updateDuctInfo() {
+  const el = $("#ductInfo"), Dc = st.duct;
+  if (!el || !Dc || !Dc.on) return;
+  const row = (k, v, c) => `<dt>${k}</dt><dd${c ? ` class="${c}"` : ""}>${v}</dd>`;
+  if (!R || st.regime !== "hyp" || !(eu.pinf > 0)) { el.innerHTML = row("Waiting", "for the high-speed solver"); return; }
+  const F = ductFree(), m = ductMean(), env = envNow(), r0 = nsRecovery(F.M, F.g);
+  $("#ductState").textContent = m ? ductState(m) : "";
+  if (!m) { el.innerHTML = row("Settling", "…"); return; }
+  let h = row("Capture", `${(m.mfr * 100).toFixed(1)} %`, m.mfr < 0.9 ? "warn" : "") +
+    row("Recovery, p<sub>t2</sub> / p<sub>t∞</sub>", m.rec.toFixed(3)) +
+    row("Normal shock alone", r0.toFixed(3)) +
+    row("Face Mach", m.Mf.toFixed(2)) +
+    row("Back pressure / p<sub>t∞</sub>", (duct.P / F.pt).toFixed(3));
+  if (env) {
+    const mpc = metresPerCell(), q = env.rho * env.V * env.V, mdotK = env.rho * env.V * mpc * mpc;
+    h += row("Air flow", `${(m.mdot * mdotK).toFixed(2)} kg/s`);
+    if (Dc.mode === "ramjet" && duct.exit) {
+      const X = duct.exit, B = X.B, Fn = X.F * q * mpc * mpc, fuel = B.f * Math.max(m.mdot, 0) * mdotK;
+      h += row("Combustor", `${((duct.P * q) / 1000).toFixed(1)} kPa · ${Math.round(B.Tt4)} K`) +
+        row("Fuel / air", `${B.f.toFixed(4)} · ${fuel.toFixed(2)} kg/s`) +
+        row("Nozzle", X.m > 0 ? `${X.choked ? "choked" : "not choked"} · exit Mach ${X.Me.toFixed(2)}` : "no flow") +
+        row("Net thrust, uninstalled", `${(Fn / 1000).toFixed(2)} kN`, Fn < 0 ? "warn" : "") +
+        (fuel > 0 && Fn > 0 ? row("Specific impulse (fuel)", `${(Fn / (fuel * G0)).toFixed(0)} s`) : "");
+    }
+  }
+  el.innerHTML = h;
+}
+function drawDuctChart() {
+  const c = $("#ductChart");
+  if (!c || c.offsetParent === null) return;
+  const s_ = setupChart(c);
+  if (!s_) return;
+  const { g, w, h } = s_, pw = w - CH.l - 10, ph = h - CH.t - CH.b, P = duct.pts, m = ductMean(8);
+  let x0 = 0.4, x1 = 1.05, y0 = 0.3, y1 = 1.0;
+  for (const p of P) { x0 = Math.min(x0, p.mfr - 0.02); x1 = Math.max(x1, p.mfr + 0.02); y0 = Math.min(y0, p.rec - 0.02); }
+  x0 = Math.max(0, x0); y0 = Math.max(0, y0);
+  const X = (a) => CH.l + ((a - x0) / (x1 - x0)) * pw, Y = (v) => CH.t + ph - ((v - y0) / (y1 - y0)) * ph;
+  g.strokeStyle = "rgba(148,163,204,0.14)"; g.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) { const y = CH.t + (ph * k) / 4; g.beginPath(); g.moveTo(CH.l, y); g.lineTo(CH.l + pw, y); g.stroke(); }
+  if (eu.pinf > 0) {
+    const F = ductFree(), r0 = nsRecovery(F.M, F.g);
+    g.setLineDash([4, 4]); g.strokeStyle = "rgba(148,163,204,0.45)";
+    g.beginPath(); g.moveTo(CH.l, Y(r0)); g.lineTo(CH.l + pw, Y(r0)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace"; g.textAlign = "left";
+    g.fillText("normal shock", CH.l + 4, Y(r0) - 4);
+  }
+  for (const dir of [1, -1]) {
+    const Q = P.filter((p) => p.dir === dir);
+    g.strokeStyle = dir > 0 ? "rgba(134,160,255,0.9)" : "rgba(242,156,79,0.75)"; g.lineWidth = 1.5;
+    g.beginPath(); Q.forEach((p, i) => (i ? g.lineTo(X(p.mfr), Y(p.rec)) : g.moveTo(X(p.mfr), Y(p.rec)))); g.stroke();
+    g.fillStyle = g.strokeStyle;
+    for (const p of Q) { g.beginPath(); g.arc(X(p.mfr), Y(p.rec), 2.5, 0, TAU2); g.fill(); }
+  }
+  const cr = ductCritical();
+  if (cr) { g.strokeStyle = "#e8ecf4"; g.lineWidth = 1.2; g.beginPath(); g.arc(X(cr.mfr), Y(cr.rec), 5, 0, TAU2); g.stroke(); }
+  if (m) { g.fillStyle = "#f29c4f"; g.beginPath(); g.arc(X(m.mfr), Y(m.rec), 3.5, 0, TAU2); g.fill(); }
+  g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
+  g.textAlign = "right"; g.fillText(y1.toFixed(2), CH.l - 4, CH.t + 8); g.fillText(y0.toFixed(2), CH.l - 4, CH.t + ph); g.fillText("recov.", CH.l - 4, CH.t + ph / 2);
+  g.textAlign = "center"; g.fillText(x0.toFixed(2), CH.l, h - 4); g.fillText(x1.toFixed(2), CH.l + pw, h - 4); g.fillText("capture", CH.l + pw / 2, h - 4);
+}
+// Models tab: flight bodies and engine test articles are listed separately
+function fillPresetList() {
+  const ps = $("#preset"), lib = st.lib;
+  ps.textContent = "";
+  for (const [id, p] of Object.entries(PRESETS)) {
+    if ((p.cat || "body") !== lib) continue;
+    const o = document.createElement("option"); o.value = id; o.textContent = p.name;
+    if (id === "stl") o.disabled = !p.imported;
+    if (id === "loading") { o.disabled = true; o.hidden = true; }
+    ps.appendChild(o);
+  }
+  ps.value = st.preset;
+  $("#presetK").textContent = lib === "engine" ? "Engine or intake" : "Body";
+  $("#libBody").setAttribute("aria-checked", String(lib === "body"));
+  $("#libEng").setAttribute("aria-checked", String(lib === "engine"));
+}
+function setLibrary(lib) {
+  if (st.lib === lib) return;
+  st.lib = lib; fillPresetList();
+  const cur = PRESETS[st.preset];
+  if ((cur && (cur.cat || "body")) !== lib) applyPreset(lib === "engine" ? "spike2" : "spaceplane");
+}
+
 // ─────────────────────────── UI ───────────────────────────
 let toastT = 0;
 function toast(t) { const el = $("#toast"); el.textContent = t; el.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("show"), 4200); }
@@ -5662,7 +6153,9 @@ function applyPreset(id) {
   if (p.entry) applyEntry(p.entry);
   if (p.veh) { st.ent.L = p.veh.L; st.ent.mass = p.veh.mass; $("#eL").value = st.ent.L; $("#eMass").value = st.ent.mass; }
   if (p.eng) Object.assign(st.eng, JSON.parse(JSON.stringify(p.eng))); else if (id !== "stl" && id !== "loading") st.eng.on = false;
-  syncEngineUI();
+  if (id !== "stl" && id !== "loading") { st.duct = p.duct ? { ...DUCT_DEF, ...p.duct } : null; duct.pts = []; duct.sweep = null; duct.key = ""; duct.hist = []; duct.meas = null; }
+  if (id !== "loading") { st.lib = p.cat || "body"; fillPresetList(); }
+  syncEngineUI(); syncDuctUI();
   if (p.flight) setTimeout(() => { setAltitude(p.flight.h); setSpeed(p.flight.V, p.flight.h); }, 0);
   if (entryPlay.on) stopManoeuvre();
   if (id !== "stl") setProfile(profileFor(id));
@@ -5706,15 +6199,12 @@ function fillGrids() {
 
 function buildUI() {
   const ps = $("#preset");
-  for (const [id, p] of Object.entries(PRESETS)) {
-    const o = document.createElement("option"); o.value = id; o.textContent = p.name;
-    if (id === "stl") o.disabled = true;
-    if (id === "loading") { o.disabled = true; o.hidden = true; }
-    ps.appendChild(o);
-  }
+  fillPresetList();
+  $("#libBody").addEventListener("click", () => setLibrary("body"));
+  $("#libEng").addEventListener("click", () => setLibrary("engine"));
+  wireDuct();
   const gs = $("#grid");
   $("#code").value = PRESETS[st.preset].code;
-  ps.value = st.preset;
   const ranges = ["aoa", "beta", "roll", "size", "re", "mach", "spf", "qthr", "vop", "spos", "cpmin", "cpmax", "rq"];
   for (const k of ranges) {
     const el = $("#" + k);
