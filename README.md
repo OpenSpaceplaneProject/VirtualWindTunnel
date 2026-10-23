@@ -10,13 +10,16 @@ Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent 
 
 ## What's inside
 
-- **Solver chain, picked per regime:** lattice-Boltzmann (D3Q19) at low speed; a compressible Euler solver (MUSCL + HLLC, ghost-cell immersed boundary) from transonic to supersonic; modified-Newtonian / free-molecular panel methods with Knudsen-number bridging for hypersonic and rarefied flight.
-- **Aerothermal loads:** stagnation-point and distributed convective heating, wall temperature and burn-through maps, exportable as CSV.
-- **Entry simulation:** 3-DOF point-mass entry over a spherical Earth with an editable bank/α event timeline and playback.
-- **Propulsion (stage 1):** ideal-rocket bell and aerospike exhausts as boundary sources in the Euler solver.
-- **Import:** STL, OBJ, GLB and STEP (STEP via `occt-import-js`), voxelised into an exact signed-distance field.
+- **Solver chain, picked per regime:** lattice-Boltzmann (D3Q19, LES) at low speed; a compressible finite-volume solver (MUSCL + HLLC, ghost-cell immersed boundary) from transonic to hypersonic; modified-Newtonian / free-molecular panel methods with Knudsen-number bridging for rarefied flight.
+- **Wall friction in the flowfield:** a wall model applies boundary-layer shear (Blasius or White's turbulent law at Eckert's reference temperature, Sutherland viscosity) in the near-wall cells, so friction drag and its momentum loss are part of the solution.
+- **Equilibrium air:** above about 1,500 K total temperature the high-speed solver uses an 11-species equilibrium-air table built with Cantera (dissociation and ionisation to 20,000 K).
+- **Engines:** ideal-rocket bell and aerospike exhausts; intakes (pitot, external-, mixed-compression) with an engine face that sets back pressure (rig, turbojet demand, ramjet combustor); full-flowpath ramjet and scramjet with heat release in the combustor.
+- **Structure:** voxel finite elements (bricks with incompatible bending modes) loaded by the flow's surface pressure with inertia relief; optional heat soak along the entry and thermal stress.
+- **Trust tools:** convergence detection with uncertainty bands, a grid-sensitivity check, local refinement by a nested finer grid, and a validation suite against exact and published answers.
+- **Shape optimiser:** Nelder–Mead on a body of revolution, scored by the flow solver, benchmarked against the Sears–Haack minimum-wave-drag body.
+- **Entry simulation, aerothermal loads, import** (STL, OBJ, GLB, STEP) as before.
 
-All results are physical approximations from the models named above — useful for design exploration, not a substitute for validated CFD or test.
+All results are physical approximations from the models named above — useful for design exploration, not a substitute for validated CFD, FEA or test.
 
 ## Files
 

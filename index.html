@@ -102,6 +102,16 @@ body {
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); width: fit-content; pointer-events: auto;
 }
 .cv { display: flex; flex-direction: column; gap: 0; }
+.cstat { flex-basis: 100%; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; line-height: 1.35; }
+.cstat:empty { display: none; }
+.vt { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 6px; }
+.vt th { text-align: left; color: var(--muted); font-weight: 500; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.vt td { padding: 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.vt tr.ok td:last-child { color: #4fc28b; } .vt tr.bad td:last-child { color: #f2785c; }
+
+.cstat i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.cstat.settled i { background: #4fc28b; } .cstat.settling i { background: #f2b84f; } .cstat.unsteady i { background: #86a0ff; }
+
 /* force coefficients pinned to the foot of the panel */
 .coef.pcoef { flex: none; margin: 0; width: auto; border: 0; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; padding: 10px 14px; justify-content: flex-start; gap: 4px 22px; }
 .coef.pcoef #spark { flex: 1; min-width: 80px; }
@@ -375,6 +385,20 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
               <p class="hint">For imported models that arrive pointing the wrong way. The nose should face into the flow, the wings run sideways and the belly face down. Yaw 180° turns a model that arrives tail-first. Use the Flight tab for angle of attack.</p>
             </div>
           </details>
+          <details id="optBox">
+            <summary>Optimise shape</summary>
+            <div class="pane">
+              <p class="hint">Finds the body of revolution with the least wave drag for its length and volume, scoring each candidate with the flow solver. Linear theory's answer is the Sears–Haack body, so this checks that the optimiser and solver find a known optimum before you trust them on your own problems.</p>
+              <div class="row2">
+                <label class="field"><span class="k">Mach</span><input type="number" id="optMach" value="1.8" min="1.2" max="4" step="0.1"></label>
+                <button class="btn primary" id="btnOpt">Optimise shape</button>
+              </div>
+              <p class="msg" id="optMsg"></p>
+              <canvas class="chart" id="optChart" aria-label="Radius along the body: Sears–Haack, starting shape and best found"></canvas>
+              <dl class="kv" id="optInfo"></dl>
+              <p class="hint">Five radii along the body are the design variables (ends closed, volume held by scaling); a Nelder–Mead simplex searches them, up to 60 candidates, each run until its drag settles. Wall friction is turned off so only wave drag counts. Takes a while: each candidate is a full flow solution.</p>
+            </div>
+          </details>
           <details id="codeBox">
             <summary>Edit shape as code</summary>
             <div class="pane">
@@ -456,7 +480,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             </div>
             <p class="dstate" id="ductState"></p>
             <dl class="kv" id="ductInfo"></dl>
-            <div class="row2"><button class="btn" id="btnSweep">Run intake characteristic</button><span class="msg" id="sweepMsg"></span></div>
+            <div class="row2"><button class="btn" id="btnDuctSweep">Run intake characteristic</button><span class="msg" id="ductSweepMsg"></span></div>
             <canvas class="chart" id="ductChart" aria-label="Intake characteristic: total-pressure recovery against captured mass flow"></canvas>
             <details class="more">
               <summary>How intakes and air-breathing engines are modelled</summary>
@@ -519,6 +543,21 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
           <p class="hint">Picked automatically from the airspeed (switches at Mach 0.6). Click to override.</p>
           <div class="chain" id="chain"></div>
           <label class="field" title="Finer grids show more detail but need more GPU memory and run slower"><span class="k">Grid resolution</span><select id="grid"></select></label>
+          <div class="row2"><button class="btn" id="btnGridChk" title="Rerun this case on the next coarser grid and estimate how much the answer depends on grid size">Check grid sensitivity</button><span class="msg" id="gridMsg"></span></div>
+          <h3 class="grp">Local refinement</h3>
+          <div class="row2">
+            <label class="field" title="How much finer the nested grid is than the current one"><span class="k">Refine</span><select id="zoomK"><option value="2">2× finer</option><option value="3">3× finer</option><option value="4">4× finer</option></select></label>
+            <button class="btn" id="btnZoom" title="Lay a finer grid over a box around the last point clicked on the surface (or the body centre), fed by the current solution">Refine here</button>
+          </div>
+          <div class="row2"><button class="btn" id="btnZoomOut" disabled>Back to full domain</button><span class="msg" id="zoomMsg"></span></div>
+          <p class="hint">Click a point on the body first (a lip, a gap, a leading edge). The finer grid takes its boundaries from the current solution, so settle that first. High-speed flowfield only.</p>
+          <h3 class="grp">Validation</h3>
+          <div class="row2"><button class="btn" id="btnVal">Run validation suite</button><span class="msg" id="valMsg"></span></div>
+          <div id="valTable"></div>
+          <details class="more">
+            <summary>What the suite checks</summary>
+            <p class="hint">Cone surface pressure at Mach 2 and 6 against the exact Taylor–Maccoll solution; sphere stagnation pressure at Mach 3 against the Rayleigh pitot formula, and at 6 km/s in equilibrium air against a Cantera equilibrium calculation; pitot-intake recovery at Mach 1.6 against the normal shock; and low-speed sphere drag at Re 10⁴ against the standard drag curve. Each runs on the current grid until it settles (at most 10 flow-throughs or 10 minutes) and is marked * if it did not. Exact references are computed at the solver's own γ. Hover a row for details. Your case is restored afterwards.</p>
+          </details>
           <div class="pane lbm-only">
             <dl class="kv" id="flowInfo"></dl>
             <details class="more">
@@ -538,9 +577,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
           <div class="pane hyp-only">
             <div class="row2">
               <label class="chk"><input type="checkbox" id="hEuler" checked>Flowfield (shocks and wake)</label>
+              <label class="chk" title="Boundary-layer shear applied at the walls inside the flowfield (wall model), so friction drag, its momentum loss and heating of the near-wall air are part of the solution"><input type="checkbox" id="hWall" checked>Wall friction in the flowfield</label>
               <label class="field" title="Leave blank to follow the airspeed bar or the entry trajectory"><span class="k">Mach override</span><input type="number" id="hEM" placeholder="auto" min="0.5" max="40" step="0.1"></label>
             </div>
-            <label class="field" title="Ratio of specific heats. 1.4 is cold air; about 1.2 approximates hot, partly dissociated air at orbital speed. Set automatically from the airspeed."><span class="k">Gas γ</span><input type="number" id="hGamma" value="1.4" min="1.05" max="1.67" step="0.01"></label>
+            <label class="field" title="Equilibrium air: vibration, dissociation and ionisation from an 11-species equilibrium table, so a hot shock layer is denser and cooler than a perfect gas would make it. Automatic switches it on once the free-stream total temperature passes 1,500 K."><span class="k">Air in the flowfield</span><select id="hAir"><option value="auto">Automatic</option><option value="equilibrium">Equilibrium air (real gas)</option><option value="perfect">Perfect gas, γ below</option></select></label>
+            <label class="field" title="Ratio of specific heats for the perfect-gas model and the quick estimates. 1.4 is cold air; about 1.2 approximates hot, partly dissociated air at orbital speed. Set automatically from the airspeed."><span class="k">Gas γ</span><input type="number" id="hGamma" value="1.4" min="1.05" max="1.67" step="0.01"></label>
             <dl class="kv" id="eulInfo"></dl>
             <details class="more">
               <summary>How the flowfield is calculated</summary>
@@ -660,6 +701,20 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
 
         <section class="pane" data-pane="loads" hidden>
           <dl class="kv" id="loadInfo"></dl>
+          <h3 class="grp">Structure</h3>
+          <div class="row2">
+            <label class="field"><span class="k">Material</span><select id="feaMat"></select></label>
+            <label class="field" title="Thickness of the skin. Thinner than a voxel, it is smeared over one voxel with its stiffness and mass scaled down, and the stress reported is the skin's own."><span class="k">Skin, mm</span><input type="number" id="feaSkin" value="2" min="0.05" step="0.1"></label>
+          </div>
+          <label class="chk"><input type="checkbox" id="feaSolid">Solid throughout (no hollow interior)</label>
+          <label class="chk hyp-only" title="Conduct the entry's heating through the bare structure, then add the thermal stress at the moment the structure is hottest"><input type="checkbox" id="feaHeat">Heat soak along the entry, with thermal stress</label>
+          <div class="row2"><button class="btn primary" id="btnFEA">Analyse structure</button><select id="feaShow" aria-label="Show on the surface"><option value="">Show: flow</option><option value="5">Show: stress</option><option value="6">Show: peak temperature</option></select></div>
+          <p class="msg" id="feaMsg"></p>
+          <dl class="kv" id="feaInfo"></dl>
+          <details class="more">
+            <summary>How the structure is analysed</summary>
+            <p class="hint">Linear elastic finite elements, one eight-node brick per voxel of the model (with incompatible bending modes, so even a one-voxel skin bends correctly: a test cantilever matches beam theory to 0.2 %). The skin is the shell of voxels within the set thickness of the surface; a skin thinner than a voxel is smeared over one voxel with its stiffness and mass scaled down. The load is the flow solver's surface pressure at the current condition. In flight nothing holds the vehicle, so the load is balanced by its own inertia (inertia relief), using the vehicle mass from the Model tab carried on the skin. Spars, ribs and frames are not modelled unless you build them into the shape (Edit shape as code). Stress is at each voxel's centre; the peak quoted ignores the highest 0.5 % of voxels, where the stair-stepped voxel surface makes stress spike.</p>
+          </details>
           <div class="pane lbm-only">
             <h3 class="grp">Time-averaged pressure</h3>
             <div class="checks">
@@ -699,6 +754,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
         <div class="cv hyp-only"><span class="ck">L/D</span><span id="ld" class="mono">—</span></div>
         <div class="cv hyp-only"><span class="ck">C<sub>m</sub></span><span id="cm" class="mono">—</span></div>
         <canvas id="spark" class="lbm-only" aria-hidden="true"></canvas>
+        <div class="cstat" id="cstat" role="status"></div>
       </div>
     </aside>
 
@@ -1282,7 +1338,41 @@ struct EU {
   dims: vec4u,
   gamma: f32, dt: f32, a: f32, b: f32,
   pinf: f32, p1: f32, p2: f32, p3: f32,
+  vis: vec4f,
+  rg: vec4f,
+  nest: vec4f,    // x > 0.5: this grid is nested in a coarser solution; y = 1 / refinement
+  nestB: vec4f,   // parent position of the child's origin: p_parent = p * nest.y + nestB
 };
+// Wall model. The grid cannot resolve boundary layers at flight Reynolds numbers (a turbulent layer is
+// a cell or two thick), so walls stay slip walls for the inviscid core and the shear the boundary layer
+// exerts is applied in the band of fluid cells within one cell of the surface. The shear follows the
+// local slip (edge) velocity, pressure and temperature with flat-plate laws at the distance run from the
+// nose: Blasius (laminar) or White's 0.455 / ln²(0.06 Re) (turbulent), at Eckert's reference temperature
+// for compressibility, Sutherland viscosity, adiabatic wall. Walls are adiabatic, so friction turns
+// kinetic energy into heat in that band.
+// vis: x = free-stream viscosity / (ρ∞ U∞ Δx), y = Sutherland S / T∞, z = nose x (cells),
+// w = transition Reynolds number (negative: laminar everywhere; 0: turbulent everywhere).
+fn wallTau(r: f32, ut: f32, p: f32, pinf: f32, g: f32, xf: f32, vis: vec4f) -> f32 {
+  if (vis.x <= 0.0 || ut < 1e-6) { return 0.0; }
+  let th = p / (r * pinf);                           // T / T∞
+  let me2 = ut * ut * r / (g * p);
+  // laminar run first, to decide the state
+  var turb = vis.w == 0.0;
+  for (var it = 0; it < 2; it++) {
+    let rf = select(0.85, 0.89, turb);
+    let taw = th * (1.0 + rf * 0.5 * (g - 1.0) * me2);
+    let ts = th * (0.5 + 0.039 * me2) + 0.5 * taw;    // Eckert reference temperature
+    let rs = r * th / ts;
+    let mus = vis.x * pow(ts, 1.5) * (1.0 + vis.y) / (ts + vis.y);
+    let rex = max(rs * ut * max(xf, 1.0) / mus, 10.0);
+    if (!turb && vis.w > 0.0 && rex > vis.w) { turb = true; continue; }
+    var cf = 0.664 / sqrt(rex);
+    if (turb) { let l = log(0.06 * rex); cf = 0.455 / (l * l); }
+    return 0.5 * rs * ut * ut * cf;
+  }
+  return 0.0;
+}
+
 @group(0) @binding(0) var<uniform> E: EU;
 @group(0) @binding(1) var<storage, read> src: array<f32>;
 @group(0) @binding(2) var<storage, read_write> dst: array<f32>;
@@ -1294,6 +1384,45 @@ struct EU {
 // d.x = cant of the exit flow towards the axis (radians, for aerospike primary nozzles).
 struct ENG { count: u32, p0: u32, p1: u32, p2: u32, e: array<vec4f, 128> };
 @group(0) @binding(5) var<uniform> EN: ENG;
+@group(0) @binding(6) var<storage, read> eqt: array<vec2f>;
+@group(0) @binding(7) var<storage, read> parent: array<f32>;
+
+// Equilibrium air. A table of γ̃ = 1 + p/(ρe) and κ = a²ρ/p (the equilibrium isentropic exponent that
+// sets the sound speed) over density and internal energy, computed with Cantera from 11-species air
+// (N₂ O₂ NO N O and their ions, NASA 9-coefficient thermodynamics to 20,000 K), so dissociation and
+// ionisation take up energy as they do in a real shock layer. rg: x > 0.5 on, y = log10 ρ∞ (kg/m³),
+// z = log10 U∞² (m²/s²), converting solver units to the table's. Off, the gas is perfect with γ.
+const EQ_NR = 40u; const EQ_NE = 64u;
+const EQ_LR0 = -8.0; const EQ_LR1 = 1.5; const EQ_LE0 = 5.079181; const EQ_LE1 = 7.903090;
+fn eqLook(r: f32, e: f32, rg: vec4f) -> vec2f {
+  let lr = log(max(r, 1e-12)) * 0.4342945 + rg.y;
+  let le = log(max(e, 1e-12)) * 0.4342945 + rg.z;
+  let fr = clamp((lr - EQ_LR0) / (EQ_LR1 - EQ_LR0) * f32(EQ_NR - 1u), 0.0, f32(EQ_NR - 1u) - 0.001);
+  let fe = clamp((le - EQ_LE0) / (EQ_LE1 - EQ_LE0) * f32(EQ_NE - 1u), 0.0, f32(EQ_NE - 1u) - 0.001);
+  let i = u32(fr); let j = u32(fe); let a = fr - f32(i); let b = fe - f32(j);
+  let v00 = eqt[i * EQ_NE + j]; let v01 = eqt[i * EQ_NE + j + 1u];
+  let v10 = eqt[(i + 1u) * EQ_NE + j]; let v11 = eqt[(i + 1u) * EQ_NE + j + 1u];
+  return mix(mix(v00, v01, b), mix(v10, v11, b), a);
+}
+fn gOf(r: f32, e: f32, g: f32, rg: vec4f) -> vec2f {
+  if (rg.x < 0.5) { return vec2f(g, g); }
+  return eqLook(r, e, rg);
+}
+fn presRE(r: f32, e: f32, g: f32, rg: vec4f) -> f32 { return (gOf(r, e, g, rg).x - 1.0) * r * e; }
+// internal energy and κ from density and pressure (Newton in ln e for the real gas)
+fn thermoRP(r: f32, p: f32, g: f32, rg: vec4f) -> vec2f {
+  if (rg.x < 0.5) { return vec2f(p / ((g - 1.0) * r), g); }
+  var le = log(p / (0.4 * r));
+  for (var i = 0; i < 4; i++) {
+    let e = exp(le);
+    let g0 = eqLook(r, e, rg).x; let g1 = eqLook(r, e * 1.05, rg).x;
+    let f = log((g0 - 1.0) * r * e / p);
+    let sl = (log(g1 - 1.0) - log(g0 - 1.0)) / 0.04879;
+    le = le - f / max(1.0 + sl, 0.3);
+  }
+  let e = exp(le);
+  return vec2f(e, eqLook(r, e, rg).y);
+}
 
 struct P { r: f32, u: vec3f, p: f32 };
 struct F5 { a: vec4f, e: f32 };
@@ -1308,8 +1437,8 @@ fn ldP(n: u32) -> P {
   let N = E.dims.w;
   let r = max(src[n], 1e-6);
   let u = vec3f(src[N + n], src[2u * N + n], src[3u * N + n]) / r;
-  let p = max((E.gamma - 1.0) * (src[4u * N + n] - 0.5 * r * dot(u, u)), 1e-10);
-  return P(r, u, p);
+  let ei = max((src[4u * N + n] - 0.5 * r * dot(u, u)) / r, 1e-10);
+  return P(r, u, max(presRE(r, ei, E.gamma, E.rg), 1e-10));
 }
 fn mir(q: P, ax: u32) -> P { var u = q.u; u[ax] = -u[ax]; return P(q.r, u, q.p); }
 // slope limiter: van Leer (harmonic mean) — total-variation diminishing like minmod but less
@@ -1326,57 +1455,64 @@ fn slope(l: P, c: P, r: P) -> P {
     mm(c.p - l.p, r.p - c.p));
 }
 fn addh(c: P, s: P, k: f32) -> P { return P(c.r + k * s.r, c.u + k * s.u, c.p + k * s.p); }
-fn energy(q: P) -> f32 { return q.p / (E.gamma - 1.0) + 0.5 * q.r * dot(q.u, q.u); }
-fn cons(q: P) -> F5 { return F5(vec4f(q.r, q.r * q.u), energy(q)); }
-fn phys(q: P, ax: u32) -> F5 {
+fn energyE(q: P, ei: f32) -> f32 { return q.r * ei + 0.5 * q.r * dot(q.u, q.u); }
+fn energy(q: P) -> f32 { return energyE(q, thermoRP(q.r, q.p, E.gamma, E.rg).x); }
+fn consE(q: P, Eq: f32) -> F5 { return F5(vec4f(q.r, q.r * q.u), Eq); }
+fn cons(q: P) -> F5 { return consE(q, energy(q)); }
+fn physE(q: P, ax: u32, Eq: f32) -> F5 {
   let un = q.u[ax];
   var m = q.r * un * q.u;
   m[ax] = m[ax] + q.p;
-  return F5(vec4f(q.r * un, m), un * (energy(q) + q.p));
+  return F5(vec4f(q.r * un, m), un * (Eq + q.p));
 }
-fn hlle(L: P, R: P, ax: u32) -> F5 {
+fn phys(q: P, ax: u32) -> F5 { return physE(q, ax, energy(q)); }
+// wave-speed estimates shared by both fluxes: Davis–Einfeldt bounds from the two states and their
+// Roe average (for the real gas the averaged sound speed is the mean of the two squared speeds)
+struct WS { SL: f32, SR: f32, EL: f32, ER: f32 };
+fn waves(L: P, R: P, ax: u32) -> WS {
   let g = E.gamma;
-  let cL = sqrt(g * L.p / L.r); let cR = sqrt(g * R.p / R.r);
+  let tL = thermoRP(L.r, L.p, g, E.rg); let tR = thermoRP(R.r, R.p, g, E.rg);
+  let cL = sqrt(tL.y * L.p / L.r); let cR = sqrt(tR.y * R.p / R.r);
+  let EL = energyE(L, tL.x); let ER = energyE(R, tR.x);
   let sl = sqrt(L.r); let sr = sqrt(R.r);
   let ut = (sl * L.u + sr * R.u) / (sl + sr);
-  let HL = (energy(L) + L.p) / L.r; let HR = (energy(R) + R.p) / R.r;
-  let Ht = (sl * HL + sr * HR) / (sl + sr);
-  let ct = sqrt(max((g - 1.0) * (Ht - 0.5 * dot(ut, ut)), 1e-12));
-  let SL = min(L.u[ax] - cL, ut[ax] - ct);
-  let SR = max(R.u[ax] + cR, ut[ax] + ct);
-  let FL = phys(L, ax); let FR = phys(R, ax);
+  var ct: f32;
+  if (E.rg.x < 0.5) {
+    let HL = (EL + L.p) / L.r; let HR = (ER + R.p) / R.r;
+    let Ht = (sl * HL + sr * HR) / (sl + sr);
+    ct = sqrt(max((g - 1.0) * (Ht - 0.5 * dot(ut, ut)), 1e-12));
+  } else { ct = sqrt(0.5 * (cL * cL + cR * cR)); }
+  return WS(min(L.u[ax] - cL, ut[ax] - ct), max(R.u[ax] + cR, ut[ax] + ct), EL, ER);
+}
+fn hlle(L: P, R: P, ax: u32) -> F5 {
+  let W = waves(L, R, ax);
+  let SL = W.SL; let SR = W.SR;
+  let FL = physE(L, ax, W.EL); let FR = physE(R, ax, W.ER);
   if (SL >= 0.0) { return FL; }
   if (SR <= 0.0) { return FR; }
-  let UL = cons(L); let UR = cons(R); let k = 1.0 / (SR - SL);
+  let UL = consE(L, W.EL); let UR = consE(R, W.ER); let k = 1.0 / (SR - SL);
   return F5((SR * FL.a - SL * FR.a + SL * SR * (UR.a - UL.a)) * k, (SR * FL.e - SL * FR.e + SL * SR * (UR.e - UL.e)) * k);
 }
 // HLLC (Toro): HLL with the contact wave restored, so density jumps, shear layers and vortex
 // cores are carried instead of smeared. Same wave-speed estimates as the HLLE flux above.
 fn hllc(L: P, R: P, ax: u32) -> F5 {
-  let g = E.gamma;
-  let cL = sqrt(g * L.p / L.r); let cR = sqrt(g * R.p / R.r);
-  let sl = sqrt(L.r); let sr = sqrt(R.r);
-  let ut = (sl * L.u + sr * R.u) / (sl + sr);
-  let HL = (energy(L) + L.p) / L.r; let HR = (energy(R) + R.p) / R.r;
-  let Ht = (sl * HL + sr * HR) / (sl + sr);
-  let ct = sqrt(max((g - 1.0) * (Ht - 0.5 * dot(ut, ut)), 1e-12));
-  let SL = min(L.u[ax] - cL, ut[ax] - ct);
-  let SR = max(R.u[ax] + cR, ut[ax] + ct);
-  if (SL >= 0.0) { return phys(L, ax); }
-  if (SR <= 0.0) { return phys(R, ax); }
+  let W = waves(L, R, ax);
+  let SL = W.SL; let SR = W.SR;
+  if (SL >= 0.0) { return physE(L, ax, W.EL); }
+  if (SR <= 0.0) { return physE(R, ax, W.ER); }
   let uL = L.u[ax]; let uR = R.u[ax];
   let SM = (R.p - L.p + L.r * uL * (SL - uL) - R.r * uR * (SR - uR)) / (L.r * (SL - uL) - R.r * (SR - uR));
   if (SM >= 0.0) {
     let k = L.r * (SL - uL) / (SL - SM);
     var us = L.u; us[ax] = SM;
-    let Es = k * (energy(L) / L.r + (SM - uL) * (SM + L.p / (L.r * (SL - uL))));
-    let UL = cons(L); let FL = phys(L, ax);
+    let Es = k * (W.EL / L.r + (SM - uL) * (SM + L.p / (L.r * (SL - uL))));
+    let UL = consE(L, W.EL); let FL = physE(L, ax, W.EL);
     return F5(FL.a + SL * (vec4f(k, k * us) - UL.a), FL.e + SL * (Es - UL.e));
   }
   let k = R.r * (SR - uR) / (SR - SM);
   var us = R.u; us[ax] = SM;
-  let Es = k * (energy(R) / R.r + (SM - uR) * (SM + R.p / (R.r * (SR - uR))));
-  let UR = cons(R); let FR = phys(R, ax);
+  let Es = k * (W.ER / R.r + (SM - uR) * (SM + R.p / (R.r * (SR - uR))));
+  let UR = consE(R, W.ER); let FR = physE(R, ax, W.ER);
   return F5(FR.a + SR * (vec4f(k, k * us) - UR.a), FR.e + SR * (Es - UR.e));
 }
 fn okP(q: P) -> bool { return q.r > 1e-6 && q.p > 1e-10; }
@@ -1397,6 +1533,22 @@ fn farField(qi: P, nb: vec3f) -> P {
   return P(rb, ut + unb * nb, rb * cb * cb / g);
 }
 fn freeP() -> P { return P(1.0, vec3f(1.0, 0.0, 0.0), E.pinf); }
+// Nested grid: the coarser parent solution, trilinear at a child cell centre (conserved variables).
+// Parent and child grids have the same dimensions; the child covers part of the parent's domain.
+fn parentU(pc: vec3f) -> F5 {
+  let N = E.dims.w; let nx = E.dims.x; let ny = E.dims.y; let nz = E.dims.z;
+  let q = pc * E.nest.y + E.nestB.xyz - vec3f(0.5);
+  let i0 = vec3i(floor(q)); let f = q - vec3f(i0);
+  var a = vec4f(0.0); var e = 0.0;
+  for (var k = 0u; k < 8u; k++) {
+    let o = vec3i(i32(k & 1u), i32((k >> 1u) & 1u), i32((k >> 2u) & 1u));
+    let c = clamp(i0 + o, vec3i(0), vec3i(i32(nx) - 1, i32(ny) - 1, i32(nz) - 1));
+    let m = u32(c.x) + nx * (u32(c.y) + ny * u32(c.z));
+    let w = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1) * select(1.0 - f.z, f.z, o.z == 1);
+    a += w * vec4f(parent[m], parent[N + m], parent[2u * N + m], parent[3u * N + m]); e += w * parent[4u * N + m];
+  }
+  return F5(a, e);
+}
 fn store(n: u32, U: F5) {
   let N = E.dims.w;
   dst[n] = U.a.x; dst[N + n] = U.a.y; dst[2u * N + n] = U.a.z; dst[3u * N + n] = U.a.w; dst[4u * N + n] = U.e;
@@ -1414,6 +1566,11 @@ fn ldDst(n: u32) -> F5 {
 fn init(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
   let n = gid.x + gid.y * nwg.x * 64u;
   if (n >= E.dims.w) { return; }
+  if (E.nest.x > 0.5) {
+    let nx = E.dims.x; let ny = E.dims.y;
+    store(n, parentU(vec3f(f32(n % nx), f32((n / nx) % ny), f32(n / (nx * ny))) + vec3f(0.5)));
+    return;
+  }
   store(n, cons(freeP()));
 }
 
@@ -1421,8 +1578,8 @@ fn ldD(n: u32) -> P {
   let N = E.dims.w;
   let r = max(dst[n], 1e-6);
   let u = vec3f(dst[N + n], dst[2u * N + n], dst[3u * N + n]) / r;
-  let p = max((E.gamma - 1.0) * (dst[4u * N + n] - 0.5 * r * dot(u, u)), 1e-10);
-  return P(r, u, p);
+  let ei = max((dst[4u * N + n] - 0.5 * r * dot(u, u)) / r, 1e-10);
+  return P(r, u, max(presRE(r, ei, E.gamma, E.rg), 1e-10));
 }
 // Fill ghost states in dst: trilinear sample of fluid cells at the image point, reflected for slip.
 @compute @workgroup_size(64)
@@ -1471,6 +1628,8 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
   let c = vec3u(n % nx, (n / nx) % ny, n / (nx * ny));
   let dm = vec3u(nx, ny, nz);
   if (c.x == 0u || c.x == nx - 1u || c.y == 0u || c.y == ny - 1u || c.z == 0u || c.z == nz - 1u) {
+    // nested grid: every outer face takes the parent solution (one-way nesting)
+    if (E.nest.x > 0.5) { store(n, parentU(vec3f(c) + vec3f(0.5))); return; }
     // Characteristic far field (Riemann invariants normal to each face) for subsonic freestream:
     // waves leave the domain instead of reflecting back onto the body.
     let ci = clamp(c, vec3u(1u), dm - vec3u(2u));
@@ -1582,6 +1741,24 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
     dA -= FRf.a - FLf.a;
     dE -= FRf.e - FLf.e;
   }
+  // Wall shear in the band of cells within one cell of the surface (see wallTau)
+  if (E.vis.x > 0.0) {
+    let w = nrm[n];
+    if (w.x != 0u) {
+      let dw = unpack2x16float(w.y).y * E.p2;
+      if (dw >= 0.0 && dw < 1.0) {
+        let s0 = ldP(n);
+        let nn = normalize(unpack4x8snorm(w.x).xyz);
+        let ut = s0.u - dot(s0.u, nn) * nn;
+        let um = length(ut);
+        if (um > 1e-6) {
+          var tau = wallTau(s0.r, um, s0.p, E.pinf, E.gamma, f32(c.x) + 0.5 - E.vis.z, E.vis);
+          tau = min(tau, 0.5 * s0.r * um / E.dt);   // never reverse the flow in one step
+          dA = dA - vec4f(0.0, tau * ut / um);
+        }
+      }
+    }
+  }
   // Combustion zones: heat released into the air flowing through, at x.x (energy per unit mass,
   // freestream units) spread evenly over the zone's length a.w, so the total is ṁ·f·η·LHV however
   // the flow is distributed. Too much heat for the duct chokes it thermally, as in a real engine.
@@ -1615,13 +1792,52 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
 // coefficient and speed (in freestream units) at a point 1.5 cells off the wall, trilinear over
 // fluid cells. These drive the heating and skin-friction correlations instead of Newtonian theory.
 const GATHER_WGSL = COMMON + /* wgsl */`
-struct GU { dims: vec4u, count: u32, gamma: f32, pinf: f32, pad: f32 };
+struct GU { dims: vec4u, count: u32, gamma: f32, pinf: f32, pad: f32, rg: vec4f };
 @group(0) @binding(0) var<uniform> U: GU;
 @group(0) @binding(1) var<storage, read> st: array<f32>;
 @group(0) @binding(2) var<storage, read> flg: array<u32>;
 @group(0) @binding(3) var<storage, read> nrm: array<vec2u>;
 @group(0) @binding(4) var<storage, read> sidx: array<u32>;
 @group(0) @binding(5) var<storage, read_write> outv: array<vec2f>;
+@group(0) @binding(6) var<storage, read> eqt: array<vec2f>;
+
+// Equilibrium air. A table of γ̃ = 1 + p/(ρe) and κ = a²ρ/p (the equilibrium isentropic exponent that
+// sets the sound speed) over density and internal energy, computed with Cantera from 11-species air
+// (N₂ O₂ NO N O and their ions, NASA 9-coefficient thermodynamics to 20,000 K), so dissociation and
+// ionisation take up energy as they do in a real shock layer. rg: x > 0.5 on, y = log10 ρ∞ (kg/m³),
+// z = log10 U∞² (m²/s²), converting solver units to the table's. Off, the gas is perfect with γ.
+const EQ_NR = 40u; const EQ_NE = 64u;
+const EQ_LR0 = -8.0; const EQ_LR1 = 1.5; const EQ_LE0 = 5.079181; const EQ_LE1 = 7.903090;
+fn eqLook(r: f32, e: f32, rg: vec4f) -> vec2f {
+  let lr = log(max(r, 1e-12)) * 0.4342945 + rg.y;
+  let le = log(max(e, 1e-12)) * 0.4342945 + rg.z;
+  let fr = clamp((lr - EQ_LR0) / (EQ_LR1 - EQ_LR0) * f32(EQ_NR - 1u), 0.0, f32(EQ_NR - 1u) - 0.001);
+  let fe = clamp((le - EQ_LE0) / (EQ_LE1 - EQ_LE0) * f32(EQ_NE - 1u), 0.0, f32(EQ_NE - 1u) - 0.001);
+  let i = u32(fr); let j = u32(fe); let a = fr - f32(i); let b = fe - f32(j);
+  let v00 = eqt[i * EQ_NE + j]; let v01 = eqt[i * EQ_NE + j + 1u];
+  let v10 = eqt[(i + 1u) * EQ_NE + j]; let v11 = eqt[(i + 1u) * EQ_NE + j + 1u];
+  return mix(mix(v00, v01, b), mix(v10, v11, b), a);
+}
+fn gOf(r: f32, e: f32, g: f32, rg: vec4f) -> vec2f {
+  if (rg.x < 0.5) { return vec2f(g, g); }
+  return eqLook(r, e, rg);
+}
+fn presRE(r: f32, e: f32, g: f32, rg: vec4f) -> f32 { return (gOf(r, e, g, rg).x - 1.0) * r * e; }
+// internal energy and κ from density and pressure (Newton in ln e for the real gas)
+fn thermoRP(r: f32, p: f32, g: f32, rg: vec4f) -> vec2f {
+  if (rg.x < 0.5) { return vec2f(p / ((g - 1.0) * r), g); }
+  var le = log(p / (0.4 * r));
+  for (var i = 0; i < 4; i++) {
+    let e = exp(le);
+    let g0 = eqLook(r, e, rg).x; let g1 = eqLook(r, e * 1.05, rg).x;
+    let f = log((g0 - 1.0) * r * e / p);
+    let sl = (log(g1 - 1.0) - log(g0 - 1.0)) / 0.04879;
+    le = le - f / max(1.0 + sl, 0.3);
+  }
+  let e = exp(le);
+  return vec2f(e, eqLook(r, e, rg).y);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg: vec3u) {
   let i = gid.x + gid.y * nwg.x * 64u;
@@ -1644,7 +1860,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg:
     let wt = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1) * select(1.0 - f.z, f.z, o.z == 1);
     let r = max(st[m], 1e-6);
     let u = vec3f(st[N + m], st[2u * N + m], st[3u * N + m]) / r;
-    let p = max((U.gamma - 1.0) * (st[4u * N + m] - 0.5 * r * dot(u, u)), 1e-10);
+    let p = max(presRE(r, max((st[4u * N + m] - 0.5 * r * dot(u, u)) / r, 1e-10), U.gamma, U.rg), 1e-10);
     pa += wt * p; ua += wt * length(u); ws += wt;
   }
   if (ws < 1e-3) { outv[i] = vec2f(-9.0, 0.0); return; }
@@ -1658,7 +1874,39 @@ struct EF {
   dims: vec4u,
   gamma: f32, pinf: f32, minf: f32, lc: f32,
   cg: vec3f, p0: f32,
+  vis: vec4f,
+  rg: vec4f,
 };
+// Wall model. The grid cannot resolve boundary layers at flight Reynolds numbers (a turbulent layer is
+// a cell or two thick), so walls stay slip walls for the inviscid core and the shear the boundary layer
+// exerts is applied in the band of fluid cells within one cell of the surface. The shear follows the
+// local slip (edge) velocity, pressure and temperature with flat-plate laws at the distance run from the
+// nose: Blasius (laminar) or White's 0.455 / ln²(0.06 Re) (turbulent), at Eckert's reference temperature
+// for compressibility, Sutherland viscosity, adiabatic wall. Walls are adiabatic, so friction turns
+// kinetic energy into heat in that band.
+// vis: x = free-stream viscosity / (ρ∞ U∞ Δx), y = Sutherland S / T∞, z = nose x (cells),
+// w = transition Reynolds number (negative: laminar everywhere; 0: turbulent everywhere).
+fn wallTau(r: f32, ut: f32, p: f32, pinf: f32, g: f32, xf: f32, vis: vec4f) -> f32 {
+  if (vis.x <= 0.0 || ut < 1e-6) { return 0.0; }
+  let th = p / (r * pinf);                           // T / T∞
+  let me2 = ut * ut * r / (g * p);
+  // laminar run first, to decide the state
+  var turb = vis.w == 0.0;
+  for (var it = 0; it < 2; it++) {
+    let rf = select(0.85, 0.89, turb);
+    let taw = th * (1.0 + rf * 0.5 * (g - 1.0) * me2);
+    let ts = th * (0.5 + 0.039 * me2) + 0.5 * taw;    // Eckert reference temperature
+    let rs = r * th / ts;
+    let mus = vis.x * pow(ts, 1.5) * (1.0 + vis.y) / (ts + vis.y);
+    let rex = max(rs * ut * max(xf, 1.0) / mus, 10.0);
+    if (!turb && vis.w > 0.0 && rex > vis.w) { turb = true; continue; }
+    var cf = 0.664 / sqrt(rex);
+    if (turb) { let l = log(0.06 * rex); cf = 0.455 / (l * l); }
+    return 0.5 * rs * ut * ut * cf;
+  }
+  return 0.0;
+}
+
 @group(0) @binding(0) var<uniform> E: EF;
 @group(0) @binding(1) var<storage, read> st: array<f32>;
 @group(0) @binding(2) var<storage, read> flg: array<u32>;
@@ -1667,6 +1915,44 @@ struct EF {
 @group(0) @binding(5) var<storage, read> nrm: array<vec2u>;
 struct ENG { count: u32, p0: u32, p1: u32, p2: u32, e: array<vec4f, 128> };
 @group(0) @binding(6) var<uniform> EN: ENG;
+@group(0) @binding(7) var<storage, read> eqt: array<vec2f>;
+
+// Equilibrium air. A table of γ̃ = 1 + p/(ρe) and κ = a²ρ/p (the equilibrium isentropic exponent that
+// sets the sound speed) over density and internal energy, computed with Cantera from 11-species air
+// (N₂ O₂ NO N O and their ions, NASA 9-coefficient thermodynamics to 20,000 K), so dissociation and
+// ionisation take up energy as they do in a real shock layer. rg: x > 0.5 on, y = log10 ρ∞ (kg/m³),
+// z = log10 U∞² (m²/s²), converting solver units to the table's. Off, the gas is perfect with γ.
+const EQ_NR = 40u; const EQ_NE = 64u;
+const EQ_LR0 = -8.0; const EQ_LR1 = 1.5; const EQ_LE0 = 5.079181; const EQ_LE1 = 7.903090;
+fn eqLook(r: f32, e: f32, rg: vec4f) -> vec2f {
+  let lr = log(max(r, 1e-12)) * 0.4342945 + rg.y;
+  let le = log(max(e, 1e-12)) * 0.4342945 + rg.z;
+  let fr = clamp((lr - EQ_LR0) / (EQ_LR1 - EQ_LR0) * f32(EQ_NR - 1u), 0.0, f32(EQ_NR - 1u) - 0.001);
+  let fe = clamp((le - EQ_LE0) / (EQ_LE1 - EQ_LE0) * f32(EQ_NE - 1u), 0.0, f32(EQ_NE - 1u) - 0.001);
+  let i = u32(fr); let j = u32(fe); let a = fr - f32(i); let b = fe - f32(j);
+  let v00 = eqt[i * EQ_NE + j]; let v01 = eqt[i * EQ_NE + j + 1u];
+  let v10 = eqt[(i + 1u) * EQ_NE + j]; let v11 = eqt[(i + 1u) * EQ_NE + j + 1u];
+  return mix(mix(v00, v01, b), mix(v10, v11, b), a);
+}
+fn gOf(r: f32, e: f32, g: f32, rg: vec4f) -> vec2f {
+  if (rg.x < 0.5) { return vec2f(g, g); }
+  return eqLook(r, e, rg);
+}
+fn presRE(r: f32, e: f32, g: f32, rg: vec4f) -> f32 { return (gOf(r, e, g, rg).x - 1.0) * r * e; }
+// internal energy and κ from density and pressure (Newton in ln e for the real gas)
+fn thermoRP(r: f32, p: f32, g: f32, rg: vec4f) -> vec2f {
+  if (rg.x < 0.5) { return vec2f(p / ((g - 1.0) * r), g); }
+  var le = log(p / (0.4 * r));
+  for (var i = 0; i < 4; i++) {
+    let e = exp(le);
+    let g0 = eqLook(r, e, rg).x; let g1 = eqLook(r, e * 1.05, rg).x;
+    let f = log((g0 - 1.0) * r * e / p);
+    let sl = (log(g1 - 1.0) - log(g0 - 1.0)) / 0.04879;
+    le = le - f / max(1.0 + sl, 0.3);
+  }
+  let e = exp(le);
+  return vec2f(e, eqLook(r, e, rg).y);
+}
 
 fn idx(c: vec3i) -> u32 {
   let d = vec3i(E.dims.xyz);
@@ -1675,10 +1961,8 @@ fn idx(c: vec3i) -> u32 {
 }
 fn rhoAt(n: u32) -> f32 { return max(st[n], 1e-6); }
 fn velAt(n: u32) -> vec3f { let N = E.dims.w; return vec3f(st[N + n], st[2u * N + n], st[3u * N + n]) / rhoAt(n); }
-fn presAt(n: u32) -> f32 {
-  let r = rhoAt(n); let u = velAt(n);
-  return max((E.gamma - 1.0) * (st[4u * E.dims.w + n] - 0.5 * r * dot(u, u)), 1e-10);
-}
+fn eiAt(n: u32) -> f32 { let r = rhoAt(n); let u = velAt(n); return max((st[4u * E.dims.w + n] - 0.5 * r * dot(u, u)) / r, 1e-10); }
+fn presAt(n: u32) -> f32 { return max(presRE(rhoAt(n), eiAt(n), E.gamma, E.rg), 1e-10); }
 // Use the centre value where a neighbour is solid, so walls do not create spurious gradients.
 fn vN(c: vec3i, o: vec3i, vc: vec3f) -> vec3f { let m = idx(c + o); return select(velAt(m), vc, flg[m] == SOLID); }
 fn rN(c: vec3i, o: vec3i, rc: f32) -> f32 { let m = idx(c + o); return select(rhoAt(m), rc, flg[m] == SOLID); }
@@ -1704,7 +1988,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   }
   let r = rhoAt(n); let u = velAt(n); let p = presAt(n);
   let cp = (p - E.pinf) / 0.5;
-  let mach = length(u) / sqrt(E.gamma * p / r);
+  let mach = length(u) / sqrt(gOf(r, eiAt(n), E.gamma, E.rg).y * p / r);
   let gx = (vN(c, nb[0], u) - vN(c, nb[1], u)) * 0.5;
   let gy = (vN(c, nb[2], u) - vN(c, nb[3], u)) * 0.5;
   let gz = (vN(c, nb[4], u) - vN(c, nb[5], u)) * 0.5;
@@ -1768,6 +2052,24 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       }
     }
     break;
+  }
+  // skin friction from the wall model, same band and law as the solver applies (force on the body)
+  let wf = nrm[n];
+  if (E.vis.x > 0.0 && wf.x != 0u) {
+    let dw = unpack2x16float(wf.y).y * E.lc;
+    if (dw >= 0.0 && dw < 1.0) {
+      let nn = normalize(unpack4x8snorm(wf.x).xyz);
+      let ut = u - dot(u, nn) * nn;
+      let um = length(ut);
+      if (um > 1e-6) {
+        let tau = wallTau(r, um, p, E.pinf, E.gamma, f32(c.x) + 0.5 - E.vis.z, E.vis);
+        let f = 2.0 * tau * ut / um;   // in the same units as the pressure forces (Cp × cell area)
+        F += f;
+        let rr = vec3f(c) + vec3f(0.5) - E.cg;
+        My += rr.z * f.x - rr.x * f.z;
+        wall = true;
+      }
+    }
   }
   if (wall && E.dims.w > 0u) {
     atomicAdd(&frc[0], i32(round(F.x * 1000.0)));
@@ -2081,6 +2383,20 @@ fn surfColor(f: vec4f, h: vec4f, sp: vec2f) -> vec3f {
     let band = fract((sp.x + sp.y) / 12.0);
     if (h.b > 1.0 && band < 0.5) { c = vec3f(0.03, 0.03, 0.04); }
     else if (h.b > 0.85 && h.b <= 1.0 && band < 0.16) { c = mix(c, vec3f(0.03, 0.03, 0.04), 0.85); }
+    return c;
+  }
+  if (C.surfMode == 6u) {
+    let t = (h.b - C.sMin) / max(C.sMax - C.sMin, 1e-4);
+    var c = coolWarm(t);
+    let band = fract((sp.x + sp.y) / 12.0);
+    if (t > 1.0 && band < 0.5) { c = vec3f(0.03, 0.03, 0.04); }
+    return c;
+  }
+  if (C.surfMode == 5u) {
+    // structural stress over the allowable; past it, dense screen-space stripes
+    var c = coolWarm(h.g);
+    let band = fract((sp.x + sp.y) / 12.0);
+    if (h.g > 1.0 && band < 0.5) { c = vec3f(0.03, 0.03, 0.04); }
     return c;
   }
   if (C.surfMode == 3u) { return cpColor(h.r); }
@@ -2439,6 +2755,22 @@ fn sdf(p: vec3f) -> f32 {
     vec2f(0.435, 0.15), vec2f(0.435, 0.15), vec2f(0.435, 0.15), vec2f(0.435, 0.15)), 9u);
   return min(body, cowl);
 }` },
+  vcone15: { cat: "val", name: "Validation: 15° cone-cylinder", aoa: 0, beta: 0, size: 1.4, ref: "front", veh: { L: 1, mass: 10 }, code:
+`// Sharp 15° half-angle cone (length 0.5) on a cylinder, flat base. Validation article.
+fn sdf(p: vec3f) -> f32 {
+  return sdRev(p, array<vec2f, 16>(
+    vec2f(0, 0), vec2f(0.5, 0.134), vec2f(1, 0.134), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 4u);
+}` },
+  vcone10: { cat: "val", name: "Validation: 10° cone-cylinder", aoa: 0, beta: 0, size: 1.4, ref: "front", veh: { L: 1, mass: 10 }, code:
+`// Sharp 10° half-angle cone (length 0.6) on a cylinder, flat base. Validation article.
+fn sdf(p: vec3f) -> f32 {
+  return sdRev(p, array<vec2f, 16>(
+    vec2f(0, 0), vec2f(0.6, 0.1058), vec2f(1, 0.1058), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 4u);
+}` },
   wing: { name: "Swept wing, NACA 0012", aoa: 6, beta: 0, size: 1, ref: "plan", code:
 `// NACA 0012, 30° quarter-sweep, chord 0.45, span 1.1, square tips.
 fn sdf(p: vec3f) -> f32 {
@@ -2475,6 +2807,8 @@ fn sdf(p: vec3f) -> f32 {
 }` },
 };
 
+// Equilibrium-air table (γ̃, κ) for the flow solver: 40 densities × 64 internal energies, float32 pairs
+const EQAIR_B64 = "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";
 const GRIDS = [
   { id: "low", dims: [160, 96, 80], label: "Coarse" },
   { id: "med", dims: [224, 136, 112], label: "Medium" },
@@ -2495,13 +2829,14 @@ const st = {
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
   orient: [0, 0, 0], glow: false, gexp: 0, roll: 0, flyRate: 40, manT: 12,
   regime: "lbm", sq: 0, euler: true, eM: 0, lK: true, kthr: 0.15,
-  hyp: { gamma: 1.4, eps: 0.85, bl: "lam", reTr: 1e6, rn: 0 },
+  hyp: { gamma: 1.4, eps: 0.85, bl: "lam", reTr: 1e6, rn: 0, wall: true, air: "auto" },
   ent: { mass: 25000, L: 20, cg: 0.66, h0: 120, V0: 7800, fpa: -1.2, bank: 70 },
   tps: { adiabatic: true, layers: [{ m: "rcc", t: 6 }, { m: "fibre", t: 50 }, { m: "al2024", t: 3 }] },
   tl: { profile: "shuttle", events: [] },
   eng: { on: false, type: "bell", prop: "methalox", custom: { pc: 10e6, Tc: 3400, gam: 1.2, MW: 22 }, thr: 1, n: 1, ring: 0, re: 0.6, ri: 0.4, eps: 16, x: 0.98, dir: "aft", cant: 20 },
   lib: "body",
   duct: null,
+  zoom: null,
 };
 const D = Math.PI / 180;
 let dev, ctx, fmt, canvas;
@@ -2609,9 +2944,9 @@ async function startGPU() {
   layouts.vox = makeLayout(["u", "s", "s", "s", "stw:rgba8unorm", "t3", "smp", "s"]);
   layouts.scatter = makeLayout(["u", "r", "r", "r", "stw:rgba16float"]);
   layouts.render = makeLayout(["u", "t3", "t3", "smp", "t3", "u", "t3", "u"], GPUShaderStage.FRAGMENT);
-  layouts.euler = makeLayout(["u", "r", "s", "r", "r", "u"]);
-  layouts.efield = makeLayout(["u", "r", "r", "stw:rgba16float", "s", "r", "u"]);
-  layouts.gather = makeLayout(["u", "r", "r", "r", "r", "s"]);
+  layouts.euler = makeLayout(["u", "r", "s", "r", "r", "u", "r", "r"]);
+  layouts.efield = makeLayout(["u", "r", "r", "stw:rgba16float", "s", "r", "u", "r"]);
+  layouts.gather = makeLayout(["u", "r", "r", "r", "r", "s", "r"]);
 
   for (const [name, code] of [["step", STEP_WGSL], ["macro", MACRO_WGSL], ["field", FIELD_WGSL]]) {
     const { mod, errs } = await checkedModule(code, name);
@@ -2713,6 +3048,14 @@ function onDeviceLost(msg) {
   mk("Restart on the same grid", st.grid, !lower);
 }
 
+function eulerBindGroups() {
+  const buf = (b) => ({ buffer: b }), bg = (layout, res) => dev.createBindGroup({ layout, entries: res.map((r, i) => ({ binding: i, resource: r })) });
+  R.eBG = [
+    bg(layouts.euler, [buf(R.eu1), buf(R.popA), buf(R.popB), buf(R.flags), buf(R.nrm), buf(R.engU), buf(R.eqT), buf(R.parent)]),
+    bg(layouts.euler, [buf(R.eu2), buf(R.popB), buf(R.popA), buf(R.flags), buf(R.nrm), buf(R.engU), buf(R.eqT), buf(R.parent)]),
+  ];
+  R.eInitBG = bg(layouts.euler, [buf(R.eu1), buf(R.popB), buf(R.popA), buf(R.flags), buf(R.nrm), buf(R.engU), buf(R.eqT), buf(R.parent)]);
+}
 function buildGrid() {
   if (R) for (const k of Object.keys(R)) if (R[k] && R[k].destroy) R[k].destroy();
   const g = GRIDS.find((x) => x.id === st.grid);
@@ -2729,20 +3072,22 @@ function buildGrid() {
     flagsScratch: dev.createBuffer({ size: 4 * N, usage: B.STORAGE | B.COPY_SRC }),
     scU: dev.createBuffer({ size: 32, usage: B.UNIFORM | B.COPY_DST }),
     sIdx: null, sVal: null,
-    popA: dev.createBuffer({ size: 38 * N, usage: B.STORAGE }),
+    popA: dev.createBuffer({ size: 38 * N, usage: B.STORAGE | B.COPY_SRC }),
+    parent: dev.createBuffer({ size: 32, usage: B.STORAGE | B.COPY_DST }),
     popB: dev.createBuffer({ size: 38 * N, usage: B.STORAGE }),
     flags: dev.createBuffer({ size: 4 * N, usage: B.STORAGE | B.COPY_SRC }),
     mac: dev.createBuffer({ size: 16 * N, usage: B.STORAGE | B.COPY_SRC }),
     avg: dev.createBuffer({ size: 4 * N, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
     force: dev.createBuffer({ size: 64, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
     forceRead: dev.createBuffer({ size: 64, usage: B.MAP_READ | B.COPY_DST }),
-    field: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
+    field: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING | T.COPY_SRC }),
     occ: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba8unorm", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
-    surf: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
-    eu1: dev.createBuffer({ size: 48, usage: B.UNIFORM | B.COPY_DST }),
+    surf: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING | T.COPY_DST }),
+    eu1: dev.createBuffer({ size: 112, usage: B.UNIFORM | B.COPY_DST }),
     engU: dev.createBuffer({ size: 16 + 128 * 16, usage: B.UNIFORM | B.COPY_DST }),
-    eu2: dev.createBuffer({ size: 48, usage: B.UNIFORM | B.COPY_DST }),
-    efU: dev.createBuffer({ size: 48, usage: B.UNIFORM | B.COPY_DST }),
+    eu2: dev.createBuffer({ size: 112, usage: B.UNIFORM | B.COPY_DST }),
+    efU: dev.createBuffer({ size: 112, usage: B.UNIFORM | B.COPY_DST }),
+    eqT: (() => { const raw = Uint8Array.from(atob(EQAIR_B64), (c) => c.charCodeAt(0)); const b = dev.createBuffer({ size: raw.byteLength, usage: B.STORAGE | B.COPY_DST }); dev.queue.writeBuffer(b, 0, raw); return b; })(),
   };
   const bg = (layout, res) => dev.createBindGroup({ layout, entries: res.map((r, i) => ({ binding: i, resource: r })) });
   const buf = (b) => ({ buffer: b });
@@ -2755,12 +3100,8 @@ function buildGrid() {
     bg(layouts.macro, [buf(R.sim), buf(R.popB), buf(R.flags), buf(R.mac), buf(R.avg), buf(R.force), buf(R.nrm)]),
   ];
   R.fieldBG = bg(layouts.field, [buf(R.sim), buf(R.flags), buf(R.mac), buf(R.avg), R.field.createView(), buf(R.nrm)]);
-  R.eBG = [
-    bg(layouts.euler, [buf(R.eu1), buf(R.popA), buf(R.popB), buf(R.flags), buf(R.nrm), buf(R.engU)]),
-    bg(layouts.euler, [buf(R.eu2), buf(R.popB), buf(R.popA), buf(R.flags), buf(R.nrm), buf(R.engU)]),
-  ];
-  R.eInitBG = bg(layouts.euler, [buf(R.eu1), buf(R.popB), buf(R.popA), buf(R.flags), buf(R.nrm), buf(R.engU)]);
-  R.efBG = bg(layouts.efield, [buf(R.efU), buf(R.popA), buf(R.flags), R.field.createView(), buf(R.force), buf(R.nrm), buf(R.engU)]);
+  eulerBindGroups();
+  R.efBG = bg(layouts.efield, [buf(R.efU), buf(R.popA), buf(R.flags), R.field.createView(), buf(R.force), buf(R.nrm), buf(R.engU), buf(R.eqT)]);
   eu.reset = true;
   makeVoxBG();
   const pairs = Math.ceil(N / 2 / 64), cells = Math.ceil(N / 64);
@@ -2833,12 +3174,18 @@ const simAB = new ArrayBuffer(96), simF = new Float32Array(simAB), simU = new Ui
 const geoAB = new ArrayBuffer(144), geoF = new Float32Array(geoAB), geoU = new Uint32Array(geoAB);
 const camAB = new ArrayBuffer(176), camF = new Float32Array(camAB), camU = new Uint32Array(camAB);
 
-const lc = () => 0.34 * R.dims[0] * st.size;
+const lc = () => 0.34 * R.dims[0] * st.size * (st.zoom && st.zoom.on ? st.zoom.k : 1);
 const uLat = () => st.mach / Math.sqrt(3);
 // Nose position along the flow. At low supersonic Mach the bow shock stands far ahead of a blunt
 // body (about 1.4 radii at Mach 1.2), so the body moves downstream to keep the shock inside the domain.
 let noseX = 0.22;
-const origin = () => [noseX * R.dims[0], R.dims[1] / 2, R.dims[2] / 2];
+const origin = () => {
+  const Z = st.zoom;
+  if (!(Z && Z.on)) return [noseX * R.dims[0], R.dims[1] / 2, R.dims[2] / 2];
+  // nested view: the chosen body point sits at the centre of the domain
+  const piv = [0.5, 0, 0], d = [Z.cb[0] - piv[0], Z.cb[1], Z.cb[2]], L = lc();
+  return [0, 1, 2].map((r) => R.dims[r] / 2 - L * (ATT[r][0] * d[0] + ATT[r][1] * d[1] + ATT[r][2] * d[2] + piv[r]));
+};
 function noseXFor(M) {
   if (st.regime !== "hyp") return 0.22;
   const want = M >= 2.5 ? 0.22 : M >= 1.6 ? 0.28 : 0.34;
@@ -3077,9 +3424,836 @@ function onForces(v) {
     return;
   }
   for (const [k, val] of [["cl", cl], ["cd", cd], ["cy", cy]]) { hist[k].push(val); if (hist[k].length > 240) hist[k].shift(); }
+  if (!fly.on && !fly.man) { track("cd", cd, 0.01); track("cl", cl, 0.01); }
 }
 const mean = (a, n) => { const s = a.slice(-n); return s.reduce((x, y) => x + y, 0) / (s.length || 1); };
 const sd = (a, n) => { const s = a.slice(-n), m = mean(s, n); return Math.sqrt(s.reduce((x, y) => x + (y - m) ** 2, 0) / (s.length || 1)); };
+
+// ── Voxel finite-element solver: linear elasticity on 8-node hexahedra (one per solid voxel) ──
+// Matrix-free conjugate gradients with a Jacobi preconditioner. Loads are surface pressure on the
+// exposed voxel faces; a free-flying body is balanced by inertia relief (the aerodynamic load is
+// reacted by the body's own inertia, as in flight), with a weak spring on every node to remove
+// rigid-body motion. Stress is evaluated at element centres.
+function hexKe(nu) {
+  // Unit cube, E = 1, 2×2×2 Gauss points, with Wilson's incompatible bending modes (1 - ξ²) in each
+  // direction for each displacement component, condensed out. Plain trilinear bricks lock in bending
+  // (a one-voxel skin would be far too stiff); the extra modes let each brick bend, and for regular
+  // (cube) elements they pass the patch test. Node a has corner bits (x, y, z) = (a&1, a>>1&1, a>>2&1).
+  const D = dMat(1, nu), g = [0.5 - 0.5 / Math.sqrt(3), 0.5 + 0.5 / Math.sqrt(3)];
+  const Kcc = new Float64Array(576), Kci = new Float64Array(24 * 9), Kii = new Float64Array(81);
+  for (const gx of g) for (const gy of g) for (const gz of g) {
+    const B = bMat(gx, gy, gz), Bi = bInc(gx, gy, gz);
+    const DB = mulDB(D, B, 24), DBi = mulDB(D, Bi, 9);
+    for (let i = 0; i < 24; i++) {
+      for (let j = 0; j < 24; j++) { let s = 0; for (let k = 0; k < 6; k++) s += B[24 * k + i] * DB[24 * k + j]; Kcc[24 * i + j] += s / 8; }
+      for (let j = 0; j < 9; j++) { let s = 0; for (let k = 0; k < 6; k++) s += B[24 * k + i] * DBi[9 * k + j]; Kci[9 * i + j] += s / 8; }
+    }
+    for (let i = 0; i < 9; i++) for (let j = 0; j < 9; j++) { let s = 0; for (let k = 0; k < 6; k++) s += Bi[9 * k + i] * DBi[9 * k + j]; Kii[9 * i + j] += s / 8; }
+  }
+  const Ki = inv(Kii, 9), Ke = new Float64Array(576);
+  for (let i = 0; i < 24; i++) for (let j = 0; j < 24; j++) {
+    let s = 0;
+    for (let a = 0; a < 9; a++) { let t = 0; for (let b = 0; b < 9; b++) t += Ki[9 * a + b] * Kci[9 * j + b]; s += Kci[9 * i + a] * t; }
+    Ke[24 * i + j] = Kcc[24 * i + j] - s;
+  }
+  return Ke;
+}
+function mulDB(D, B, n) {
+  const out = new Float64Array(6 * n);
+  for (let i = 0; i < 6; i++) for (let j = 0; j < n; j++) { let s = 0; for (let k = 0; k < 6; k++) s += D[6 * i + k] * B[n * k + j]; out[n * i + j] = s; }
+  return out;
+}
+// incompatible modes: dof 3m + c is component c of mode m, mode m = 1 - ξ_m² with ξ = 2x - 1
+function bInc(x, y, z) {
+  const B = new Float64Array(6 * 9), xi = [2 * x - 1, 2 * y - 1, 2 * z - 1];
+  for (let m = 0; m < 3; m++) {
+    const d = [0, 0, 0]; d[m] = -4 * xi[m];   // d(1 - ξ²)/dx = -2ξ · dξ/dx, dξ/dx = 2
+    for (let c = 0; c < 3; c++) {
+      const j = 3 * m + c;
+      B[9 * c + j] += d[c];                                  // normal strain
+      if (c === 1) { B[9 * 3 + j] += d[2]; B[9 * 5 + j] += d[0]; }   // yz, xy
+      if (c === 2) { B[9 * 3 + j] += d[1]; B[9 * 4 + j] += d[0]; }   // yz, xz
+      if (c === 0) { B[9 * 4 + j] += d[2]; B[9 * 5 + j] += d[1]; }   // xz, xy
+    }
+  }
+  return B;
+}
+function inv(A, n) {
+  const M = Float64Array.from(A), I = new Float64Array(n * n);
+  for (let i = 0; i < n; i++) I[n * i + i] = 1;
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[n * r + c]) > Math.abs(M[n * p + c])) p = r;
+    for (let k = 0; k < n; k++) { [M[n * c + k], M[n * p + k]] = [M[n * p + k], M[n * c + k]]; [I[n * c + k], I[n * p + k]] = [I[n * p + k], I[n * c + k]]; }
+    const d = M[n * c + c];
+    for (let k = 0; k < n; k++) { M[n * c + k] /= d; I[n * c + k] /= d; }
+    for (let r = 0; r < n; r++) if (r !== c) { const f = M[n * r + c]; if (f) for (let k = 0; k < n; k++) { M[n * r + k] -= f * M[n * c + k]; I[n * r + k] -= f * I[n * c + k]; } }
+  }
+  return I;
+}
+function dMat(E, nu) {
+  const l = (E * nu) / ((1 + nu) * (1 - 2 * nu)), m = E / (2 * (1 + nu)), D = new Float64Array(36);
+  for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) D[6 * i + j] = l; D[6 * i + i] = l + 2 * m; D[6 * (i + 3) + i + 3] = m; }
+  return D;
+}
+// strain-displacement matrix at (x, y, z) in the unit cube; strains xx yy zz yz xz xy (engineering)
+function bMat(x, y, z) {
+  const B = new Float64Array(6 * 24);
+  for (let a = 0; a < 8; a++) {
+    const ax = a & 1, ay = (a >> 1) & 1, az = (a >> 2) & 1;
+    const fx = ax ? x : 1 - x, fy = ay ? y : 1 - y, fz = az ? z : 1 - z, sx = ax ? 1 : -1, sy = ay ? 1 : -1, sz = az ? 1 : -1;
+    const dx = sx * fy * fz, dy = fx * sy * fz, dz = fx * fy * sz;
+    B[24 * 0 + 3 * a] = dx; B[24 * 1 + 3 * a + 1] = dy; B[24 * 2 + 3 * a + 2] = dz;
+    B[24 * 3 + 3 * a + 1] = dz; B[24 * 3 + 3 * a + 2] = dy;
+    B[24 * 4 + 3 * a] = dz; B[24 * 4 + 3 * a + 2] = dx;
+    B[24 * 5 + 3 * a] = dy; B[24 * 5 + 3 * a + 1] = dx;
+  }
+  return B;
+}
+// job: { dims:[nx,ny,nz], h (m), elems: Int32Array voxel indices, phi: Float32Array stiffness/mass
+// fraction per element, faceP: Float32Array gauge pressure (Pa) on each element's exposed faces (6 per
+// element, NaN = not exposed), E, nu, rho, tol, maxIt, fixed: optional Uint8Array per element (clamped) }
+function feaSolve(job, progress) {
+  const [nx, ny, nz] = job.dims, h = job.h, ne = job.elems.length, nu = job.nu;
+  const Ke = hexKe(nu);
+  // nodes
+  const NXn = nx + 1, NYn = ny + 1, nodeOf = new Map();
+  const en = new Int32Array(8 * ne);
+  let nn = 0;
+  for (let e = 0; e < ne; e++) {
+    const v = job.elems[e], x = v % nx, y = ((v / nx) | 0) % ny, z = (v / (nx * ny)) | 0;
+    for (let a = 0; a < 8; a++) {
+      const g = x + (a & 1) + NXn * (y + ((a >> 1) & 1) + NYn * (z + ((a >> 2) & 1)));
+      let id = nodeOf.get(g);
+      if (id === undefined) { id = nn++; nodeOf.set(g, id); }
+      en[8 * e + a] = id;
+    }
+  }
+  const nd = 3 * nn;
+  const kE = new Float64Array(ne);   // element stiffness scale: E·φ·h (hex of side h scales with h)
+  const mE = new Float64Array(ne);   // element mass
+  for (let e = 0; e < ne; e++) { kE[e] = job.E * job.phi[e] * h; mE[e] = job.rho * job.phi[e] * h * h * h; }
+  // loads: pressure on exposed faces, to the face's 4 nodes
+  const f = new Float64Array(nd), pos = new Float64Array(3 * nn), mN = new Float64Array(nn);
+  const faceNodes = [[0, 2, 4, 6], [1, 3, 5, 7], [0, 1, 4, 5], [2, 3, 6, 7], [0, 1, 2, 3], [4, 5, 6, 7]];
+  const faceDir = [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];
+  for (let e = 0; e < ne; e++) {
+    const v = job.elems[e], x = v % nx, y = ((v / nx) | 0) % ny, z = (v / (nx * ny)) | 0;
+    for (let a = 0; a < 8; a++) { const id = en[8 * e + a]; pos[3 * id] = (x + (a & 1)) * h; pos[3 * id + 1] = (y + ((a >> 1) & 1)) * h; pos[3 * id + 2] = (z + ((a >> 2) & 1)) * h; mN[id] += mE[e] / 8; }
+    for (let k = 0; k < 6; k++) {
+      const p = job.faceP[6 * e + k];
+      if (!(p === p)) continue;
+      const F = -p * h * h / 4;   // pressure pushes inward, against the outward face normal
+      for (const a of faceNodes[k]) { const id = en[8 * e + a]; for (let c = 0; c < 3; c++) f[3 * id + c] += F * faceDir[k][c]; }
+    }
+  }
+  // thermal expansion: an element at temperature rise ΔT pushes on its nodes with Bᵀ D ε_th (the
+  // incompatible modes carry no load for a uniform ΔT, so the compatible part is exact)
+  if (job.dT) {
+    const D1 = dMat(1, nu), gp = [0.5 - 0.5 / Math.sqrt(3), 0.5 + 0.5 / Math.sqrt(3)], fth = new Float64Array(24);
+    const s1 = D1[0] + D1[1] + D1[2];   // D·[1 1 1 0 0 0] has s1 in each normal component
+    for (const gx of gp) for (const gy of gp) for (const gz of gp) { const B = bMat(gx, gy, gz); for (let j = 0; j < 24; j++) fth[j] += (B[j] + B[24 + j] + B[48 + j]) * s1 / 8; }
+    for (let e = 0; e < ne; e++) {
+      const dT = job.dT[e]; if (!dT) continue;
+      const sc = job.E * job.phi[e] * h * h * job.alpha * dT;
+      for (let a = 0; a < 8; a++) { const d = 3 * en[8 * e + a]; f[d] += sc * fth[3 * a]; f[d + 1] += sc * fth[3 * a + 1]; f[d + 2] += sc * fth[3 * a + 2]; }
+    }
+  }
+  // inertia relief: body acceleration a and angular acceleration α that balance the applied load
+  let M = 0, cx = 0, cy = 0, cz = 0;
+  for (let i = 0; i < nn; i++) { M += mN[i]; cx += mN[i] * pos[3 * i]; cy += mN[i] * pos[3 * i + 1]; cz += mN[i] * pos[3 * i + 2]; }
+  cx /= M; cy /= M; cz /= M;
+  const Ft = [0, 0, 0], Mt = [0, 0, 0], I = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < nn; i++) {
+    const rx = pos[3 * i] - cx, ry = pos[3 * i + 1] - cy, rz = pos[3 * i + 2] - cz, fx = f[3 * i], fy = f[3 * i + 1], fz = f[3 * i + 2];
+    Ft[0] += fx; Ft[1] += fy; Ft[2] += fz;
+    Mt[0] += ry * fz - rz * fy; Mt[1] += rz * fx - rx * fz; Mt[2] += rx * fy - ry * fx;
+    const m = mN[i], r2 = rx * rx + ry * ry + rz * rz;
+    I[0] += m * (r2 - rx * rx); I[4] += m * (r2 - ry * ry); I[8] += m * (r2 - rz * rz);
+    I[1] -= m * rx * ry; I[2] -= m * rx * rz; I[5] -= m * ry * rz;
+  }
+  I[3] = I[1]; I[6] = I[2]; I[7] = I[5];
+  const acc = Ft.map((v) => v / M), alp = solve3(I, Mt);
+  if (!job.fixed) for (let i = 0; i < nn; i++) {
+    const rx = pos[3 * i] - cx, ry = pos[3 * i + 1] - cy, rz = pos[3 * i + 2] - cz, m = mN[i];
+    f[3 * i] -= m * (acc[0] + alp[1] * rz - alp[2] * ry);
+    f[3 * i + 1] -= m * (acc[1] + alp[2] * rx - alp[0] * rz);
+    f[3 * i + 2] -= m * (acc[2] + alp[0] * ry - alp[1] * rx);
+  }
+  // clamped elements (for test cases): all their nodes fixed
+  const fixN = new Uint8Array(nn);
+  if (job.fixed) for (let e = 0; e < ne; e++) if (job.fixed[e]) for (let a = 0; a < 8; a++) fixN[en[8 * e + a]] = 1;
+  // Jacobi diagonal, with a weak spring (1e-7 of the mean diagonal) that pins rigid-body motion
+  const dg = new Float64Array(nd);
+  for (let e = 0; e < ne; e++) for (let a = 0; a < 8; a++) for (let c = 0; c < 3; c++) dg[3 * en[8 * e + a] + c] += kE[e] * Ke[25 * (3 * a + c)];
+  let dm = 0; for (let i = 0; i < nd; i++) dm += dg[i] / nd;
+  const spring = job.fixed ? 0 : 1e-7 * dm;
+  for (let i = 0; i < nd; i++) dg[i] += spring;
+  const ue = new Float64Array(24), ye = new Float64Array(24);
+  const Kx = (x, y) => {
+    y.fill(0);
+    for (let e = 0; e < ne; e++) {
+      const s = kE[e], b = 8 * e;
+      for (let a = 0; a < 8; a++) { const d = 3 * en[b + a]; ue[3 * a] = x[d]; ue[3 * a + 1] = x[d + 1]; ue[3 * a + 2] = x[d + 2]; }
+      for (let i = 0; i < 24; i++) { let t = 0; const r = 24 * i; for (let j = 0; j < 24; j++) t += Ke[r + j] * ue[j]; ye[i] = t * s; }
+      for (let a = 0; a < 8; a++) { const d = 3 * en[b + a]; y[d] += ye[3 * a]; y[d + 1] += ye[3 * a + 1]; y[d + 2] += ye[3 * a + 2]; }
+    }
+    for (let i = 0; i < nd; i++) y[i] += spring * x[i];
+    for (let i = 0; i < nn; i++) if (fixN[i]) { y[3 * i] = x[3 * i]; y[3 * i + 1] = x[3 * i + 1]; y[3 * i + 2] = x[3 * i + 2]; }
+  };
+  for (let i = 0; i < nn; i++) if (fixN[i]) { f[3 * i] = f[3 * i + 1] = f[3 * i + 2] = 0; dg[3 * i] = dg[3 * i + 1] = dg[3 * i + 2] = 1; }
+  // preconditioned CG
+  const u = new Float64Array(nd), r = Float64Array.from(f), z = new Float64Array(nd), p = new Float64Array(nd), q = new Float64Array(nd);
+  for (let i = 0; i < nd; i++) z[i] = r[i] / dg[i];
+  p.set(z);
+  let rz = 0, f2 = 0; for (let i = 0; i < nd; i++) { rz += r[i] * z[i]; f2 += f[i] * f[i]; }
+  const tol = job.tol || 1e-6, maxIt = job.maxIt || 4000;
+  let it = 0, res = 1;
+  for (; it < maxIt; it++) {
+    Kx(p, q);
+    let pq = 0; for (let i = 0; i < nd; i++) pq += p[i] * q[i];
+    const al = rz / pq;
+    let r2 = 0;
+    for (let i = 0; i < nd; i++) { u[i] += al * p[i]; r[i] -= al * q[i]; r2 += r[i] * r[i]; }
+    res = Math.sqrt(r2 / Math.max(f2, 1e-300));
+    if (res < tol) break;
+    let rz1 = 0; for (let i = 0; i < nd; i++) { z[i] = r[i] / dg[i]; rz1 += r[i] * z[i]; }
+    const be = rz1 / rz; rz = rz1;
+    for (let i = 0; i < nd; i++) p[i] = z[i] + be * p[i];
+    if (progress && it % 25 === 0) progress(it, res);
+  }
+  // element stresses at the centre (real skin stress: strain × the unscaled modulus)
+  const B = bMat(0.5, 0.5, 0.5), D = dMat(job.E, nu), vm = new Float32Array(ne), sig = new Float64Array(6), eps = new Float64Array(6);
+  for (let e = 0; e < ne; e++) {
+    for (let a = 0; a < 8; a++) { const d = 3 * en[8 * e + a]; ue[3 * a] = u[d]; ue[3 * a + 1] = u[d + 1]; ue[3 * a + 2] = u[d + 2]; }
+    for (let i = 0; i < 6; i++) { let s = 0; for (let j = 0; j < 24; j++) s += B[24 * i + j] * ue[j]; eps[i] = s / h; }
+    if (job.dT) { const th = job.alpha * job.dT[e]; eps[0] -= th; eps[1] -= th; eps[2] -= th; }
+    for (let i = 0; i < 6; i++) { let s = 0; for (let j = 0; j < 6; j++) s += D[6 * i + j] * eps[j]; sig[i] = s; }
+    const [sx, sy, sz, tyz, txz, txy] = sig;
+    vm[e] = Math.sqrt(0.5 * ((sx - sy) ** 2 + (sy - sz) ** 2 + (sz - sx) ** 2) + 3 * (tyz * tyz + txz * txz + txy * txy));
+  }
+  // largest deflection relative to the mean (rigid motion removed by subtracting the mass-weighted mean)
+  let ux = 0, uy = 0, uz = 0;
+  for (let i = 0; i < nn; i++) { ux += mN[i] * u[3 * i] / M; uy += mN[i] * u[3 * i + 1] / M; uz += mN[i] * u[3 * i + 2] / M; }
+  let umax = 0; for (let i = 0; i < nn; i++) umax = Math.max(umax, Math.hypot(u[3 * i] - ux, u[3 * i + 1] - uy, u[3 * i + 2] - uz));
+  return { vm, it, res, nn, ne, umax, mass: M, load: Ft, acc, u: job.wantU ? u : null, en: job.wantU ? en : null };
+}
+function solve3(A, b) {
+  const [a, bb, c, d, e, f, g, h, i] = A, det = a * (e * i - f * h) - bb * (d * i - f * g) + c * (d * h - e * g);
+  if (Math.abs(det) < 1e-300) return [0, 0, 0];
+  return [
+    (b[0] * (e * i - f * h) - bb * (b[1] * i - f * b[2]) + c * (b[1] * h - e * b[2])) / det,
+    (a * (b[1] * i - f * b[2]) - b[0] * (d * i - f * g) + c * (d * b[2] - b[1] * g)) / det,
+    (a * (e * b[2] - b[1] * h) - bb * (d * b[2] - b[1] * g) + b[0] * (d * h - e * g)) / det];
+}
+
+// Structural materials: modulus, Poisson's ratio, density, allowable stress (yield, or ultimate for
+// brittle composites), and the temperature above which the properties fall away
+const MATERIALS = {
+  al2024: { name: "Aluminium 2024-T3", E: 73.1e9, nu: 0.33, rho: 2780, sy: 345e6, k: 121, cp: 875, Tmax: 450, alpha: 23.2e-6 },
+  al7075: { name: "Aluminium 7075-T6", E: 71.7e9, nu: 0.33, rho: 2810, sy: 503e6, k: 130, cp: 960, Tmax: 420, alpha: 23.4e-6 },
+  ti64: { name: "Titanium Ti-6Al-4V", E: 113.8e9, nu: 0.34, rho: 4430, sy: 880e6, k: 6.7, cp: 526, Tmax: 700, alpha: 8.6e-6 },
+  steel4130: { name: "Steel 4130", E: 205e9, nu: 0.29, rho: 7850, sy: 435e6, k: 42.7, cp: 477, Tmax: 700, alpha: 12.3e-6 },
+  inconel718: { name: "Inconel 718", E: 200e9, nu: 0.29, rho: 8190, sy: 1035e6, k: 11.4, cp: 435, Tmax: 920, alpha: 13e-6 },
+  cfrp: { name: "Carbon/epoxy, quasi-isotropic", E: 60e9, nu: 0.3, rho: 1600, sy: 600e6, k: 5, cp: 900, Tmax: 400, alpha: 2e-6 },
+  pla: { name: "PLA (3D print)", E: 3.5e9, nu: 0.36, rho: 1240, sy: 50e6, k: 0.13, cp: 1800, Tmax: 330, alpha: 68e-6 },
+  paper: { name: "Paper (80 g/m²)", E: 4e9, nu: 0.3, rho: 800, sy: 40e6, k: 0.05, cp: 1300, Tmax: 400, alpha: 5e-6 },
+};
+const fea = { busy: false, res: null, show: false, key: "", worker: null };
+function feaWorker() {
+  if (fea.worker) return fea.worker;
+  const src = [hexKe, mulDB, bInc, inv, dMat, bMat, solve3, feaSolve].map((f) => f.toString()).join("\n") +
+    "\nonmessage = (m) => { const r = feaSolve(m.data, (it, res) => postMessage({ prog: [it, res] })); postMessage({ done: r }, [r.vm.buffer]); };";
+  try { fea.worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" }))); } catch (e) { fea.worker = null; }
+  return fea.worker;
+}
+const f16 = (() => { const f = new Float32Array(1), u = new Uint32Array(f.buffer); return (v) => {
+  f[0] = v; const x = u[0], sgn = (x >>> 16) & 0x8000, e = ((x >>> 23) & 0xff) - 112, m = (x >>> 13) & 0x3ff;
+  if (e <= 0) return sgn; if (e >= 31) return sgn | 0x7c00; return sgn | (e << 10) | m; }; })();
+// Elements, skin fractions and face pressures from the voxel model (flags, distance, surface Cp)
+function feaBuildJob(o) {
+  const { flags, nrm, fld, dims, h, L0, mat, tmm, solid, q } = o, [nx, ny, nz] = dims, N = nx * ny * nz;
+  const skc = Math.max(tmm / 1000 / h, 1e-3);
+  // The skin is a band at least BAND voxels deep (a one-voxel band of a curved, stair-stepped surface
+  // carries its membrane load in a zig-zag and reads far too much stress), with stiffness and mass
+  // scaled so the band has the skin's real thickness
+  const band = Math.max(o.band || 2, Math.ceil(skc)), fr = Math.min(1, skc / band);
+  const solidF = (i) => flags[i] === 1;
+  const elems = [], phi = [];
+  for (let v = 0; v < N; v++) {
+    if (!solidF(v)) continue;
+    let depth = 99;
+    if (nrm[2 * v] !== 0) depth = Math.max(0, -h2f(nrm[2 * v + 1] >>> 16) * L0);
+    if (solid || depth < band) { elems.push(v); phi.push(solid ? 1 : fr); }
+  }
+  const ne = elems.length;
+  if (!ne) throw new Error("no solid voxels");
+  if (ne > 1.5e6) throw new Error(`${ne.toLocaleString("en-GB")} elements is too many for the browser; use a skin, or a coarser grid`);
+  const faceP = new Float32Array(6 * ne).fill(NaN), off = [-1, 1, -nx, nx, -nx * ny, nx * ny];
+  // true surface area: each exposed voxel face of direction k stands for |n_k| of the real surface
+  let area = 0;
+  for (let e = 0; e < ne; e++) {
+    const v = elems[e], x = v % nx, y = ((v / nx) | 0) % ny, z = (v / (nx * ny)) | 0;
+    const edge = [x === 0, x === nx - 1, y === 0, y === ny - 1, z === 0, z === nz - 1];
+    const cp = h2f(fld[4 * v]), w = nrm[2 * v];
+    let n = null;
+    if (w) { const a = sn8(w & 255), b = sn8((w >>> 8) & 255), c = sn8((w >>> 16) & 255), l = Math.hypot(a, b, c); if (l > 0.3) n = [a / l, b / l, c / l]; }
+    for (let k = 0; k < 6; k++) {
+      if (edge[k]) continue;
+      if (!solidF(v + off[k])) { faceP[6 * e + k] = cp * q; area += h * h * (n ? Math.abs(n[k >> 1]) : 0.577); }
+    }
+  }
+  // scale the band so its volume per unit of real surface is the skin thickness
+  if (!solid) { const f2 = Math.min(1, (tmm / 1000) * area / (ne * h ** 3)); for (let e = 0; e < ne; e++) phi[e] = f2; }
+  const fr2 = solid ? 1 : phi[0];
+  // non-structural mass (fuel, payload, systems) rides on the skin, so inertia relief uses the vehicle mass
+  const mStruct = ne * mat.rho * h ** 3 * fr2, mVeh = Math.max(o.mVeh || 0, mStruct);
+  const job = { dims, h, elems: Int32Array.from(elems), phi: Float32Array.from(phi), faceP, E: mat.E, nu: mat.nu, rho: mat.rho * (mVeh / mStruct), tol: 1e-5, maxIt: 6000 };
+  return { job, elems, ne, mStruct, mVeh, area };
+}
+// Heat soak of the bare structure along the entry: 3D conduction through the skin voxels, heated
+// on the outside by the flow (convective hc·(Tr − Tw) from the heating model at each moment) and
+// cooled by radiation εσT⁴; the inside is adiabatic. Explicit finite volumes, time step under the
+// stability limit. Returns each element's peak temperature and the temperature field at the moment
+// the structure is hottest, for the thermal-stress run.
+function heatSoak(B, mat, T0) {
+  const S = hy.surf, T = hy.traj;
+  if (!S || !T) return null;
+  const { job, elems, ne } = B, [nx, ny] = job.dims, h = job.h, eps = st.hyp.eps, SIG = 5.670374e-8;
+  const idOf = new Map(); elems.forEach((v, e) => idOf.set(v, e));
+  // surface heating per element: true exposed area and the surface cell that feeds it
+  const aExp = new Float32Array(ne), sOf = new Int32Array(ne).fill(-1);
+  for (let i = 0; i < S.cnt; i++) { const e = idOf.get(S.idx[i]); if (e !== undefined) { sOf[e] = i; aExp[e] = Math.max(S.area[i], 0) * h * h; } }
+  // neighbour conductances (faces between element voxels), capacities
+  const off = [1, nx, nx * ny], nb = [], G = [];
+  for (let e = 0; e < ne; e++) for (const o of off) { const f = idOf.get(elems[e] + o); if (f !== undefined) { nb.push(e, f); G.push(mat.k * h * Math.min(job.phi[e], job.phi[f])); } }
+  const C = new Float64Array(ne); for (let e = 0; e < ne; e++) C[e] = mat.rho * mat.cp * h ** 3 * job.phi[e];
+  const Gs = new Float64Array(ne); for (let k = 0; k < G.length; k++) { Gs[nb[2 * k]] += G[k]; Gs[nb[2 * k + 1]] += G[k]; }
+  let dtMax = Infinity; for (let e = 0; e < ne; e++) if (Gs[e] > 0) dtMax = Math.min(dtMax, C[e] / Gs[e]);
+  // heating samples along the trajectory
+  const K = Math.min(50, T.n), times = [], hcA = [], TrA = [];
+  for (let k = 0; k < K; k++) {
+    const i = Math.round((k * (T.n - 1)) / (K - 1)), env = envAt(T, i);
+    times.push(T.t[i]);
+    const hc = new Float32Array(S.cnt), Tr = new Float32Array(S.cnt);
+    for (let c = 0; c < S.cnt; c++) { const r = cellHeat(c, env, null); hc[c] = r.hc; Tr[c] = r.Tr; }
+    hcA.push(hc); TrA.push(Tr);
+  }
+  const Tm = new Float64Array(ne).fill(T0), Tpk = new Float32Array(ne).fill(T0), dQ = new Float64Array(ne);
+  let hottest = { t: 0, mean: T0, field: Float32Array.from(Tm) };
+  for (let k = 0; k + 1 < K; k++) {
+    const span = times[k + 1] - times[k];
+    if (!(span > 0)) continue;
+    const nSub = Math.max(1, Math.ceil(span / (0.45 * dtMax))), dt = span / nSub;
+    for (let sub = 0; sub < nSub; sub++) {
+      const w = (sub + 0.5) / nSub;
+      dQ.fill(0);
+      for (let j = 0; j < G.length; j++) { const a = nb[2 * j], b = nb[2 * j + 1], q = G[j] * (Tm[b] - Tm[a]); dQ[a] += q; dQ[b] -= q; }
+      for (let e = 0; e < ne; e++) {
+        const c = sOf[e];
+        if (c >= 0) { const hc = hcA[k][c] * (1 - w) + hcA[k + 1][c] * w, Tr = TrA[k][c] * (1 - w) + TrA[k + 1][c] * w; dQ[e] += aExp[e] * (hc * (Tr - Tm[e]) - eps * SIG * Tm[e] ** 4); }
+        Tm[e] += (dt * dQ[e]) / C[e];
+        if (Tm[e] > Tpk[e]) Tpk[e] = Tm[e];
+      }
+    }
+    let mean = 0; for (let e = 0; e < ne; e++) mean += Tm[e] / ne;
+    if (mean > hottest.mean) hottest = { t: times[k + 1], mean, field: Float32Array.from(Tm) };
+  }
+  return { Tpk, hottest, dtMax };
+}
+async function runFEA() {
+  if (fea.busy || !R || !dev) return;
+  const mat = MATERIALS[$("#feaMat").value] || MATERIALS.al2024, tmm = +$("#feaSkin").value, solid = $("#feaSolid").checked;
+  const env = st.spd.set ? envNow() : st.regime === "hyp" ? envNow() : null;
+  const q = env && env.V > 0 ? 0.5 * env.rho * env.V * env.V : 1000;
+  fea.busy = true; $("#btnFEA").disabled = true; $("#feaMsg").textContent = "Reading the voxel model and surface pressure…";
+  try {
+    const [nx, ny, nz] = R.dims, N = R.N, Rr = R;
+    const sF = dev.createBuffer({ size: 4 * N, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    const sN = dev.createBuffer({ size: 8 * N, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    const sT = dev.createBuffer({ size: 8 * N, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    const enc = dev.createCommandEncoder();
+    enc.copyBufferToBuffer(R.flags, 0, sF, 0, 4 * N); enc.copyBufferToBuffer(R.nrm, 0, sN, 0, 8 * N);
+    enc.copyTextureToBuffer({ texture: R.field }, { buffer: sT, bytesPerRow: nx * 8, rowsPerImage: ny }, [nx, ny, nz]);
+    dev.queue.submit([enc.finish()]);
+    await Promise.all([sF.mapAsync(GPUMapMode.READ), sN.mapAsync(GPUMapMode.READ), sT.mapAsync(GPUMapMode.READ)]);
+    const flags = new Uint32Array(sF.getMappedRange().slice(0)), nrm = new Uint32Array(sN.getMappedRange().slice(0)), fld = new Uint16Array(sT.getMappedRange().slice(0));
+    sF.unmap(); sN.unmap(); sT.unmap(); sF.destroy(); sN.destroy(); sT.destroy();
+    if (Rr !== R) throw new Error("grid changed");
+    const B = feaBuildJob({ flags, nrm, fld, dims: [nx, ny, nz], h: metresPerCell(), L0: lc(), mat, tmm, solid, q, mVeh: st.ent.mass || 0 });
+    const { job, elems, ne, mStruct, mVeh } = B;
+    let soak = null;
+    if ($("#feaHeat").checked && st.regime === "hyp" && hy.traj && hy.surf) {
+      $("#feaMsg").textContent = "Conducting the entry heating through the structure…";
+      await new Promise((r) => setTimeout(r, 30));
+      soak = heatSoak(B, mat, 293);
+      if (soak) { job.alpha = mat.alpha; job.dT = Float32Array.from(soak.hottest.field, (T) => T - 293); }
+    }
+    $("#feaMsg").textContent = `Solving ${ne.toLocaleString("en-GB")} elements…`;
+    const t0 = performance.now();
+    const res = await new Promise((ok, bad) => {
+      const W = feaWorker();
+      if (!W) { try { ok(feaSolve(job)); } catch (e) { bad(e); } return; }
+      W.onmessage = (m) => { if (m.data.prog) $("#feaMsg").textContent = `Solving ${ne.toLocaleString("en-GB")} elements · iteration ${m.data.prog[0]} · residual ${m.data.prog[1].toExponential(1)}`; else ok(m.data.done); };
+      W.onerror = (e) => bad(e);
+      W.postMessage(job);
+    });
+    const vm = res.vm, sorted = Float32Array.from(vm).sort(), p995 = sorted[Math.floor(0.995 * (ne - 1))], vmax = sorted[ne - 1];
+    fea.res = { vm, elems: Int32Array.from(elems), mat, q, env: !!env, tmm, solid, ne, it: res.it, resid: res.res, umax: res.umax, mStruct, mVeh, p995, vmax, acc: res.acc, sec: (performance.now() - t0) / 1000, R,
+      Tpk: soak ? soak.Tpk : null, tHot: soak ? soak.hottest.t : 0, TpkMax: soak ? Float32Array.from(soak.Tpk).sort()[Math.floor(0.995 * (ne - 1))] : 0 };
+    fea.key = caseKey(false) + "|" + voxGen;
+    writeStressTexture();
+    fea.show = 5; $("#feaShow").value = "5";
+    updateFEAInfo(); updateLegend();
+    $("#feaMsg").textContent = res.res < 1e-4 ? `Solved in ${fea.res.sec.toFixed(1)} s (${res.it} iterations).` : `Stopped at ${res.it} iterations, residual ${res.res.toExponential(1)}: results are approximate.`;
+  } catch (e) { $("#feaMsg").textContent = "Structural analysis failed: " + (e.message || e); }
+  fea.busy = false; $("#btnFEA").disabled = false;
+}
+// von Mises / allowable into the surface texture's g channel: the surface voxels and the fluid
+// voxels just outside them (the renderer samples just off the wall)
+function writeStressTexture() {
+  const F = fea.res;
+  if (!F || F.R !== R) return;
+  const [nx, ny, nz] = R.dims, N = R.N, val = new Float32Array(N), allow = F.mat.sy;
+  for (let e = 0; e < F.ne; e++) val[F.elems[e]] = F.vm[e] / allow;
+  const out = new Uint16Array(4 * N), off = [1, -1, nx, -nx, nx * ny, -nx * ny];
+  const isE = new Uint8Array(N); for (let e = 0; e < F.ne; e++) isE[F.elems[e]] = 1;
+  for (let e = 0; e < F.ne; e++) {
+    const v = F.elems[e], h = f16(val[v]), tb = F.Tpk ? f16(F.Tpk[e]) : 0;
+    out[4 * v + 1] = h; out[4 * v + 2] = tb;
+    for (const o of off) { const w = v + o; if (w >= 0 && w < N && !isE[w]) {
+      const cur = out[4 * w + 1]; if (!cur || val[v] > h2f(cur)) out[4 * w + 1] = h;
+      if (F.Tpk) { const ct = out[4 * w + 2]; if (!ct || F.Tpk[e] > h2f(ct)) out[4 * w + 2] = tb; }
+    } }
+  }
+  dev.queue.writeTexture({ texture: R.surf }, out, { bytesPerRow: nx * 8, rowsPerImage: ny }, [nx, ny, nz]);
+}
+function updateFEAInfo() {
+  const el = $("#feaInfo"), F = fea.res;
+  if (!el) return;
+  const row = (k, v, c) => `<dt>${k}</dt><dd${c ? ` class="${c}"` : ""}>${v}</dd>`;
+  if (!F) { el.innerHTML = ""; return; }
+  const stale = fea.key !== caseKey(false) + "|" + voxGen, MPa = (v) => (v / 1e6).toFixed(v < 1e7 ? 2 : 0) + " MPa";
+  const sf = F.mat.sy / F.p995;
+  el.innerHTML = (stale ? row("Note", "the case has changed since this analysis", "warn") : "") +
+    row("Peak von Mises stress", `${MPa(F.p995)} <span class="muted">(single highest voxel ${MPa(F.vmax)})</span>`) +
+    row("Safety factor on " + (F.mat.name.includes("Carbon") || F.mat.name.includes("PLA") || F.mat.name.includes("Paper") ? "strength" : "yield"), sf.toFixed(2), sf < 1 ? "warn" : sf < 1.5 ? "warn" : "") +
+    row("Largest deflection", F.umax >= 0.01 ? (F.umax * 1000).toFixed(1) + " mm" : (F.umax * 1000).toFixed(2) + " mm") +
+    row("Load", F.env ? `flight dynamic pressure ${(F.q / 1000).toFixed(2)} kPa` : "1 kPa dynamic pressure (no flight condition set)") +
+    row("Load factor (inertia relief)", `${(Math.hypot(...F.acc) / G0).toFixed(2)} g`) +
+    (F.Tpk ? row("Peak structure temperature", `${Math.round(F.TpkMax - 273.15)} °C vs ${Math.round(F.mat.Tmax - 273.15)} °C limit`, F.TpkMax > F.mat.Tmax ? "warn" : "") +
+      row("Thermal stress", `included, at the hottest moment (${Math.round(F.tHot)} s into the entry)`) : "") +
+    row("Structure", `${F.ne.toLocaleString("en-GB")} voxel elements · ${F.solid ? "solid" : F.tmm + " mm skin"} · ${F.mStruct.toFixed(F.mStruct < 10 ? 2 : 0)} kg`);
+}
+
+// ─────────────── Local refinement: a nested finer grid ───────────────
+// The current solution becomes the parent. The same grid is then laid over a smaller box around a
+// chosen point, k times finer, with its outer faces fed from the parent (one-way nesting) and its
+// interior started from it, so lips, gaps and leading edges are resolved k times better.
+function nestUniform() {
+  const Z = st.zoom;
+  if (!(Z && Z.on && R && R.parent.size > 32)) return [0, 0, 0, 0, 0, 0, 0, 0];
+  const oc = origin(), k = Z.k;
+  return [1, 1 / k, 0, 0, Z.op[0] - oc[0] / k, Z.op[1] - oc[1] / k, Z.op[2] - oc[2] / k, 0];
+}
+function zoomIn() {
+  if (!R || st.regime !== "hyp" || !st.euler) { toast("Local refinement works with the high-speed flowfield: set the airspeed above Mach 0.6."); return; }
+  if (st.zoom && st.zoom.on) { toast("Already refined: go back to the full domain first."); return; }
+  if (solverFT() < 1) { toast("Let the flow settle for a flow-through or two first: the refined grid starts from it and takes its boundaries from it."); return; }
+  const k = +$("#zoomK").value || 2, cb = hy.probeB ? hy.probeB.slice() : [0.5, 0, 0];
+  if (!R.parent || R.parent.size < 20 * R.N) { if (R.parent) R.parent.destroy(); R.parent = dev.createBuffer({ size: 20 * R.N, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); eulerBindGroups(); }
+  const enc = dev.createCommandEncoder(); enc.copyBufferToBuffer(R.popA, 0, R.parent, 0, 20 * R.N); dev.queue.submit([enc.finish()]);
+  const op = origin(), key = caseKey(false);
+  st.zoom = { on: true, k, cb, op, key };
+  geoDirty = true; eu.reset = true; hy.probe = -1; refCache.key = "";
+  $("#zoomMsg").textContent = `${k}× finer around ${hy.probeB ? "the clicked point" : "the body centre"}. Forces cover only the part of the body inside the box.`;
+  $("#btnZoomOut").disabled = false;
+  scheduleHyp();
+}
+function zoomOut(quiet) {
+  if (!(st.zoom && st.zoom.on)) return;
+  st.zoom.on = false; geoDirty = true; eu.reset = true; hy.probe = -1; refCache.key = "";
+  $("#btnZoomOut").disabled = true;
+  if (!quiet) $("#zoomMsg").textContent = "";
+  scheduleHyp();
+}
+function zoomGuard() {
+  const Z = st.zoom;
+  if (!(Z && Z.on)) return;
+  Z.on = false; const k = caseKey(false); Z.on = true;
+  if (k !== Z.key) { zoomOut(true); $("#zoomMsg").textContent = "Back to the full domain: the case changed, so the parent solution no longer applies."; }
+}
+
+// ─────────────── Shape optimiser ───────────────
+// A body of revolution with its radius set at five stations along its length (ends closed), at fixed
+// length and volume; the flow solver scores each candidate by its pressure drag, and a Nelder–Mead
+// simplex searches the five radii. Linearised slender-body theory says the answer is the Sears–Haack
+// body, r = R·[4ξ(1−ξ)]^¾, with wave drag D/q = 128 V² / (π L⁴): if the optimiser finds that shape
+// from a double cone, it can be trusted on problems without a textbook answer.
+const OPT = { on: false, best: null, hist: [], evals: 0, simplex: null, phase: "", pending: null, t0: 0, ft0: 0 };
+const OPT_XI = [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6];
+const shRadius = (xi, R) => R * Math.pow(Math.max(0, 4 * xi * (1 - xi)), 0.75);
+// profile through the stations (Catmull–Rom), 14 interior samples, scaled to the target volume
+function optProfile(lr, V) {
+  const P = [[0, 0], ...OPT_XI.map((x, i) => [x, Math.exp(lr[i])]), [1, 0]];
+  const cr = (t, a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+  const pts = [];
+  for (let k = 1; k <= 14; k++) {
+    const x = k / 15;
+    let i = 0; while (i < P.length - 2 && P[i + 1][0] < x) i++;
+    const t = (x - P[i][0]) / (P[i + 1][0] - P[i][0]);
+    const r = cr(t, P[Math.max(0, i - 1)][1], P[i][1], P[i + 1][1], P[Math.min(P.length - 1, i + 2)][1]);
+    pts.push([x, Math.max(r, 1e-4)]);
+  }
+  const all = [[0, 0], ...pts, [1, 0]];
+  let vol = 0; for (let i = 0; i + 1 < all.length; i++) { const [x0, r0] = all[i], [x1, r1] = all[i + 1]; vol += (Math.PI * (x1 - x0) * (r0 * r0 + r0 * r1 + r1 * r1)) / 3; }
+  const k = Math.sqrt(V / vol);
+  return all.map(([x, r]) => [x, r * k]);
+}
+function optCode(prof) {
+  const pad = prof.concat(Array(16 - prof.length).fill(prof[prof.length - 1]));
+  const rows = [];
+  for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${x.toFixed(5)}, ${r.toFixed(5)})`).join(", "));
+  return `// Optimiser candidate: body of revolution at fixed length and volume.\nfn sdf(p: vec3f) -> f32 {\n  return sdRev(p, array<vec2f, 16>(\n${rows.join(",\n")}), ${prof.length}u);\n}`;
+}
+function optStart() {
+  if (OPT.on) { optStop("Stopped."); return; }
+  const M = Math.max(1.2, Math.min(4, +$("#optMach").value || 1.8)), Rm = 0.06, V = (3 * Math.PI * Math.PI * Rm * Rm) / 16;
+  OPT.V = V; OPT.Rm = Rm; OPT.M = M; OPT.hist = []; OPT.evals = 0; OPT.best = null;
+  // start: a double cone with the same volume (far from the optimum)
+  const x0 = OPT_XI.map((x) => Math.log(Math.max(0.02, 1 - Math.abs(2 * x - 1)) * 0.08));
+  const n = x0.length, simplex = [x0];
+  for (let i = 0; i < n; i++) { const v = x0.slice(); v[i] += 0.35; simplex.push(v); }
+  OPT.simplex = simplex.map((x) => ({ x, f: null }));
+  OPT.queue = OPT.simplex.slice(); OPT.on = true; OPT.phase = "init";
+  st.preset = "opt"; PRESETS.opt = PRESETS.opt || { cat: "val", name: "Optimiser candidate", aoa: 0, beta: 0, size: 1.9, ref: "front", veh: { L: 4, mass: 100 }, code: "" };
+  applyPreset("opt");
+  st.hyp.wall = false; $("#hWall").checked = false;   // wave drag only
+  setTimeout(() => { const A = atmos(15); setSpeed(M * A.a, 15); setAltitude(15); }, 0);
+  if (!running) { running = true; syncRun(); }
+  $("#btnOpt").textContent = "Stop optimiser";
+  optNext();
+}
+function optStop(msg) { OPT.on = false; $("#btnOpt").textContent = "Optimise shape"; $("#optMsg").textContent = msg || ""; optDraw(); }
+function optSubmit(c) {
+  OPT.pending = c; OPT.evals++;
+  const prof = optProfile(c.x, OPT.V);
+  c.prof = prof;
+  compileSDF(optCode(prof)).then(() => { OPT.ft0 = solverFT(); OPT.t0 = performance.now(); OPT.key = null; });
+}
+function optNext() {
+  if (!OPT.on) return;
+  if (OPT.queue && OPT.queue.length) { optSubmit(OPT.queue.shift()); return; }
+  // Nelder–Mead step on the evaluated simplex
+  const S = OPT.simplex; S.sort((a, b) => a.f - b.f);
+  const n = S.length - 1, best = S[0], worst = S[n];
+  const spread = Math.abs(S[n].f - S[0].f) / Math.max(Math.abs(S[0].f), 1e-9);
+  if ((spread < 0.004 && OPT.evals > 12) || OPT.evals >= 100) { optStop(`Converged after ${OPT.evals} candidates.`); optApplyBest(); return; }
+  const cen = Array(n).fill(0); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) cen[j] += S[i].x[j] / n;
+  const pt = (t) => cen.map((c, j) => c + t * (worst.x[j] - c));
+  if (OPT.phase === "reflect" || OPT.phase === "init" || OPT.phase === "shrink-done") { OPT.phase = "reflect"; OPT.trial = { x: pt(-1), f: null }; optSubmit(OPT.trial); return; }
+}
+function optScored(c) {
+  OPT.hist.push({ f: c.f, prof: c.prof });
+  if (!OPT.best || c.f < OPT.best.f) OPT.best = c;
+  const S = OPT.simplex, n = S.length - 1;
+  if (OPT.phase === "init") { if (!OPT.queue.length) { OPT.phase = "reflect"; } optDraw(); optNext(); return; }
+  S.sort((a, b) => a.f - b.f);
+  const worst = S[n], second = S[n - 1], bestF = S[0].f;
+  const cen = Array(n).fill(0); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) cen[j] += S[i].x[j] / n;
+  const pt = (t) => cen.map((cc, j) => cc + t * (worst.x[j] - cc));
+  if (OPT.phase === "reflect") {
+    const r = c;
+    if (r.f < bestF) { OPT.phase = "expand"; OPT.refl = r; OPT.trial = { x: pt(-2), f: null }; optSubmit(OPT.trial); optDraw(); return; }
+    if (r.f < second.f) { S[n] = r; OPT.phase = "reflect"; optDraw(); optNext(); return; }
+    OPT.phase = "contract"; OPT.refl = r; OPT.trial = { x: pt(r.f < worst.f ? -0.5 : 0.5), f: null }; optSubmit(OPT.trial); optDraw(); return;
+  }
+  if (OPT.phase === "expand") { S[n] = c.f < OPT.refl.f ? c : OPT.refl; OPT.phase = "reflect"; optDraw(); optNext(); return; }
+  if (OPT.phase === "contract") {
+    if (c.f < Math.min(worst.f, OPT.refl.f)) { S[n] = c; OPT.phase = "reflect"; optDraw(); optNext(); return; }
+    // shrink towards the best
+    const b = S[0];
+    OPT.queue = [];
+    for (let i = 1; i <= n; i++) { S[i] = { x: S[i].x.map((v, j) => b.x[j] + 0.5 * (v - b.x[j])), f: null }; OPT.queue.push(S[i]); }
+    OPT.phase = "init"; optDraw(); optNext(); return;
+  }
+}
+// called from the frame loop: score the pending candidate once its drag has settled
+function optStep() {
+  if (!OPT.on || !OPT.pending || compiling) return;
+  if (!OPT.key) { OPT.key = caseKey(); return; }
+  const S = trackStat("cdq"), ft = solverFT() - OPT.ft0;
+  const ok = S && (S.state === "settled" || S.state === "unsteady") && ft > 1.2;
+  $("#optMsg").textContent = `Candidate ${OPT.evals} · ${ft.toFixed(1)} flow-throughs${S ? " · " + S.state : ""}${OPT.best ? ` · best D/q ${(OPT.best.f * 1e4).toFixed(2)}×10⁻⁴ L²` : ""}`;
+  if (!ok && ft < 6) return;
+  const c = OPT.pending; OPT.pending = null;
+  c.f = S ? S.mean : Infinity;
+  optScored(c);
+}
+function optApplyBest() {
+  if (!OPT.best) return;
+  $("#code").value = optCode(OPT.best.prof); compileSDF(optCode(OPT.best.prof));
+  optDraw();
+}
+function optDraw() {
+  const c = $("#optChart");
+  if (!c || c.offsetParent === null || !OPT.V) return;
+  const s_ = setupChart(c);
+  if (!s_) return;
+  const { g, w, h } = s_, pw = w - CH.l - 10, ph = h - CH.t - CH.b, Rsh = Math.sqrt((16 * OPT.V) / (3 * Math.PI * Math.PI));
+  const X = (x) => CH.l + x * pw, Y = (r) => CH.t + ph - (r / (1.6 * Rsh)) * ph;
+  g.strokeStyle = "rgba(148,163,204,0.6)"; g.setLineDash([4, 4]); g.lineWidth = 1.2; g.beginPath();
+  for (let k = 0; k <= 60; k++) { const x = k / 60; k ? g.lineTo(X(x), Y(shRadius(x, Rsh))) : g.moveTo(X(x), Y(0)); } g.stroke(); g.setLineDash([]);
+  const H = OPT.hist;
+  if (H.length) { g.strokeStyle = "rgba(134,160,255,0.35)"; g.lineWidth = 1; g.beginPath(); H[0].prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(r)) : g.moveTo(X(x), Y(r)))); g.stroke(); }
+  if (OPT.best && OPT.best.prof) { g.strokeStyle = "#f29c4f"; g.lineWidth = 2; g.beginPath(); OPT.best.prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(r)) : g.moveTo(X(x), Y(r)))); g.stroke(); }
+  g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace"; g.textAlign = "left";
+  g.fillText("dashed: Sears–Haack · faint: start · orange: best", CH.l + 4, CH.t + 10);
+  g.textAlign = "center"; g.fillText("x / L", CH.l + pw / 2, h - 4);
+  const info = $("#optInfo");
+  if (info && OPT.best && OPT.best.prof) {
+    let e2 = 0, n = 0; for (const [x, r] of OPT.best.prof) { e2 += (r - shRadius(x, Rsh)) ** 2; n++; }
+    const Dsh = (128 * OPT.V * OPT.V) / Math.PI, row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+    info.innerHTML = row("Candidates scored", OPT.evals) + row("Best drag D/q", `${(OPT.best.f * 1e4).toFixed(2)}×10⁻⁴ L² · start ${(H[0].f * 1e4).toFixed(2)}`) +
+      row("Slender-body theory, Sears–Haack", `${(Dsh * 1e4).toFixed(2)}×10⁻⁴ L² (linear theory, Mach-independent)`) +
+      row("Shape vs Sears–Haack", `RMS radius difference ${((Math.sqrt(e2 / n) / Rsh) * 100).toFixed(1)} % of max radius`);
+  }
+}
+
+// ─────────────── Validation suite: canonical cases against exact or published answers ───────────────
+// Each case sets up a flow, runs it until the measured quantity settles (or a time limit), and compares
+// with a reference. Exact references are computed here at the solver's own γ; experimental ones are
+// quoted with their source. Tolerances reflect the grid, not the method's ultimate accuracy.
+function taylorMaccoll(M, thDeg, g) {
+  // cone half-angle -> shock angle and surface state, by shooting on the shock angle (RK4 in the polar angle)
+  const th = thDeg * D;
+  const obl = (b) => Math.atan((2 / Math.tan(b)) * (M * M * Math.sin(b) ** 2 - 1) / (M * M * (g + Math.cos(2 * b)) + 2));
+  const solve = (b) => {
+    const d = obl(b), Mn1 = M * Math.sin(b);
+    const Mn2 = Math.sqrt((1 + 0.5 * (g - 1) * Mn1 * Mn1) / (g * Mn1 * Mn1 - 0.5 * (g - 1)));
+    const M2 = Mn2 / Math.sin(b - d), V = 1 / Math.sqrt(2 / ((g - 1) * M2 * M2) + 1);
+    let vr = V * Math.cos(b - d), vt = -V * Math.sin(b - d), t = b;
+    const f = (t, vr, vt) => { const A = 0.5 * (g - 1) * (1 - vr * vr - vt * vt); return [vt, (vt * vt * vr - A * (2 * vr + vt / Math.tan(t))) / (A - vt * vt)]; };
+    const h = -2e-4;
+    for (let i = 0; i < 20000 && vt < 0 && t > 0.01; i++) {
+      const k1 = f(t, vr, vt), k2 = f(t + h / 2, vr + (h / 2) * k1[0], vt + (h / 2) * k1[1]);
+      const k3 = f(t + h / 2, vr + (h / 2) * k2[0], vt + (h / 2) * k2[1]), k4 = f(t + h, vr + h * k3[0], vt + h * k3[1]);
+      const vr1 = vr + (h / 6) * (k1[0] + 2 * k2[0] + 2 * k3[0] + k4[0]), vt1 = vt + (h / 6) * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1]);
+      if (vt1 >= 0) { const fr = vt / (vt - vt1); t += h * fr; vr += (vr1 - vr) * fr; vt = 0; break; }
+      t += h; vr = vr1; vt = vt1;
+    }
+    return { tc: t, Vc: vr, Mn1 };
+  };
+  let lo = Math.asin(1 / M) + 1e-4, hi = 1.3;
+  for (let i = 0; i < 60; i++) { const m = 0.5 * (lo + hi); if (solve(m).tc < th) lo = m; else hi = m; }
+  const b = 0.5 * (lo + hi), S = solve(b);
+  const Mc = Math.sqrt(2 / ((g - 1) * (1 / (S.Vc * S.Vc) - 1)));
+  const pt2 = ptOverP(M, g) * nsRecovery(S.Mn1, g);               // p_t2 / p∞
+  const pc = pt2 / ptOverP(Mc, g);                                 // p_cone / p∞
+  return { beta: b / D, Mc, cp: (pc - 1) / (0.5 * g * M * M) };
+}
+// Rayleigh pitot: pressure coefficient at the stagnation point of any blunt body
+function stagCp(M, g) {
+  const p02 = M > 1 ? Math.pow(((g + 1) * (g + 1) * M * M) / (4 * g * M * M - 2 * (g - 1)), g / (g - 1)) * ((1 - g + 2 * g * M * M) / (g + 1)) : ptOverP(M, g);
+  return (p02 - 1) / (0.5 * g * M * M);
+}
+function surfCp(sel) {
+  const E = hy.eulEdge, S = hy.surf;
+  if (!E || E.S !== S) return NaN;
+  let a = 0, n = 0, mx = -1e9;
+  for (let i = 0; i < S.cnt; i++) {
+    const b = bodyFrame(S.pos[3 * i], S.pos[3 * i + 1], S.pos[3 * i + 2]);
+    if (sel === "max") { if (E.cp[i] > mx) mx = E.cp[i]; continue; }
+    if (b[0] >= sel[0] && b[0] <= sel[1] && Math.hypot(b[1], b[2]) > 0.02) { a += E.cp[i]; n++; }
+  }
+  return sel === "max" ? mx : n ? a / n : NaN;
+}
+const VCASES = [
+  { id: "cone15", name: "15° cone, Mach 2: surface pressure", preset: "vcone15", V: 590, h: 16, q: "val",
+    ref: (g, M) => taylorMaccoll(M, 15, g).cp, refTxt: "Taylor–Maccoll exact", tol: 0.05, unit: "Cp",
+    measure: () => surfCp([0.15, 0.42]) },
+  { id: "cone10", name: "10° cone, Mach 6: surface pressure", preset: "vcone10", V: 1802, h: 28, q: "val",
+    ref: (g, M) => taylorMaccoll(M, 10, g).cp, refTxt: "Taylor–Maccoll exact", tol: 0.06, unit: "Cp",
+    measure: () => surfCp([0.15, 0.5]) },
+  { id: "sphere3", name: "Sphere, Mach 3: stagnation pressure", preset: "sphere", V: 885, h: 20, q: "val",
+    ref: (g, M) => stagCp(M, g), refTxt: "Rayleigh pitot, exact", tol: 0.03, unit: "Cp",
+    measure: () => surfCp("max") },
+  { id: "sphereEq", name: "Sphere, 6 km/s at 60 km: stagnation pressure, equilibrium air", preset: "sphere", V: 6000, h: 60, q: "val",
+    setup: () => { st.hyp.air = "auto"; $("#hAir").value = "auto"; },
+    ref: () => 1.931, refTxt: "equilibrium normal shock and isentropic stagnation, Cantera with 11-species air (a perfect gas gives 1.835)", tol: 0.02, unit: "Cp",
+    measure: () => surfCp("max") },
+  { id: "pitot16", name: "Pitot intake, Mach 1.6: recovery", preset: "pitot", V: 472, h: 11, q: "rec",
+    setup: () => { st.duct.mode = "pb"; st.duct.pbr = 0.8; syncDuctUI(); },
+    ref: (g, M) => nsRecovery(M, g), refTxt: "normal shock, exact (inviscid)", tol: 0.025, unit: "pt₂/pt∞",
+    measure: () => { const m = ductMean(); return m ? m.rec : NaN; } },
+  { id: "sphereLo", name: "Sphere, Re 10⁴ (diameter 4,400): drag", preset: "sphere", V: 0.146, h: 0, q: "cd",
+    ref: () => 0.39, refTxt: "standard sphere drag curve (Achenbach; Schlichting)", tol: 0.15, unit: "CD",
+    measure: () => { const S = trackStat("cd"); return S ? S.mean : NaN; } },
+];
+const vsuite = { on: false, i: 0, t0: 0, res: [], phase: "" };
+function startValidation() {
+  if (vsuite.on) { stopValidation("Stopped."); return; }
+  vsuite.saved = { preset: st.preset, V: st.spd.V, h: st.spd.h, set: st.spd.set };
+  vsuite.on = true; vsuite.i = -1; vsuite.res = [];
+  if (!running) { running = true; syncRun(); }
+  nextValidation();
+}
+function stopValidation(msg) {
+  vsuite.on = false;
+  const S = vsuite.saved;
+  if (S) { applyPreset(S.preset); if (S.set) setTimeout(() => setSpeed(S.V, S.h), 0); }
+  $("#btnVal").textContent = "Run validation suite";
+  $("#valMsg").textContent = msg || "";
+  renderValidation();
+}
+function nextValidation() {
+  vsuite.i++;
+  if (vsuite.i >= VCASES.length) { const np = vsuite.res.filter((r) => r.pass).length; stopValidation(`${np} of ${vsuite.res.length} within tolerance.`); return; }
+  const C = VCASES[vsuite.i];
+  applyPreset(C.preset);
+  if (C.setup) C.setup();
+  setTimeout(() => { setAltitude(C.h); setSpeed(C.V, C.h); vsuite.t0 = performance.now(); vsuite.key = null; }, 0);
+  $("#btnVal").textContent = "Stop validation";
+  $("#valMsg").textContent = `${vsuite.i + 1} / ${VCASES.length}: ${C.name}…`;
+  renderValidation();
+}
+function validationStep() {
+  if (!vsuite.on || vsuite.i < 0) return;
+  const C = VCASES[vsuite.i];
+  if (!vsuite.key) { vsuite.key = caseKey(); return; }
+  if (caseKey() !== vsuite.key) { vsuite.key = caseKey(); }
+  const v = C.measure();
+  // surface pressures come from the edge-condition pass every 1.5 s: count each pass once
+  if (C.q === "val" && isFinite(v) && hy.eulEdge !== vsuite.lastE) { vsuite.lastE = hy.eulEdge; track("val", v, 0.05); }
+  const S = trackStat(C.q), ft = solverFT(), wall = (performance.now() - vsuite.t0) / 1000;
+  const ok = S && (S.state === "settled" || S.state === "unsteady") && ft > 1.5;
+  $("#valMsg").textContent = `${vsuite.i + 1} / ${VCASES.length}: ${C.name} · ${ft.toFixed(1)} flow-throughs${S ? " · " + S.state : ""}`;
+  if (!ok && ft < 10 && wall < 600) return;
+  const g = eu.g || st.hyp.gamma, M = st.spd.M, ref = C.ref(g, M), got = ok ? S.mean : v;
+  const err = (got - ref) / Math.abs(ref);
+  vsuite.res.push({ C, ref, got, err, pass: isFinite(err) && Math.abs(err) <= C.tol, settled: ok, band: S ? S.band : NaN, grid: st.grid, g, M });
+  nextValidation();
+}
+function renderValidation() {
+  const el = $("#valTable");
+  if (!el) return;
+  if (!vsuite.res.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `<table class="vt"><thead><tr><th>Case</th><th>Solver</th><th>Reference</th><th>Error</th></tr></thead><tbody>` +
+    vsuite.res.map((r) => `<tr class="${r.pass ? "ok" : "bad"}" title="${r.C.refTxt}; tolerance ±${(r.C.tol * 100).toFixed(1)} %; ${r.grid} grid, γ ${r.g.toFixed(3)}, Mach ${r.M.toFixed(2)}${r.settled ? "" : "; did not settle within the time limit"}"><td>${r.C.name}</td><td class="mono">${fmtSig(r.got)}${isFinite(r.band) ? ` ±${fmtBand(r.band)}` : ""}</td><td class="mono">${fmtSig(r.ref)}</td><td class="mono">${isFinite(r.err) ? (r.err >= 0 ? "+" : "") + (r.err * 100).toFixed(1) + " %" : "—"}${r.settled ? "" : " *"}</td></tr>`).join("") +
+    `</tbody></table>`;
+}
+
+// ─────────────── Convergence: is a result still moving, and by how much does it wander? ───────────────
+// Each tracked quantity keeps its samples against solver time in flow-throughs (the time air takes to
+// pass the tunnel). Over the last window a straight-line fit separates drift (still settling) from
+// scatter (unsteady flow: shedding, buzz). The band shown is twice the scatter plus the drift across the
+// window; a grid check adds the discretisation error on top.
+const CONV_WIN = 0.5;   // flow-throughs
+const conv = { key: "", tr: {}, grid: null, gcheck: null };
+function solverFT() {
+  if (!R) return 0;
+  return st.regime === "hyp" ? (eu.steps * eu.dt) / R.dims[0] : (steps * uLat()) / R.dims[0];
+}
+function caseKey(withGrid = true) {
+  const sp = st.spd.set ? `${st.spd.V.toFixed(1)}|${st.spd.h.toFixed(2)}` : `${st.re}|${st.mach}`;
+  const D = st.duct;
+  const dk = D && D.on ? `${D.mode}|${D.pbr}|${D.dem}|${D.Tt4}|${D.ign}|${D.At}|${D.phi}|${D.fuel}` : "";
+  const ek = st.eng.on ? `${st.eng.thr}|${st.eng.prop}|${st.eng.eps}` : "";
+  const zk = st.zoom && st.zoom.on ? `z${st.zoom.k}:${st.zoom.cb.map((v) => v.toFixed(3)).join(",")}` : "";
+  return [st.regime, st.preset, stl.name, voxGen, st.aoa, st.beta, st.roll, st.size, sp, st.refA, dk, ek, withGrid ? st.grid : "", zk].join("|");
+}
+function track(name, v, floor) {
+  const k = caseKey(), t = solverFT();
+  if (k !== conv.key) { conv.key = k; conv.tr = {}; }
+  if (!isFinite(v)) return;
+  const T = conv.tr[name] || (conv.tr[name] = { t: [], v: [], floor });
+  if (T.t.length && t < T.t[T.t.length - 1]) { T.t = []; T.v = []; }   // solver was reset
+  T.t.push(t); T.v.push(v);
+  while (T.t.length > 600 || (T.t.length && T.t[0] < t - 4)) { T.t.shift(); T.v.shift(); }
+}
+function trackStat(name, win = CONV_WIN) {
+  const T = conv.tr[name];
+  if (!T || T.t.length < 8) return null;
+  const n = T.t.length, t1 = T.t[n - 1];
+  let i0 = n - 1;
+  while (i0 > 0 && T.t[i0 - 1] >= t1 - win) i0--;
+  const span = t1 - T.t[i0], m = n - i0;
+  let st_ = "short";
+  let tm = 0, vm = 0;
+  for (let i = i0; i < n; i++) { tm += T.t[i] / m; vm += T.v[i] / m; }
+  let sxx = 0, sxy = 0;
+  for (let i = i0; i < n; i++) { sxx += (T.t[i] - tm) ** 2; sxy += (T.t[i] - tm) * (T.v[i] - vm); }
+  const b = sxx > 0 ? sxy / sxx : 0;
+  let ss = 0;
+  for (let i = i0; i < n; i++) { const r = T.v[i] - (vm + b * (T.t[i] - tm)); ss += r * r; }
+  const sd_ = Math.sqrt(ss / Math.max(1, m - 2)), drift = Math.abs(b) * win, scale = Math.max(Math.abs(vm), T.floor || 1e-9);
+  if (span >= 0.8 * win && m >= 8) {
+    if (drift <= Math.max(0.01 * scale, 1.5 * sd_)) st_ = sd_ <= 0.01 * scale ? "settled" : "unsteady";
+    else st_ = "settling";
+  }
+  return { state: st_, mean: vm, last: T.v[n - 1], slope: b, sd: sd_, drift, band: 2 * sd_ + drift, scale, span: t1 - T.t[0] };
+}
+// Grid sensitivity: rerun the same case on the next coarser grid and compare. Error estimate is the
+// grid convergence index with safety factor 1.25 and first-order convergence assumed (shocks make the
+// scheme first order where it matters), so it errs on the large side.
+function gridQuantities() {
+  if (st.duct && st.duct.on) return st.duct.mode === "thru" ? ["mfr", "fx"] : ["mfr", "rec"];
+  return ["cd", "cl"];
+}
+function startGridCheck() {
+  const gi = GRIDS.findIndex((g) => g.id === st.grid), coarse = GRIDS.slice(0, gi).reverse().find((g) => g.ok);
+  if (!coarse) { toast("Already on the coarsest grid: switch to a finer one to check grid sensitivity."); return; }
+  const qs = gridQuantities(), fine = {};
+  for (const q of qs) { const S = trackStat(q); if (!S || S.state === "settling" || S.state === "short") { toast("Let the result settle first: the grid check compares settled values."); return; } fine[q] = S.mean; }
+  conv.gcheck = { fineGrid: st.grid, coarseGrid: coarse.id, fine, coarse: {}, key: caseKey(false), t0: 0, phase: "coarse", r: GRIDS[gi].dims[0] / coarse.dims[0] };
+  $("#gridMsg").textContent = `Running the ${coarse.label.toLowerCase()} grid…`;
+  setGrid(coarse.id).then(() => { conv.gcheck.t0 = performance.now(); refreshOutputs(); });
+}
+function gridCheckStep() {
+  const G = conv.gcheck;
+  if (!G) return;
+  if (caseKey(false) !== G.key) { conv.gcheck = null; $("#gridMsg").textContent = "Grid check cancelled: the case changed."; return; }
+  if (G.phase !== "coarse" || st.grid !== G.coarseGrid) return;
+  const qs = Object.keys(G.fine), ft = solverFT();
+  const done = qs.every((q) => { const S = trackStat(q); return S && (S.state === "settled" || S.state === "unsteady"); });
+  if (!(done || ft > 8)) { $("#gridMsg").textContent = `Coarse grid: ${ft.toFixed(1)} flow-throughs, waiting for it to settle…`; return; }
+  for (const q of qs) { const S = trackStat(q); G.coarse[q] = S ? S.mean : NaN; }
+  const est = {};
+  for (const q of qs) {
+    const f1 = G.fine[q], f2 = G.coarse[q], e = (1.25 * Math.abs(f1 - f2)) / (G.r - 1);
+    est[q] = { fine: f1, coarse: f2, err: e, unsettled: !done };
+  }
+  conv.grid = { key: G.key, grid: G.fineGrid, est };
+  G.phase = "back"; conv.gcheck = null;
+  $("#gridMsg").textContent = "Returning to the original grid…";
+  setGrid(G.fineGrid).then(() => { refreshOutputs(); showGridResult(); });
+}
+const QLABEL = { cd: "C<sub>D</sub>", cl: "C<sub>L</sub>", mfr: "Capture", rec: "Recovery", fx: "Axial force" };
+function showGridResult() {
+  const el = $("#gridMsg"), C = conv.grid;
+  if (!el) return;
+  if (!C || C.key !== caseKey(false)) { el.textContent = ""; return; }
+  el.innerHTML = Object.entries(C.est).map(([q, e]) => `${QLABEL[q] || q}: ${fmtSig(e.fine)} here, ${fmtSig(e.coarse)} coarser → ±${fmtBand(e.err)} from the grid${e.unsettled ? " (coarse run not fully settled)" : ""}`).join("<br>");
+}
+const fmtSig = (v) => (!isFinite(v) ? "—" : v === 0 ? "0" : Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(3) : v.toPrecision(3));
+const fmtBand = (v) => (!isFinite(v) ? "—" : v === 0 ? "0" : String(Number(v.toPrecision(2))));
+function gridErr(q) { const C = conv.grid; return C && C.key === caseKey(false) && C.est[q] ? C.est[q].err : 0; }
+// Status line under the force coefficients
+function updateConvUI() {
+  const el = $("#cstat");
+  if (!el) return;
+  const qs = gridQuantities().filter((q) => q === "cd" || q === "cl");
+  const show = qs.length ? qs : ["cd", "cl"];
+  const S = show.map((q) => [q, trackStat(q)]).filter(([, x]) => x);
+  if (!S.length) { el.textContent = ""; el.className = "cstat"; return; }
+  const worst = S.some(([, x]) => x.state === "short") ? "short" : S.some(([, x]) => x.state === "settling") ? "settling" : S.some(([, x]) => x.state === "unsteady") ? "unsteady" : "settled";
+  const pm = S.map(([q, x]) => `${QLABEL[q]} ±${fmtBand(Math.sqrt(x.band ** 2 + gridErr(q) ** 2))}`).join(" · ");
+  const lead = { short: "Starting", settling: "Settling", unsteady: "Unsteady flow, mean shown", settled: "Settled" }[worst];
+  let extra = "";
+  if (worst === "settling") { const d = S.find(([, x]) => x.state === "settling"); if (d) extra = ` · ${QLABEL[d[0]]} moving ${fmtSig(Math.abs(d[1].slope))} per flow-through`; }
+  el.innerHTML = `<i></i>${lead}${worst === "short" ? "" : " · " + pm}${extra}${conv.grid && conv.grid.key === caseKey(false) ? " · incl. grid" : ""}`;
+  el.className = "cstat " + worst;
+  el.title = "Band: twice the scatter plus the drift over the last half flow-through" + (conv.grid && conv.grid.key === caseKey(false) ? ", combined with the grid-check estimate." : ". Run a grid check (Solver tab) to add discretisation error.");
+}
 
 // Headline card at the top of the panel: flight condition, regime and solver state.
 function updateHeadline() {
@@ -3106,9 +4280,10 @@ function updateHeadline() {
     set("#hlSub", sub);
   }
   let stat = "";
-  if (R && st.regime === "lbm") stat = `${((steps * uLat()) / R.dims[0]).toFixed(1)} flow-throughs · ${fmtN(perf.mlups || 0, 0)} M cells/s`;
+  if (R && st.regime === "lbm") { const cs = trackStat("cd"); stat = `${((steps * uLat()) / R.dims[0]).toFixed(1)} flow-throughs${cs && cs.state !== "short" ? ", " + cs.state : ""} · ${fmtN(perf.mlups || 0, 0)} M cells/s`; }
   else if (R && hy.busy) stat = "Analysing surface…";
-  else if (R) { const ft = (eu.steps * eu.dt) / R.dims[0]; stat = st.euler ? `Flowfield ${ft.toFixed(1)} flow-throughs${ft < 1.5 ? ", still settling" : hy.field && hy.field.coupled ? " · heating and friction from the flowfield" : ""}` : "Flowfield off · quick estimates only"; }
+  else if (R) { const ft = (eu.steps * eu.dt) / R.dims[0]; const cs = trackStat(gridQuantities()[0]); const sw = cs ? { short: ", starting", settling: ", still settling", unsteady: ", unsteady", settled: ", settled" }[cs.state] : ft < 1.5 ? ", still settling" : "";
+    stat = st.euler ? `Flowfield ${ft.toFixed(1)} flow-throughs${sw}${hy.field && hy.field.coupled ? " · heating and friction from the flowfield" : ""}` : "Flowfield off · quick estimates only"; }
   set("#hlStat", stat + (R && !running ? " · paused" : ""));
 }
 // The solver chain: which method handles each regime, with the active one highlighted.
@@ -3187,8 +4362,9 @@ function wireEngines() {
 }
 function updateHud() {
   updateChain();
+  updateConvUI(); gridCheckStep(); validationStep(); optStep(); zoomGuard();
   updateEngineInfo();
-  if (st.duct && st.duct.on) { updateDuctInfo(); drawDuctChart(); if (duct.sweep) $("#sweepMsg").textContent = `${duct.sweep.dir > 0 ? "Raising" : "Lowering"} back pressure · point ${duct.pts.length + 1}`; }
+  if (st.duct && st.duct.on) { updateDuctInfo(); drawDuctChart(); if (duct.sweep) $("#ductSweepMsg").textContent = `${duct.sweep.dir > 0 ? "Raising" : "Lowering"} back pressure · point ${duct.pts.length + 1}`; }
   const [nx, ny, nz] = R.dims;
   if (st.regime === "hyp") {
     const T = hy.traj, A = hy.aero;
@@ -3197,8 +4373,11 @@ function updateHud() {
     // below about Mach 5 Newtonian theory is poor, so show the flow solver's coefficients once it has some
     const H = eu.hist, useE = st.euler && H.cd.length >= 10;
     const mE = (a) => a.slice(-40).reduce((x, y) => x + y, 0) / Math.min(40, a.length);
-    const fr = hy.fric || { CD: 0, CL: 0 };
-    const cl = (useE ? mE(H.cl) : A.CL) + fr.CL, cd = (useE ? mE(H.cd) : A.CD) + fr.CD, cm = useE ? mE(H.cm) : A.Cm;
+    // with the wall model on, friction is already in the flow solver's forces
+    const fr = useE && st.hyp.wall ? { CD: 0, CL: 0 } : hy.fric || { CD: 0, CL: 0 };
+    // over the convergence window when there is one, so unsteady flow shows its mean
+    const wl = trackStat("cl"), wd = trackStat("cd"), wm = (S, a) => (S && S.state !== "short" ? S.mean : mE(a));
+    const cl = (useE ? wm(wl, H.cl) : A.CL) + fr.CL, cd = (useE ? wm(wd, H.cd) : A.CD) + fr.CD, cm = useE ? mE(H.cm) : A.Cm;
     $("#cl").textContent = cl.toFixed(3); $("#cd").textContent = cd.toFixed(3);
     $("#ld").textContent = (cl / cd).toFixed(2); $("#cm").textContent = cm.toFixed(3);
     $("#coefBox").title = (useE ? "Flow-solver pressure forces (mean of the last 40 readings)" : "Quick-estimate (Newtonian) pressure forces") + ` plus boundary-layer skin friction (CD ${fr.CD.toFixed(4)}) on the reference area; Cm about the CG, nose-up positive`;
@@ -3207,8 +4386,9 @@ function updateHud() {
   const ft = (steps * uLat()) / nx;
   updateHeadline();
   const n = 60;
-  $("#cl").textContent = hist.cl.length ? mean(hist.cl, n).toFixed(3) : "—";
-  $("#cd").textContent = hist.cd.length ? mean(hist.cd, n).toFixed(3) : "—";
+  const wl = trackStat("cl"), wd = trackStat("cd");
+  $("#cl").textContent = hist.cl.length ? (wl && wl.state !== "short" ? wl.mean : mean(hist.cl, n)).toFixed(3) : "—";
+  $("#cd").textContent = hist.cd.length ? (wd && wd.state !== "short" ? wd.mean : mean(hist.cd, n)).toFixed(3) : "—";
   drawSpark();
   $("#oSpf").textContent = st.spfAuto ? `${Math.round(spfF)} auto` : String(st.spf);
   $("#avgMsg").textContent = st.avg ? `${avgCount.toLocaleString("en-GB")} samples` : (avgCount ? `Paused at ${avgCount} samples` : "Mean off");
@@ -4220,7 +5400,7 @@ const MATS = {
   in718: { name: "Inconel 718", rho: 8190, k0: 11.4, kT: 1e-3, cp0: 435, cT: 3e-4, eps: 0.85, Tmax: 978 },
 };
 const eu = { reset: true, steps: 0, M: 0, hist: { cl: [], cd: [], cm: [] }, dt: 0 };
-function surfModeNow() { return st.regime !== "hyp" ? 0 : st.sq === 0 && !st.euler ? 3 : st.sq === 4 && !(hy.risk && hy.risk.S === hy.surf) ? 2 : st.sq; }
+function surfModeNow() { if (fea.show && fea.res && fea.res.R === R) return fea.show; return st.regime !== "hyp" ? 0 : st.sq === 0 && !st.euler ? 3 : st.sq === 4 && !(hy.risk && hy.risk.S === hy.surf) ? 2 : st.sq; }
 function eulerMach() {
   if (st.eM > 0) return st.eM;
   if (st.spd.set) return Math.max(0.5, Math.min(40, st.spd.M));
@@ -4230,7 +5410,7 @@ function eulerDt(M, g) {
   const c0 = (1 / M) * Math.sqrt(1 + ((g - 1) / 2) * M * M), vmax = Math.sqrt(1 + 2 / ((g - 1) * M * M));
   return 0.4 / (Math.sqrt(3) * vmax + 3 * c0);
 }
-const euAB = new ArrayBuffer(48), euF = new Float32Array(euAB), euUi = new Uint32Array(euAB);
+const euAB = new ArrayBuffer(112), euF = new Float32Array(euAB), euUi = new Uint32Array(euAB);
 // Engine exit planes for the flow solver, in the world frame of the grid. Exit states are in
 // freestream units. The exhaust is carried as the solver's single gas with the true exit density,
 // velocity and pressure, so mass flow, momentum flux and pressure are right; its temperature and
@@ -4251,7 +5431,7 @@ function writeEngines(env) {
   engF.fill(0); engJet = { vmax: 0, cmax: 0 };
   const E = st.eng;
   let n = 0;
-  const g = st.hyp.gamma;
+  const g = eu.g || st.hyp.gamma;
   if (E.on && env && env.V > 1 && st.regime === "hyp") {
     const S = engineState(env), L = Math.max(st.ent.L, 1e-3), k = lc() / L;
     n = Math.max(1, Math.min(30, E.n | 0));
@@ -4334,7 +5514,7 @@ function ductCells() {
     Ac: Math.PI * (Dc.rc * k) ** 2, Af: Math.PI * (((Dc.rf || 0) * k) ** 2 - ((Dc.rfi || 0) * k) ** 2), Ae: Math.PI * ((Dc.re || 0) * k) ** 2 };
 }
 function ductFree() {
-  const g = st.hyp.gamma, M = eu.M, pinf = eu.pinf, env = envNow();
+  const g = eu.g || st.hyp.gamma, M = eu.M, pinf = eu.pinf, env = envNow();
   const Tinf = env ? env.T : 216.65;
   return { g, M, pinf, pt: pinf * ptOverP(M, g), Tinf, Tt: Tinf * (1 + 0.5 * (g - 1) * M * M) };
 }
@@ -4386,12 +5566,13 @@ function ductReading(v) {
   const Dc = st.duct;
   if (Dc && Dc.on && Dc.mode === "thru") {
     if (v.length < 13 || !(v[10] > 0)) return;
-    const C = ductCells(), g = st.hyp.gamma, mdot = v[9] / 1e4, cnt = v[10];
+    const C = ductCells(), g = eu.g || st.hyp.gamma, mdot = v[9] / 1e4, cnt = v[10];
     const mf = mdot / cnt, ru2 = v[11] / 1e4 / cnt, pz = v[12] / 1e4 / cnt;
     const um = Math.abs(mf) > 1e-9 ? ru2 / mf : 0, rm = um > 1e-9 ? mf / um : 0;
     const Mz = rm > 0 ? um / Math.sqrt((g * pz) / rm) : 0;
     const m = { mdot, mfr: mdot / C.Ac, rec: 0, Mf: Mz, pf: pz, fx: v[0] / 1000 };
     duct.meas = m; duct.hist.push(m); if (duct.hist.length > 60) duct.hist.shift();
+    track("mfr", m.mfr, 0.05); track("fx", m.fx, 0.05);
     return;
   }
   if (!Dc || !Dc.on || v.length < 9 || !(v[7] > 0)) return;
@@ -4403,6 +5584,7 @@ function ductReading(v) {
   const m = { mdot, mfr: mdot / C.Ac, rec: mdot > 1e-6 ? ptm / mdot / F.pt : 0, Mf, pf: pm, cnt };
   duct.meas = m;
   duct.hist.push(m); if (duct.hist.length > 60) duct.hist.shift();
+  track("mfr", m.mfr, 0.05); track("rec", m.rec, 0.05);
   // plenum
   const dt = Math.max(0, (eu.steps - duct.last) * eu.dt); duct.last = eu.steps;
   const Vp = Math.max(C.Af, 1) * Math.max(Dc.Lp, 0.05) * C.k;
@@ -4485,8 +5667,30 @@ function ductState(m) {
   return m.mfr < 0.9 ? "Spilling: capture below 90 %" : "Full capture";
 }
 
+// Wall-model parameters for the flow solver (see wallTau in the shader)
+function wallModelUniform() {
+  const env = envNow();
+  if (!st.hyp.wall || !env || !(env.V > 1) || !R) return [0, 0, 0, 0];
+  const mu0 = env.mu / (env.rho * env.V * metresPerCell());
+  const bl = st.hyp.bl, tr = bl === "lam" ? -1 : bl === "turb" ? 0 : st.hyp.reTr;
+  return [mu0, 110.4 / env.T, origin()[0], tr];
+}
+// Equilibrium air in the flow solver: on when chosen, or automatically once the free stream's total
+// temperature passes 1,500 K (about Mach 5.5 in the stratosphere), where vibration and dissociation
+// start to matter. With it the free stream is cold air (γ 1.4) and the table handles the hot gas, so
+// the single effective γ is not used.
+function realGasOn(env) {
+  const m = st.hyp.air || "auto";
+  if (m === "perfect" || !env || !(env.V > 1)) return false;
+  if (m === "equilibrium") return true;
+  return env.T + (env.V * env.V) / (2 * 1004.5) > 1500;
+}
 function writeEuler() {
-  const M = eulerMach(), g = st.hyp.gamma, pinf = 1 / (g * M * M);
+  const env = envNow(), rgOn = realGasOn(env);
+  const M = eulerMach(), g = rgOn ? 1.4 : st.hyp.gamma, pinf = 1 / (g * M * M);
+  eu.g = g;
+  eu.rg = rgOn ? [1, Math.log10(env.rho), Math.log10(env.V * env.V), 0] : [0, 0, 0, 0];
+  if (eu.rgOn !== rgOn) { eu.rgOn = rgOn; eu.reset = true; }
   if (eu.M && Math.abs(M - eu.M) / eu.M > 0.02) eu.hist = { cl: [], cd: [], cm: [] };
   eu.M = M; eu.pinf = pinf;
   writeEngines(envNow());
@@ -4495,6 +5699,8 @@ function writeEuler() {
   eu.dt = dt;
   euUi[0] = R.dims[0]; euUi[1] = R.dims[1]; euUi[2] = R.dims[2]; euUi[3] = R.N;
   euF[4] = g; euF[5] = dt; euF[6] = 0; euF[7] = 1; euF[8] = pinf; euF[9] = 1; euF[10] = lc();
+  const vis = wallModelUniform();
+  euF.set(vis, 12); euF.set(eu.rg, 16); euF.set(nestUniform(), 20);
   dev.queue.writeBuffer(R.eu1, 0, euAB);
   euF[6] = 0.5; euF[7] = 0.5;
   dev.queue.writeBuffer(R.eu2, 0, euAB);
@@ -4504,6 +5710,7 @@ function writeEuler() {
   euUi[0] = R.dims[0]; euUi[1] = R.dims[1]; euUi[2] = R.dims[2]; euUi[3] = R.N;
   euF[4] = g; euF[5] = pinf; euF[6] = M; euF[7] = lc();
   euF[8] = cg[0]; euF[9] = cg[1]; euF[10] = cg[2]; euF[11] = lc();
+  euF.set(vis, 12); euF.set(eu.rg, 16);
   dev.queue.writeBuffer(R.efU, 0, euAB);
 }
 function onForcesEuler(v) {
@@ -4522,6 +5729,9 @@ function onForcesEuler(v) {
   flyRecord(cl, cd);
   if (!isFinite(cd) || Math.abs(cd) > 100) return;
   for (const [k, x] of [["cl", cl], ["cd", cd], ["cm", cm]]) { eu.hist[k].push(x); if (eu.hist[k].length > 120) eu.hist[k].shift(); }
+  if (!fly.on && !fly.man) { track("cd", cd, 0.01); track("cl", cl, 0.01); }
+  // drag over dynamic pressure and length² (Σ Cp × cell area, in cells², over lc²): shape-independent, for the optimiser
+  if (OPT.on) track("cdq", fx / (lc() * lc()), 1e-6);
 }
 const hy = { probeB: null, peakIdx: 0, heatLoad: 0, aero: null, busy: false, pending: false, surf: null, traj: null, sel: -1, selAuto: true, probe: -1, field: null, tps: null, uploadPending: false, cpUnit: null, sweep: null };
 const DIRS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
@@ -4964,6 +6174,8 @@ function surfRange(sm) {
   if (sm === 3) return [st.cpmin, st.cpmax];
   if (sm === 2 && F) return [F.TwLo, Math.max(F.TwHi, F.TwLo + 1)];
   if (sm === 4 && hy.risk) return [300, hy.risk.outerLim || Math.max(hy.risk.pkMax, 400)];
+  if (sm === 5) return [0, 1];
+  if (sm === 6) return [293, fea.res ? fea.res.mat.Tmax : 500];
   return [st.cpmin, st.cpmax];
 }
 
@@ -4972,7 +6184,7 @@ function frameHyp(now) {
   const flying = fly.on || !!fly.man;
   if (st.euler && !flying && !hy.busy) {
     const nx0 = noseXFor(eulerMach());
-    if (nx0 !== noseX) { noseX = nx0; geoDirty = true; eu.reset = true; hy.probe = -1; }
+    if (nx0 !== noseX && !(st.zoom && st.zoom.on)) { noseX = nx0; geoDirty = true; eu.reset = true; hy.probe = -1; }
   }
   if (geoDirty && !flying) { geoDirty = false; scheduleHyp(); }
   if (!flying && fly.needAnalysis) { fly.needAnalysis = false; scheduleHyp(); }
@@ -5029,11 +6241,11 @@ function frameHyp(now) {
         R.gOut = dev.createBuffer({ size: cap, usage: BU.STORAGE | BU.COPY_SRC });
         R.gRead = dev.createBuffer({ size: cap, usage: BU.MAP_READ | BU.COPY_DST });
       }
-      if (!R.gU) R.gU = dev.createBuffer({ size: 32, usage: BU.UNIFORM | BU.COPY_DST });
-      const gab = new ArrayBuffer(32), gu = new Uint32Array(gab), gf = new Float32Array(gab);
-      gu.set([R.dims[0], R.dims[1], R.dims[2], R.N, cnt]); gf[5] = st.hyp.gamma; gf[6] = eu.pinf;
+      if (!R.gU) R.gU = dev.createBuffer({ size: 48, usage: BU.UNIFORM | BU.COPY_DST });
+      const gab = new ArrayBuffer(48), gu = new Uint32Array(gab), gf = new Float32Array(gab);
+      gu.set([R.dims[0], R.dims[1], R.dims[2], R.N, cnt]); gf[5] = eu.g || st.hyp.gamma; gf[6] = eu.pinf; gf.set(eu.rg || [0, 0, 0, 0], 8);
       dev.queue.writeBuffer(R.gU, 0, gab);
-      const gbg = dev.createBindGroup({ layout: layouts.gather, entries: [R.gU, R.popA, R.flags, R.nrm, R.sIdx, R.gOut].map((b, k) => ({ binding: k, resource: { buffer: b } })) });
+      const gbg = dev.createBindGroup({ layout: layouts.gather, entries: [R.gU, R.popA, R.flags, R.nrm, R.sIdx, R.gOut, R.eqT].map((b, k) => ({ binding: k, resource: { buffer: b } })) });
       const gp = enc.beginComputePass();
       gp.setPipeline(pipes.gather); gp.setBindGroup(0, gbg);
       const [gx2, gy2] = split(Math.ceil(cnt / 64)); gp.dispatchWorkgroups(gx2, gy2);
@@ -5043,7 +6255,7 @@ function frameHyp(now) {
       readG = { S, M: eu.M, cnt, Rr: R };
     }
   }
-  if (hy.uploadPending && hy.vals && hy.surf) {
+  if (hy.uploadPending && hy.vals && hy.surf && surfModeNow() !== 5) {
     const S = hy.surf, nAll = S.cnt + S.nHalo, need = Math.max(4, nAll);
     if (!R.sIdx || R.sIdx.size < need * 4) {
       if (R.sIdx) { R.sIdx.destroy(); R.sVal.destroy(); }
@@ -5166,7 +6378,7 @@ function updateEulInfo() {
   const A = hy.aero, H = eu.hist;
   const ft = (eu.steps * eu.dt) / R.dims[0];
   $("#eulInfo").innerHTML =
-    row("Mach · γ", `${eu.M.toFixed(2)} · ${st.hyp.gamma}${st.eM > 0 ? "" : " (from trajectory point)"}`) +
+    row("Mach · air", `${eu.M.toFixed(2)} · ${eu.rgOn ? "equilibrium air" : "γ " + (eu.g || st.hyp.gamma)}${st.eM > 0 ? "" : " (from trajectory point)"}`) +
     row("Progress", `${eu.steps.toLocaleString("en-GB")} steps · ${ft.toFixed(2)} flow-throughs${ft < 1.5 ? " · still settling" : ""}`, ft < 1.5 ? "warn" : "") +
     row("Speed", `${fmtN(perf.mlups, 0)} M cell-steps/s`) +
     row("C<sub>L</sub> Euler · Newtonian", H.cl.length && A ? `${m(H.cl).toFixed(3)} · ${A.CL.toFixed(3)}` : "—") +
@@ -6098,7 +7310,7 @@ function syncDuctUI() {
   if (!on) return;
   const thru = Dc.mode === "thru";
   $("#ductThru").hidden = !thru; $("#ductModeL").hidden = thru;
-  $("#btnSweep").closest(".row2").hidden = thru; $("#ductChart").hidden = thru;
+  $("#btnDuctSweep").closest(".row2").hidden = thru; $("#ductChart").hidden = thru;
   if (thru) { $("#ductIgn2").checked = Dc.ign; $("#ductFuel").value = Dc.fuel; $("#ductPhi").value = Dc.phi; $("#oDuctPhi").textContent = Dc.phi.toFixed(2); }
   $("#ductMode").value = thru ? "pb" : Dc.mode;
   $("#ductPb").hidden = Dc.mode !== "pb"; $("#ductDem").hidden = Dc.mode !== "demand"; $("#ductRam").hidden = Dc.mode !== "ramjet";
@@ -6106,8 +7318,8 @@ function syncDuctUI() {
   $("#ductDemR").value = Dc.dem; $("#oDuctDem").textContent = Math.round(Dc.dem * 100) + " %";
   $("#ductIgn").checked = Dc.ign; $("#ductTt4").value = Dc.Tt4; $("#ductAt").value = Dc.At;
   const S = duct.sweep;
-  $("#btnSweep").textContent = S ? "Stop characteristic" : "Run intake characteristic";
-  $("#sweepMsg").textContent = S ? `${S.dir > 0 ? "Raising" : "Lowering"} back pressure · point ${duct.pts.length + 1}` : duct.pts.length ? `${duct.pts.length} points` : "";
+  $("#btnDuctSweep").textContent = S ? "Stop characteristic" : "Run intake characteristic";
+  $("#ductSweepMsg").textContent = S ? `${S.dir > 0 ? "Raising" : "Lowering"} back pressure · point ${duct.pts.length + 1}` : duct.pts.length ? `${duct.pts.length} points` : "";
   updateDuctInfo(); drawDuctChart();
 }
 function wireDuct() {
@@ -6128,7 +7340,7 @@ function wireDuct() {
   $("#ductPhi").addEventListener("input", (e) => { st.duct.phi = +e.target.value; changed(); });
   $("#ductTt4").addEventListener("change", (e) => { st.duct.Tt4 = Math.min(2600, Math.max(300, +e.target.value || 2000)); changed(); });
   $("#ductAt").addEventListener("change", (e) => { st.duct.At = Math.min(3, Math.max(0.2, +e.target.value || 1)); changed(); });
-  $("#btnSweep").addEventListener("click", () => {
+  $("#btnDuctSweep").addEventListener("click", () => {
     if (duct.sweep) { duct.sweep = null; syncDuctUI(); return; }
     if (st.regime !== "hyp") { toast("Intake characteristics need the high-speed solver: set the airspeed above Mach 0.6."); return; }
     if (!running) { running = true; syncRun(); }
@@ -6220,7 +7432,7 @@ function fillPresetList() {
   const ps = $("#preset"), lib = st.lib;
   ps.textContent = "";
   for (const [id, p] of Object.entries(PRESETS)) {
-    if ((p.cat || "body") !== lib) continue;
+    if ((p.cat || "body") !== lib) continue;   // validation articles ("val") are never listed
     const o = document.createElement("option"); o.value = id; o.textContent = p.name;
     if (id === "stl") o.disabled = !p.imported;
     if (id === "loading") { o.disabled = true; o.hidden = true; }
@@ -6269,6 +7481,15 @@ function updateLegend() {
       lt.textContent = "Heating · W/cm²";
       const f = (v) => { const x = Math.pow(10, v); return x >= 10 ? x.toFixed(0) : x >= 1 ? x.toFixed(1) : x.toFixed(2); };
       $("#lmax").textContent = f(hi); $("#lzero").textContent = f((lo + hi) / 2); $("#lmin").textContent = f(lo);
+    } else if (sm === 6) {
+      lt.textContent = "Peak structure temperature · °C";
+      bar.style.background = "linear-gradient(to top, #3b4cc0 0%, #dddde0 50%, #cc1a1f 100%)";
+      const T1 = fea.res ? fea.res.mat.Tmax : 500;
+      $("#lmax").textContent = c(T1) + " limit"; $("#lzero").textContent = c((293 + T1) / 2); $("#lmin").textContent = c(293);
+    } else if (sm === 5) {
+      lt.textContent = "Stress / allowable";
+      bar.style.background = "linear-gradient(to top, #3b4cc0 0%, #dddde0 50%, #cc1a1f 100%)";
+      $("#lmax").textContent = "1.0 · yield"; $("#lzero").textContent = "0.5"; $("#lmin").textContent = "0";
     } else if (sm === 4) {
       const K = hy.risk;
       lt.textContent = "Peak skin temperature · °C";
@@ -6299,7 +7520,7 @@ function applyPreset(id) {
   if (p.veh) { st.ent.L = p.veh.L; st.ent.mass = p.veh.mass; $("#eL").value = st.ent.L; $("#eMass").value = st.ent.mass; }
   if (p.eng) Object.assign(st.eng, JSON.parse(JSON.stringify(p.eng))); else if (id !== "stl" && id !== "loading") st.eng.on = false;
   if (id !== "stl" && id !== "loading") { st.duct = p.duct ? { ...DUCT_DEF, ...p.duct } : null; duct.pts = []; duct.sweep = null; duct.key = ""; duct.hist = []; duct.meas = null; }
-  if (id !== "loading") { st.lib = p.cat || "body"; fillPresetList(); }
+  if (id !== "loading" && p.cat !== "val") { st.lib = p.cat || "body"; fillPresetList(); }
   syncEngineUI(); syncDuctUI();
   if (p.flight) setTimeout(() => { setAltitude(p.flight.h); setSpeed(p.flight.V, p.flight.h); }, 0);
   if (entryPlay.on) stopManoeuvre();
@@ -6348,6 +7569,14 @@ function buildUI() {
   $("#libBody").addEventListener("click", () => setLibrary("body"));
   $("#libEng").addEventListener("click", () => setLibrary("engine"));
   wireDuct();
+  $("#btnGridChk").addEventListener("click", () => { if (dev && R) startGridCheck(); });
+  $("#btnVal").addEventListener("click", () => { if (dev && R) startValidation(); });
+  { const ms = $("#feaMat"); for (const [k, m] of Object.entries(MATERIALS)) { const o = document.createElement("option"); o.value = k; o.textContent = m.name; ms.appendChild(o); } }
+  $("#btnFEA").addEventListener("click", () => runFEA());
+  $("#btnOpt").addEventListener("click", () => { if (dev && R) optStart(); });
+  $("#btnZoom").addEventListener("click", () => { if (dev && R) zoomIn(); });
+  $("#btnZoomOut").addEventListener("click", () => zoomOut());
+  $("#feaShow").addEventListener("change", (e) => { fea.show = e.target.value && fea.res ? +e.target.value : 0; if (fea.show === 6 && !fea.res.Tpk) fea.show = 5; $("#feaShow").value = fea.show ? String(fea.show) : ""; if (fea.show) writeStressTexture(); else hy.uploadPending = !!hy.vals; updateLegend(); });
   const gs = $("#grid");
   $("#code").value = PRESETS[st.preset].code;
   const ranges = ["aoa", "beta", "roll", "size", "re", "mach", "spf", "qthr", "vop", "spos", "cpmin", "cpmax", "rq"];
@@ -6463,6 +7692,8 @@ function buildUI() {
   $("#tAdiab").addEventListener("change", (e) => { st.tps.adiabatic = e.target.checked; runTPS(); });
   $("#sq").addEventListener("change", (e) => setSurfMode(+e.target.value));
   document.querySelectorAll("#thermSeg .segb").forEach((b) => b.addEventListener("click", () => setSurfMode(+b.dataset.sq)));
+  $("#hAir").addEventListener("change", (e) => { st.hyp.air = e.target.value; eu.reset = true; });
+  $("#hWall").addEventListener("change", (e) => { st.hyp.wall = e.target.checked; eu.hist = { cl: [], cd: [], cm: [] }; });
   $("#hEuler").addEventListener("change", (e) => { st.euler = e.target.checked; eu.reset = true; spfE = 1; updateLegend(); updateEulInfo(); updateThermUI(); });
   num("#hEM", (v) => { st.eM = v && v > 0 ? Math.min(40, Math.max(0.5, v)) : 0; });
   $("#lK").checked = st.lK;
