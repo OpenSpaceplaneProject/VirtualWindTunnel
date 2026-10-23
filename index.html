@@ -201,6 +201,7 @@ details > .pane { gap: 10px; }
 #thermSeg { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 #thermSeg .segb { font-size: 12px; padding: 9px 2px; }
 .segb { appearance: none; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 9px 6px; font-family: var(--f-display); font-weight: 600; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; }
+[hidden] { display: none !important; }
 .dstate { margin: 10px 0 4px; font-size: 13px; line-height: 1.4; color: var(--ink, #e8ecf4); }
 .dstate:empty { display: none; }
 .segb[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); }
@@ -431,7 +432,15 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
           <div id="ductBox" hidden>
             <h3 class="grp">Air-breathing engine</h3>
             <p class="hint lbm-only">The intake is solved by the high-speed flow solver, above Mach 0.6.</p>
-            <label class="field"><span class="k">Behind the engine face</span><select id="ductMode">
+            <div id="ductThru">
+              <p class="hint">Solved end to end: intake, combustor and nozzle are all geometry, and the fuel's heat is released in the combustor volume.</p>
+              <div class="row2">
+                <label class="chk"><input type="checkbox" id="ductIgn2">Fuel on</label>
+                <label class="field"><span class="k">Fuel</span><select id="ductFuel"></select></label>
+              </div>
+              <label class="ctl" title="Fuel flow relative to stoichiometric: 1 burns all the oxygen"><span class="k">Equivalence ratio</span><output id="oDuctPhi"></output><input type="range" id="ductPhi" min="0" max="1.2" step="0.01"></label>
+            </div>
+            <label class="field" id="ductModeL"><span class="k">Behind the engine face</span><select id="ductMode">
               <option value="pb">Back pressure, set directly (intake rig)</option>
               <option value="demand">Turbojet: compressor draws a set mass flow</option>
               <option value="ramjet">Ramjet: combustor and choked nozzle</option>
@@ -454,6 +463,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
               <p class="hint">The intake, spike, cowl and diffuser are geometry, so the cone and cowl shocks, the terminal shock, spillage round the lip, and buzz or unstart are all solved by the inviscid flow solver. Without viscosity there is no boundary layer, so shock–boundary-layer separation, bleed and the losses that come with them are missing: real recoveries are a few per cent lower.</p>
               <p class="hint">At the engine face the duct ends in a boundary that sets the static pressure, as an engine does. Behind it the engine is lumped into a plenum whose pressure rises when more air arrives than leaves. A turbojet's compressor draws a fixed mass flow. A ramjet burns kerosene-class fuel to the set combustor temperature (fuel flow from the heat balance), and its choked nozzle throat passes a mass flow proportional to pressure over the square root of temperature; the exhaust then leaves the base through an ideal nozzle as a jet the solver carries on. The exhaust is treated as air (γ 1.4) and the dump into the combustor keeps the static pressure, so its losses are included. Combustion is complete and the nozzle ideal, so ramjet thrust and specific impulse are an ideal cycle: real engines read roughly 15–30 % lower.</p>
               <p class="hint">Capture is the mass flow reaching the face over the flow through the cowl lip area in free stream. Recovery is the mass-averaged total pressure at the face over free stream. The characteristic sweep raises the back pressure step by step, then lowers it again, holding each step for one and a half flow-throughs (the shock moves only as fast as the duct fills or empties). Net thrust is uninstalled: jet momentum and pressure thrust minus the momentum of the captured air; cowl and spillage drag show in C<sub>D</sub>.</p>
+              <p class="hint">The full-flowpath engines have no lumped parts: intake, combustor and nozzle are geometry and the whole duct is solved, so shocks travel through the engine. Fuel is released as heat in the combustor volume, in proportion to the air passing through it (fuel flow from the equivalence ratio, complete combustion at 98 % efficiency). Mixing, ignition delay, dissociation and the fuel's own mass are not modelled, and the gas stays at γ 1.4, which overstates heat release at the highest temperatures. Thrust is the net axial pressure force on all the hardware, inside and out, so it is installed thrust without skin friction.</p>
             </details>
           </div>
           <div id="rocketBox">
@@ -1485,6 +1495,7 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
     let pc = vec3f(c) + vec3f(0.5);
     for (var k = 0u; k < min(EN.count, 32u); k++) {
       let a = EN.e[4u * k]; let b = EN.e[4u * k + 1u]; let x = EN.e[4u * k + 2u]; let d = EN.e[4u * k + 3u];
+      if (d.y > 1.5) { continue; }   // combustion zones are sources, handled below
       let q = pc - a.xyz;
       let ax = dot(q, b.xyz);
       if (ax < 0.0 || ax >= a.w) { continue; }
@@ -1571,6 +1582,21 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
     dA -= FRf.a - FLf.a;
     dE -= FRf.e - FLf.e;
   }
+  // Combustion zones: heat released into the air flowing through, at x.x (energy per unit mass,
+  // freestream units) spread evenly over the zone's length a.w, so the total is ṁ·f·η·LHV however
+  // the flow is distributed. Too much heat for the duct chokes it thermally, as in a real engine.
+  for (var k = 0u; k < min(EN.count, 32u); k++) {
+    let d = EN.e[4u * k + 3u];
+    if (d.y < 1.5) { continue; }
+    let a = EN.e[4u * k]; let b = EN.e[4u * k + 1u]; let x = EN.e[4u * k + 2u];
+    let q = vec3f(c) + vec3f(0.5) - a.xyz;
+    let ax = dot(q, b.xyz);
+    if (ax < 0.0 || ax >= a.w) { continue; }
+    let rr = length(q - ax * b.xyz);
+    if (rr > b.w || rr < x.w) { continue; }
+    let s0 = ldP(n);
+    dE += s0.r * max(dot(s0.u, b.xyz), 0.0) * x.x / a.w;
+  }
   let U0 = ldU(n);
   var Un = F5(U0.a + E.dt * dA, U0.e + E.dt * dE);
   if (E.a > 0.0) {
@@ -1637,7 +1663,7 @@ struct EF {
 @group(0) @binding(1) var<storage, read> st: array<f32>;
 @group(0) @binding(2) var<storage, read> flg: array<u32>;
 @group(0) @binding(3) var fieldT: texture_storage_3d<rgba16float, write>;
-@group(0) @binding(4) var<storage, read_write> frc: array<atomic<i32>, 12>;
+@group(0) @binding(4) var<storage, read_write> frc: array<atomic<i32>, 16>;
 @group(0) @binding(5) var<storage, read> nrm: array<vec2u>;
 struct ENG { count: u32, p0: u32, p1: u32, p2: u32, e: array<vec4f, 128> };
 @group(0) @binding(6) var<uniform> EN: ENG;
@@ -1698,11 +1724,29 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       My += rr.z * f.x - rr.x * f.z;
     }
   }
+  // First combustion zone: mass flux, momentum flux and pressure through it, for fuel flow and Mach.
+  for (var k = 0u; k < min(EN.count, 32u); k++) {
+    let ea = EN.e[4u * k]; let eb = EN.e[4u * k + 1u]; let ex = EN.e[4u * k + 2u]; let ed = EN.e[4u * k + 3u];
+    if (ed.y < 1.5) { continue; }
+    let q = vec3f(c) + vec3f(0.5) - ea.xyz;
+    let ax = dot(q, eb.xyz);
+    if (ax >= 0.0 && ax < 1.0) {
+      let rr = length(q - ax * eb.xyz);
+      if (rr <= eb.w && rr >= ex.w) {
+        let un = dot(u, eb.xyz);
+        atomicAdd(&frc[9], i32(round(r * un * 1e4)));
+        atomicAdd(&frc[10], 1);
+        atomicAdd(&frc[11], i32(round(r * un * un * 1e4)));
+        atomicAdd(&frc[12], i32(round(p * 1e4)));
+      }
+    }
+    break;
+  }
   // Engine face: integrate the stream arriving at the first face over a one-cell slab just upstream
   // of it: mass flux, mass-weighted total pressure, momentum flux, static pressure, cell count.
   for (var k = 0u; k < min(EN.count, 32u); k++) {
     let ea = EN.e[4u * k]; let eb = EN.e[4u * k + 1u]; let ex = EN.e[4u * k + 2u]; let ed = EN.e[4u * k + 3u];
-    if (ed.y < 0.5) { continue; }
+    if (ed.y < 0.5 || ed.y > 1.5) { continue; }
     let q = vec3f(c) + vec3f(0.5) - ea.xyz;
     let ax = dot(q, eb.xyz);
     if (ax >= -1.0 && ax < 0.0) {
@@ -2340,7 +2384,7 @@ fn sdf(p: vec3f) -> f32 {
     vec2f(0.33, 0.092), vec2f(0.236, 0.1), vec2f(0.34, 0.135), vec2f(0.5, 0.145),
     vec2f(1, 0.145), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 14u);
 }` },
-  ramjet: { cat: "engine", name: "Ramjet, spike intake + dump combustor, Mach 2.5", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 4, mass: 900 }, flight: { V: 738, h: 18 },
+  ramjet: { cat: "engine", name: "Ramjet, lumped combustor, Mach 2.5", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 4, mass: 900 }, flight: { V: 738, h: 18 },
     duct: { mode: "ramjet", xf: 0.42, rf: 0.12, rfi: 0.066, rc: 0.1, Tt4: 2000, ign: true, At: 1.1, xe: 1.0, re: 0.135, pbr: 0.6 }, code:
 `// Ramjet: 25° cone intake (shock on the lip at Mach 2.5, x = 0.131), a short diffuser to the
 // dump plane at x = 0.42, then the combustor and nozzle, which are lumped (Engines tab): fuel heats
@@ -2352,6 +2396,48 @@ fn sdf(p: vec3f) -> f32 {
     vec2f(0.45, 0.12), vec2f(0.3, 0.118), vec2f(0.131, 0.1), vec2f(0.23, 0.145),
     vec2f(0.4, 0.15), vec2f(1, 0.15), vec2f(1, 0), vec2f(1, 0),
     vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 11u);
+}` },
+  ramjetTF: { cat: "engine", name: "Ramjet, full flowpath, Mach 2.5", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 4, mass: 900 }, flight: { V: 738, h: 18 },
+    duct: { mode: "thru", rc: 0.1, zx0: 0.5, zx1: 0.72, zri: 0, zro: 0.13, fuel: "kerosene", phi: 0.7, ign: true }, code:
+`// Ramjet solved end to end. A 25° spike puts its shock on the cowl lip at Mach 2.5 (x = 0.131);
+// the diffuser opens to a combustor (x = 0.5-0.74, radius 0.13) where kerosene burns, then a
+// convergent-divergent nozzle with its throat at x = 0.85 (throat / capture area 1.10) and exit at
+// the base. Shocks, the terminal shock, thermal choking and the exhaust are all in the solution.
+// The spike ends inside the duct; its base wake stands in for a flameholder. Fuel off gives a
+// flow-through nacelle. Two profiles: the spike (axis to axis) and the cowl (a closed ring).
+fn sdf(p: vec3f) -> f32 {
+  let spike = sdRev(p, array<vec2f, 16>(
+    vec2f(0, 0), vec2f(0.131, 0.0611), vec2f(0.2, 0.068), vec2f(0.3, 0.066),
+    vec2f(0.46, 0), vec2f(0.46, 0), vec2f(0.46, 0), vec2f(0.46, 0),
+    vec2f(0.46, 0), vec2f(0.46, 0), vec2f(0.46, 0), vec2f(0.46, 0),
+    vec2f(0.46, 0), vec2f(0.46, 0), vec2f(0.46, 0), vec2f(0.46, 0)), 5u);
+  let cowl = sdRev(p, array<vec2f, 16>(
+    vec2f(0.131, 0.1), vec2f(0.3, 0.118), vec2f(0.5, 0.13), vec2f(0.74, 0.13),
+    vec2f(0.85, 0.105), vec2f(1, 0.135), vec2f(1, 0.15), vec2f(0.4, 0.155),
+    vec2f(0.23, 0.145), vec2f(0.131, 0.1), vec2f(0.131, 0.1), vec2f(0.131, 0.1),
+    vec2f(0.131, 0.1), vec2f(0.131, 0.1), vec2f(0.131, 0.1), vec2f(0.131, 0.1)), 10u);
+  return min(spike, cowl);
+}` },
+  scramjet: { cat: "engine", name: "Scramjet, full flowpath, Mach 6", aoa: 0, beta: 0, size: 1.9, ref: "front", regime: "hyp", veh: { L: 3, mass: 600 }, flight: { V: 1802, h: 28 },
+    duct: { mode: "thru", rc: 0.15, zx0: 0.62, zx1: 0.8, zri: 0.105, zro: 0.157, fuel: "hydrogen", phi: 0.5, ign: true }, code:
+`// Axisymmetric scramjet. A 15° cone puts its shock (19°) on the cowl lip at Mach 6 (x = 0.435,
+// radius 0.15); the cowl and the centrebody shoulder turn the flow into an annular isolator
+// (x = 0.47-0.62) where it stays supersonic, then hydrogen burns in a slightly diverging combustor
+// (x = 0.62-0.8) and the centrebody tapers into an expansion nozzle. Contraction is low (about 2.4)
+// so the isolator gap spans enough cells to resolve its shock train. Too much fuel chokes the
+// combustor thermally and unstarts the intake.
+fn sdf(p: vec3f) -> f32 {
+  let body = sdRev(p, array<vec2f, 16>(
+    vec2f(0, 0), vec2f(0.42, 0.1125), vec2f(0.47, 0.115), vec2f(0.62, 0.115),
+    vec2f(0.8, 0.105), vec2f(1, 0.06), vec2f(1, 0), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0),
+    vec2f(1, 0), vec2f(1, 0), vec2f(1, 0), vec2f(1, 0)), 7u);
+  let cowl = sdRev(p, array<vec2f, 16>(
+    vec2f(0.435, 0.15), vec2f(0.47, 0.1495), vec2f(0.62, 0.15), vec2f(0.8, 0.157),
+    vec2f(1, 0.17), vec2f(1, 0.185), vec2f(0.6, 0.18), vec2f(0.48, 0.17),
+    vec2f(0.435, 0.15), vec2f(0.435, 0.15), vec2f(0.435, 0.15), vec2f(0.435, 0.15),
+    vec2f(0.435, 0.15), vec2f(0.435, 0.15), vec2f(0.435, 0.15), vec2f(0.435, 0.15)), 9u);
+  return min(body, cowl);
 }` },
   wing: { name: "Swept wing, NACA 0012", aoa: 6, beta: 0, size: 1, ref: "plan", code:
 `// NACA 0012, 30° quarter-sweep, chord 0.45, span 1.1, square tips.
@@ -2648,8 +2734,8 @@ function buildGrid() {
     flags: dev.createBuffer({ size: 4 * N, usage: B.STORAGE | B.COPY_SRC }),
     mac: dev.createBuffer({ size: 16 * N, usage: B.STORAGE | B.COPY_SRC }),
     avg: dev.createBuffer({ size: 4 * N, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
-    force: dev.createBuffer({ size: 48, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
-    forceRead: dev.createBuffer({ size: 48, usage: B.MAP_READ | B.COPY_DST }),
+    force: dev.createBuffer({ size: 64, usage: B.STORAGE | B.COPY_SRC | B.COPY_DST }),
+    forceRead: dev.createBuffer({ size: 64, usage: B.MAP_READ | B.COPY_DST }),
     field: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
     occ: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba8unorm", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
     surf: dev.createTexture({ size: [nx, ny, nz], dimension: "3d", format: "rgba16float", usage: T.STORAGE_BINDING | T.TEXTURE_BINDING }),
@@ -2889,7 +2975,7 @@ const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a
 const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 
 // ─────────────────────────── Frame loop ───────────────────────────
-const ZERO16 = new Int32Array(12);
+const ZERO16 = new Int32Array(16);
 let measureTimer = 0;
 // Loading state: status text, and while a distance field is built live, the sweep front.
 const loadSpin = { on: false, msg: "", watch: false, sweep: -1 };
@@ -4183,7 +4269,18 @@ function writeEngines(env) {
   // Air-breathing flowpath: the engine face first (the field pass integrates the first face), then
   // the ramjet exhaust.
   const Dc = st.duct;
-  if (Dc && Dc.on && st.regime === "hyp" && eu.pinf > 0) {
+  if (Dc && Dc.on && Dc.mode === "thru" && st.regime === "hyp" && eu.pinf > 0) {
+    // through-flow engine: only the combustion zone; everything else is geometry
+    const k = lc(), axW = [ATT[0][0], ATT[1][0], ATT[2][0]], h = zoneHeat(env);
+    const pz = engWorld(Dc.zx0, 0, 0);
+    engF.set([pz[0], pz[1], pz[2], (Dc.zx1 - Dc.zx0) * k, axW[0], axW[1], axW[2], Dc.zro * k + 0.5, h, 0, 0, Dc.zri > 0 ? Math.max(0, Dc.zri * k - 0.5) : 0, 0, 2, 0, 0], 4 + 16 * n);
+    n++;
+    // hot gas is faster and its sound speed higher than anything in the free stream: bound the
+    // time step by the total enthalpy after heating (fastest expansion, stagnation sound speed)
+    const M = eu.M, H = 0.5 + 1 / ((g - 1) * M * M) + h;
+    const vj = Math.sqrt(2 * H), cj = Math.sqrt((g - 1) * H);
+    if (vj > engJet.vmax) engJet = { vmax: vj, cmax: Math.max(cj, engJet.cmax) };
+  } else if (Dc && Dc.on && st.regime === "hyp" && eu.pinf > 0) {
     const C = ductCells(), axW = [ATT[0][0], ATT[1][0], ATT[2][0]];
     ductPrepare();
     const pf = engWorld(Dc.xf, 0, 0);
@@ -4215,6 +4312,15 @@ function writeEngines(env) {
 // All in solver units: freestream density and speed 1, lengths in cells, so R·T∞ = p∞.
 const DUCT_DEF = { on: true, mode: "pb", xf: 0.5, rf: 0.12, rfi: 0, rc: 0.1, pbr: 0.6, dem: 0.95, Tt4: 2000, ign: true, At: 1.1, xe: 1, re: 0.135, Lp: 0.3 };
 const FUEL = { LHV: 43e6, eta: 0.98, cp: 1005 };   // kerosene-class hydrocarbon, burnt in air
+// Fuels for through-flow engines: lower heating value and stoichiometric fuel/air ratio in air
+const FUELS = { kerosene: { name: "Kerosene (Jet A / RP-1)", LHV: 43.2e6, fst: 0.068 }, hydrogen: { name: "Hydrogen", LHV: 120e6, fst: 0.0292 } };
+// Heat released per unit mass of air in the combustion zone, in solver units (freestream speed²)
+function zoneHeat(env) {
+  const Dc = st.duct;
+  if (!Dc || !Dc.ign || !env || !(env.V > 1)) return 0;
+  const F = FUELS[Dc.fuel] || FUELS.kerosene;
+  return (Dc.phi * F.fst * FUEL.eta * F.LHV) / (env.V * env.V);
+}
 const duct = { P: 0, last: 0, key: "", meas: null, hist: [], exit: null, sweep: null, pts: [] };
 const ptOverP = (M, g) => Math.pow(1 + 0.5 * (g - 1) * M * M, g / (g - 1));
 function nsRecovery(M, g) {
@@ -4224,8 +4330,8 @@ function nsRecovery(M, g) {
 }
 function ductCells() {
   const k = lc(), Dc = st.duct;
-  return { k, ro: Dc.rf * k + 0.5, ri: Dc.rfi > 0 ? Math.max(0, Dc.rfi * k - 0.5) : 0,
-    Ac: Math.PI * (Dc.rc * k) ** 2, Af: Math.PI * ((Dc.rf * k) ** 2 - (Dc.rfi * k) ** 2), Ae: Math.PI * (Dc.re * k) ** 2 };
+  return { k, ro: (Dc.rf || 0) * k + 0.5, ri: Dc.rfi > 0 ? Math.max(0, Dc.rfi * k - 0.5) : 0,
+    Ac: Math.PI * (Dc.rc * k) ** 2, Af: Math.PI * (((Dc.rf || 0) * k) ** 2 - ((Dc.rfi || 0) * k) ** 2), Ae: Math.PI * ((Dc.re || 0) * k) ** 2 };
 }
 function ductFree() {
   const g = st.hyp.gamma, M = eu.M, pinf = eu.pinf, env = envNow();
@@ -4278,6 +4384,16 @@ function nozzleExit(P, F, C) {
 // One reading of the engine-face integrals from the field pass (scaled integers).
 function ductReading(v) {
   const Dc = st.duct;
+  if (Dc && Dc.on && Dc.mode === "thru") {
+    if (v.length < 13 || !(v[10] > 0)) return;
+    const C = ductCells(), g = st.hyp.gamma, mdot = v[9] / 1e4, cnt = v[10];
+    const mf = mdot / cnt, ru2 = v[11] / 1e4 / cnt, pz = v[12] / 1e4 / cnt;
+    const um = Math.abs(mf) > 1e-9 ? ru2 / mf : 0, rm = um > 1e-9 ? mf / um : 0;
+    const Mz = rm > 0 ? um / Math.sqrt((g * pz) / rm) : 0;
+    const m = { mdot, mfr: mdot / C.Ac, rec: 0, Mf: Mz, pf: pz, fx: v[0] / 1000 };
+    duct.meas = m; duct.hist.push(m); if (duct.hist.length > 60) duct.hist.shift();
+    return;
+  }
   if (!Dc || !Dc.on || v.length < 9 || !(v[7] > 0)) return;
   const F = ductFree(), C = ductCells(), g = F.g;
   const mdot = v[4] / 1e4, ptm = v[5] / 1e4, mom = v[6] / 1e4, cnt = v[7], ps = v[8] / 1e4;
@@ -4306,8 +4422,8 @@ function ductReading(v) {
 function ductMean(n = 20) {
   const H = duct.hist.slice(-n);
   if (!H.length) return null;
-  const o = { mdot: 0, mfr: 0, rec: 0, Mf: 0, pf: 0 };
-  for (const h of H) for (const k in o) o[k] += h[k] / H.length;
+  const o = { mdot: 0, mfr: 0, rec: 0, Mf: 0, pf: 0, fx: 0 };
+  for (const h of H) for (const k in o) o[k] += (h[k] || 0) / H.length;
   return o;
 }
 // Intake characteristic: step the back pressure up (and back down, to show hysteresis), holding each
@@ -4398,7 +4514,7 @@ function onForcesEuler(v) {
   // The duct is closed behind the engine face so the face has a wall to stand on; that wall stands in
   // for the engine and is not hardware, so its pressure (the face pressure) is taken back out.
   let fx = v[0] / 1000, fy = v[1] / 1000, fz = v[2] / 1000;
-  if (st.duct && st.duct.on && duct.meas) {
+  if (st.duct && st.duct.on && st.duct.mode !== "thru" && duct.meas) {
     const C = ductCells(), w = (2 * (duct.P - eu.pinf) * C.Af);
     fx -= w * ATT[0][0]; fy -= w * ATT[1][0]; fz -= w * ATT[2][0];
   }
@@ -4902,7 +5018,7 @@ function frameHyp(now) {
     const p = enc.beginComputePass();
     p.setPipeline(pipes.efield); p.setBindGroup(0, R.efBG); p.dispatchWorkgroups(...R.dField);
     p.end();
-    if (!forceBusy && running) { enc.copyBufferToBuffer(R.force, 0, R.forceRead, 0, 48); readF = true; forceBusy = true; }
+    if (!forceBusy && running) { enc.copyBufferToBuffer(R.force, 0, R.forceRead, 0, 64); readF = true; forceBusy = true; }
     // every 1.5 s once the flowfield has settled: boundary-layer edge conditions at the surface
     const ftNow = (eu.steps * eu.dt) / R.dims[0];
     if (!flying && !hy.gBusy && ftNow > 1.5 && hy.idxUploaded === hy.surf && R.sIdx && now - (hy.gT || 0) > 1500) {
@@ -5980,7 +6096,11 @@ function syncDuctUI() {
   if (!box) return;
   box.hidden = !on; $("#rocketBox").hidden = on;
   if (!on) return;
-  $("#ductMode").value = Dc.mode;
+  const thru = Dc.mode === "thru";
+  $("#ductThru").hidden = !thru; $("#ductModeL").hidden = thru;
+  $("#btnSweep").closest(".row2").hidden = thru; $("#ductChart").hidden = thru;
+  if (thru) { $("#ductIgn2").checked = Dc.ign; $("#ductFuel").value = Dc.fuel; $("#ductPhi").value = Dc.phi; $("#oDuctPhi").textContent = Dc.phi.toFixed(2); }
+  $("#ductMode").value = thru ? "pb" : Dc.mode;
   $("#ductPb").hidden = Dc.mode !== "pb"; $("#ductDem").hidden = Dc.mode !== "demand"; $("#ductRam").hidden = Dc.mode !== "ramjet";
   $("#ductPbr").value = Dc.pbr; $("#oDuctPb").textContent = Dc.pbr.toFixed(2);
   $("#ductDemR").value = Dc.dem; $("#oDuctDem").textContent = Math.round(Dc.dem * 100) + " %";
@@ -6001,6 +6121,11 @@ function wireDuct() {
   $("#ductPbr").addEventListener("input", (e) => { st.duct.pbr = +e.target.value; duct.sweep = null; changed(); });
   $("#ductDemR").addEventListener("input", (e) => { st.duct.dem = +e.target.value; changed(); });
   $("#ductIgn").addEventListener("change", (e) => { st.duct.ign = e.target.checked; changed(); });
+  const fs = $("#ductFuel");
+  for (const [k, f] of Object.entries(FUELS)) { const o = document.createElement("option"); o.value = k; o.textContent = f.name; fs.appendChild(o); }
+  $("#ductIgn2").addEventListener("change", (e) => { st.duct.ign = e.target.checked; changed(); });
+  fs.addEventListener("change", (e) => { st.duct.fuel = e.target.value; changed(); });
+  $("#ductPhi").addEventListener("input", (e) => { st.duct.phi = +e.target.value; changed(); });
   $("#ductTt4").addEventListener("change", (e) => { st.duct.Tt4 = Math.min(2600, Math.max(300, +e.target.value || 2000)); changed(); });
   $("#ductAt").addEventListener("change", (e) => { st.duct.At = Math.min(3, Math.max(0.2, +e.target.value || 1)); changed(); });
   $("#btnSweep").addEventListener("click", () => {
@@ -6015,6 +6140,7 @@ function updateDuctInfo() {
   if (!el || !Dc || !Dc.on) return;
   const row = (k, v, c) => `<dt>${k}</dt><dd${c ? ` class="${c}"` : ""}>${v}</dd>`;
   if (!R || st.regime !== "hyp" || !(eu.pinf > 0)) { el.innerHTML = row("Waiting", "for the high-speed solver"); return; }
+  if (Dc.mode === "thru") { updateThruInfo(el, row); return; }
   const F = ductFree(), m = ductMean(), env = envNow(), r0 = nsRecovery(F.M, F.g);
   $("#ductState").textContent = m ? ductState(m) : "";
   if (!m) { el.innerHTML = row("Settling", "…"); return; }
@@ -6036,6 +6162,25 @@ function updateDuctInfo() {
     }
   }
   el.innerHTML = h;
+}
+function updateThruInfo(el, row) {
+  const Dc = st.duct, m = ductMean(), env = envNow();
+  if (!m || !env) { $("#ductState").textContent = ""; el.innerHTML = row("Settling", "…"); return; }
+  const Fu = FUELS[Dc.fuel] || FUELS.kerosene, mpc = metresPerCell();
+  const air = m.mdot * env.rho * env.V * mpc * mpc, fuel = Dc.ign ? Dc.phi * Fu.fst * Math.max(air, 0) : 0;
+  // inviscid: the net axial pressure force on all the hardware, inside and out, is the thrust
+  const T = -m.fx * 0.5 * env.rho * env.V * env.V * mpc * mpc;
+  let st_ = m.mdot < 0 ? "Reversed flow in the combustor: unstarted" :
+    m.mfr < 0.85 ? `Spilling ${Math.round(100 * (1 - m.mfr))} % of the capture flow: the intake is unstarting (too much heat for the duct, or below its starting Mach)` :
+    m.Mf >= 1 ? "Supersonic combustion: scramjet mode" : "Subsonic combustion: ramjet mode";
+  $("#ductState").textContent = st_;
+  el.innerHTML = row("Capture", `${(m.mfr * 100).toFixed(1)} %`, m.mfr < 0.9 ? "warn" : "") +
+    row("Combustor entry Mach", m.Mf.toFixed(2)) +
+    row("Air flow", `${air.toFixed(2)} kg/s`) +
+    row("Fuel flow", Dc.ign ? `${fuel.toFixed(3)} kg/s · φ ${Dc.phi.toFixed(2)}` : "off") +
+    row("Heat added", Dc.ign ? `${((fuel * FUEL.eta * Fu.LHV) / 1e6).toFixed(1)} MW` : "—") +
+    row(T >= 0 ? "Net thrust" : "Net drag", `${(Math.abs(T) / 1000).toFixed(2)} kN`, T < 0 ? "warn" : "") +
+    (fuel > 0 && T > 0 ? row("Specific impulse (fuel)", `${(T / (fuel * G0)).toFixed(0)} s`) : "");
 }
 function drawDuctChart() {
   const c = $("#ductChart");
