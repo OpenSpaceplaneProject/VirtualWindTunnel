@@ -212,6 +212,7 @@ details > .pane { gap: 10px; }
 #thermSeg .segb { font-size: 12px; padding: 9px 2px; }
 .segb { appearance: none; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 9px 6px; font-family: var(--f-display); font-weight: 600; font-size: 13px; letter-spacing: 0.05em; text-transform: uppercase; }
 [hidden] { display: none !important; }
+p.msg:empty { display: none; }
 .dstate { margin: 10px 0 4px; font-size: 13px; line-height: 1.4; color: var(--ink, #e8ecf4); }
 .dstate:empty { display: none; }
 .segb[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); }
@@ -272,9 +273,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
 .velw { position: absolute; left: 0; bottom: 0; width: 58px; height: 88px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
 #velc { width: 54px; height: 54px; display: block; }
 .velt { font-size: 9.5px; line-height: 1.35; white-space: pre; color: var(--fg); text-align: center; }
-.navhint { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); pointer-events: none; white-space: nowrap; transition: opacity 0.6s ease; }
-.navhint.gone { opacity: 0; }
-@media (max-width: 1100px) { .navhint { display: none; } }
 #toast {
   position: absolute; left: 50%; transform: translateX(-50%); bottom: 110px; max-width: min(460px, 100%);
   background: #1b2030; border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; font-size: 13px; pointer-events: none;
@@ -317,7 +315,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
   <div class="frame">
     <div class="hud">
       <div class="brandRow"><img class="patch" src="patch.png" alt="Open Spaceplane Project mission patch"><div class="brand"><span class="kick">Open Spaceplane Project</span><span class="name">Virtual Windtunnel</span><span class="credit">Brought to you with 💖 &amp; determination by Supernova Labs</span></div></div>
-      <div class="navhint" id="navhint">Drag to orbit · right-drag to pan · scroll to zoom · double-click to reset</div>
     </div>
 
     <div class="legend">
@@ -382,13 +379,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
               <div class="orow"><span class="k">Pitch · about y</span><button class="btn" data-ax="1" data-d="-90">−90°</button><input type="number" id="or1" step="1" aria-label="Pitch in degrees"><button class="btn" data-ax="1" data-d="90">+90°</button></div>
               <div class="orow"><span class="k">Yaw · about z</span><button class="btn" data-ax="2" data-d="-90">−90°</button><input type="number" id="or2" step="1" aria-label="Yaw in degrees"><button class="btn" data-ax="2" data-d="90">+90°</button></div>
               <div class="row2"><button class="btn" id="btnAlign">Align longest axis with flow</button><button class="btn" id="btnOrReset">Reset</button></div>
-              <p class="hint">For imported models that arrive pointing the wrong way. The nose should face into the flow, the wings run sideways and the belly face down. Yaw 180° turns a model that arrives tail-first. Use the Flight tab for angle of attack.</p>
             </div>
           </details>
           <details id="optBox">
             <summary>Optimise shape</summary>
             <div class="pane">
-              <p class="hint">Finds the body of revolution with the least wave drag for its length and volume, scoring each candidate with the flow solver. Linear theory's answer is the Sears–Haack body, so this checks that the optimiser and solver find a known optimum before you trust them on your own problems.</p>
               <div class="row2">
                 <label class="field"><span class="k">Mach</span><input type="number" id="optMach" value="1.8" min="1.2" max="4" step="0.1"></label>
                 <button class="btn primary" id="btnOpt">Optimise shape</button>
@@ -396,32 +391,25 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
               <p class="msg" id="optMsg"></p>
               <canvas class="chart" id="optChart" aria-label="Radius along the body: Sears–Haack, starting shape and best found"></canvas>
               <dl class="kv" id="optInfo"></dl>
-              <p class="hint">Five radii along the body are the design variables (ends closed, volume held by scaling); a Nelder–Mead simplex searches them, up to 60 candidates, each run until its drag settles. Wall friction is turned off so only wave drag counts. Takes a while: each candidate is a full flow solution.</p>
             </div>
           </details>
           <details id="codeBox">
             <summary>Edit shape as code</summary>
             <div class="pane">
-              <textarea id="code" spellcheck="false" aria-label="Signed distance function source"></textarea>
+              <textarea id="code" spellcheck="false" aria-label="Signed distance function source" title="fn sdf(p: vec3f) -> f32, negative inside; x downstream from the nose, y span, z up, unit = vehicle length. Library: sdSphere sdBox sdRoundBox sdEllipsoid sdCapsule sdCylinderX sdRoundCone sdTorus sdWing sdDeltaWing sdPlate sdTri2 sdRev sdGyroid stl opUnion opSub opInter opSmoothUnion opSmoothSub rotX rotY rotZ"></textarea>
               <div class="row2"><button class="btn primary" id="btnCompile">Rebuild geometry</button><span class="msg" id="codeMsg"></span></div>
-              <p class="hint">Write <code>fn sdf(p: vec3f) -&gt; f32</code>; negative is solid. Body frame: x downstream from the nose, y span, z up, one unit = the vehicle length above. It runs on the GPU at every cell, so booleans and lattices cost nothing extra. Library: <code>sdSphere sdBox sdRoundBox sdEllipsoid sdCapsule sdCylinderX sdRoundCone sdTorus sdWing sdDeltaWing sdPlate sdTri2 sdGyroid stl opUnion opSub opInter opSmoothUnion opSmoothSub rotX rotY rotZ</code>.</p>
             </div>
           </details>
         </section>
 
         <section class="pane" data-pane="flight" hidden>
-          <p class="hint">Airspeed and altitude are set on the axes around the scene, or by dragging the dot between them.</p>
           <h3 class="grp">Attitude</h3>
           <label class="ctl"><span class="k">Angle of attack</span><output id="oAoa"></output><input type="range" id="aoa" min="-30" max="60" step="0.5"></label>
           <label class="ctl"><span class="k">Sideslip</span><output id="oBeta"></output><input type="range" id="beta" min="-30" max="30" step="0.5"></label>
           <label class="ctl"><span class="k">Roll</span><output id="oRoll"></output><input type="range" id="roll" min="-180" max="180" step="1"></label>
           <h3 class="grp">Fly it yourself</h3>
-          <div class="row2"><button class="btn primary" id="btnFly">Take control</button><button class="btn" id="btnHome">Return to set attitude</button></div>
+          <div class="row2"><button class="btn primary" id="btnFly" title="Keyboard W/S pitch, A/D roll, Q/E yaw, Shift for faster; mouse left-drag is the stick, right-drag orbits; gamepad sticks">Take control</button><button class="btn" id="btnHome">Return to set attitude</button></div>
           <label class="ctl"><span class="k">Maximum rate, ° per flow-through</span><output id="oFlyRate"></output><input type="range" id="flyRate" min="5" max="120" step="1"></label>
-          <details class="more">
-            <summary>Controls</summary>
-            <p class="hint">Keyboard: W/S pitch, A/D roll, Q/E yaw; hold Shift for faster rates. Mouse: while flying, left-drag is the stick and right-drag orbits the camera. Gamepad: left stick pitch and roll, right stick yaw. The artifact viewer may block gamepads; opening the page in its own tab avoids that.</p>
-          </details>
           <h3 class="grp">Manoeuvres</h3>
           <label class="field"><span class="k">Manoeuvre</span><select id="manSel"></select></label>
           <label class="ctl"><span class="k">Duration, flow-throughs</span><output id="oManT"></output><input type="range" id="manT" min="3" max="40" step="0.5"></label>
@@ -439,25 +427,13 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
               <label class="field"><span class="k">Speed</span><select id="tlRate"><option value="10">×10</option><option value="30" selected>×30</option><option value="100">×100</option><option value="300">×300</option></select></label>
             </div>
             <dl class="kv" id="tlInfo"></dl>
-            <details class="more">
-              <summary>How the timeline works</summary>
-              <p class="hint">Each event fires once, in order, when its condition is met: at entry, after a time, once braking reaches a number of g, below a Mach number or altitude, or at the top of a skip. It sets a new bank angle and, optionally, a new angle of attack. The vehicle turns towards them at 5° per second in bank and 1° per second in angle of attack, as a real one would, so a roll reversal passes through wings-level and briefly lifts the vehicle. Lift and drag at each angle of attack come from analyses of the actual shape at −10° to 60°. The profiles are representative of the published Shuttle and Artemis I entries, not flight data. This is a planar model: bank sets how much lift points up, not the turn, so cross-range isn't computed.</p>
-              <p class="hint">Playing the entry steps through the trajectory faster than real time. The axes, flowfield Mach, attitude and heating follow it; the heating map uses the conditions at each moment.</p>
-            </details>
           </div>
-          <details class="more">
-            <summary>Reading results while moving</summary>
-            <p class="hint">Time runs in flow-throughs: the time air takes to pass one body length. Real fighter manoeuvres take about 5–20; shorter durations exaggerate the lag of separated flow, which shows as a wider loop in the lift trace. At low speed the surface moves with the body. The high-speed flowfield treats motion as a series of steady states, and the heating and entry results update when the motion stops.</p>
-            <p class="hint">The flow patterns are meaningful while moving; the force numbers during fast motion are rough. Air swept up or released by the moving body isn't counted in the force yet, which reads drag low during a rapid pitch-up. Hold an attitude for a flow-through or two before reading loads.</p>
-          </details>
         </section>
 
         <section class="pane" data-pane="engines" hidden>
           <div id="ductBox" hidden>
             <h3 class="grp">Air-breathing engine</h3>
-            <p class="hint lbm-only">The intake is solved by the high-speed flow solver, above Mach 0.6.</p>
             <div id="ductThru">
-              <p class="hint">Solved end to end: intake, combustor and nozzle are all geometry, and the fuel's heat is released in the combustor volume.</p>
               <div class="row2">
                 <label class="chk"><input type="checkbox" id="ductIgn2">Fuel on</label>
                 <label class="field"><span class="k">Fuel</span><select id="ductFuel"></select></label>
@@ -482,17 +458,9 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             <dl class="kv" id="ductInfo"></dl>
             <div class="row2"><button class="btn" id="btnDuctSweep">Run intake characteristic</button><span class="msg" id="ductSweepMsg"></span></div>
             <canvas class="chart" id="ductChart" aria-label="Intake characteristic: total-pressure recovery against captured mass flow"></canvas>
-            <details class="more">
-              <summary>How intakes and air-breathing engines are modelled</summary>
-              <p class="hint">The intake, spike, cowl and diffuser are geometry, so the cone and cowl shocks, the terminal shock, spillage round the lip, and buzz or unstart are all solved by the inviscid flow solver. Without viscosity there is no boundary layer, so shock–boundary-layer separation, bleed and the losses that come with them are missing: real recoveries are a few per cent lower.</p>
-              <p class="hint">At the engine face the duct ends in a boundary that sets the static pressure, as an engine does. Behind it the engine is lumped into a plenum whose pressure rises when more air arrives than leaves. A turbojet's compressor draws a fixed mass flow. A ramjet burns kerosene-class fuel to the set combustor temperature (fuel flow from the heat balance), and its choked nozzle throat passes a mass flow proportional to pressure over the square root of temperature; the exhaust then leaves the base through an ideal nozzle as a jet the solver carries on. The exhaust is treated as air (γ 1.4) and the dump into the combustor keeps the static pressure, so its losses are included. Combustion is complete and the nozzle ideal, so ramjet thrust and specific impulse are an ideal cycle: real engines read roughly 15–30 % lower.</p>
-              <p class="hint">Capture is the mass flow reaching the face over the flow through the cowl lip area in free stream. Recovery is the mass-averaged total pressure at the face over free stream. The characteristic sweep raises the back pressure step by step, then lowers it again, holding each step for one and a half flow-throughs (the shock moves only as fast as the duct fills or empties). Net thrust is uninstalled: jet momentum and pressure thrust minus the momentum of the captured air; cowl and spillage drag show in C<sub>D</sub>.</p>
-              <p class="hint">The full-flowpath engines have no lumped parts: intake, combustor and nozzle are geometry and the whole duct is solved, so shocks travel through the engine. Fuel is released as heat in the combustor volume, in proportion to the air passing through it (fuel flow from the equivalence ratio, complete combustion at 98 % efficiency). Mixing, ignition delay, dissociation and the fuel's own mass are not modelled, and the gas stays at γ 1.4, which overstates heat release at the highest temperatures. Thrust is the net axial pressure force on all the hardware, inside and out, so it is installed thrust without skin friction.</p>
-            </details>
           </div>
           <div id="rocketBox">
           <label class="chk"><input type="checkbox" id="engOn">Engines firing</label>
-          <p class="hint lbm-only">Exhaust plumes are solved by the high-speed flow solver, above Mach 0.6. Low-speed jets come with the landing work.</p>
           <div class="row2">
             <label class="field"><span class="k">Nozzle</span><select id="engType"><option value="bell">Bell nozzle</option><option value="aerospike">Aerospike (annular)</option></select></label>
             <label class="field"><span class="k">Propellant</span><select id="engProp"></select></label>
@@ -508,7 +476,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
                 <label class="field" title="Ratio of specific heats of the exhaust (from CEA or RPA)"><span class="k">Exhaust γ</span><input type="number" id="engG" min="1.05" max="1.67" step="0.01"></label>
                 <label class="field"><span class="k">Molar mass, kg/kmol</span><input type="number" id="engMW" min="2" step="0.1"></label>
               </div>
-              <p class="hint">Editing these switches the propellant to Custom. Values from CEA or RPA for your mixture ratio give the best numbers.</p>
             </div>
           </details>
           <label class="ctl"><span class="k">Throttle</span><output id="oEngThr"></output><input type="range" id="engThr" min="0.3" max="1" step="0.01"></label>
@@ -528,10 +495,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             <label class="field" title="Aerospike: angle of the primary exhaust in towards the spike"><span class="k">Cant to axis, °</span><input type="number" id="engCant" min="0" max="60" step="1"></label>
           </div>
           <dl class="kv" id="engInfo"></dl>
-          <details class="more">
-            <summary>How engines are modelled</summary>
-            <p class="hint">Each nozzle is ideal-rocket theory: frozen, isentropic, one-dimensional flow from the chamber to the exit area ratio, which gives exit Mach number, pressure, velocity and mass flow. Real engines lose a few per cent; the presets are representative, not certified data. In the flow solver each exit plane is a source boundary that injects that exit state, so the plume, its shock cells, base pressure and any interaction with the airframe are solved. The exhaust is carried as the solver's gas with the true exit density, velocity and pressure, so mass flow, momentum and pressure are right, while its temperature and sound speed follow air's properties. For an aerospike only the primary nozzle is modelled this way; the spike is geometry, so its thrust appears in the surface pressure. Thrust shown here is the nozzle exit thrust; pressure on the spike and base adds to it through the force coefficients.</p>
-          </details>
           </div>
         </section>
 
@@ -540,27 +503,21 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             <button class="segb" id="rgLbm" role="radio" aria-checked="true">Low speed · LBM</button>
             <button class="segb" id="rgHyp" role="radio" aria-checked="false">High speed · Euler</button>
           </div>
-          <p class="hint">Picked automatically from the airspeed (switches at Mach 0.6). Click to override.</p>
           <div class="chain" id="chain"></div>
           <label class="field" title="Finer grids show more detail but need more GPU memory and run slower"><span class="k">Grid resolution</span><select id="grid"></select></label>
           <div class="row2"><button class="btn" id="btnGridChk" title="Rerun this case on the next coarser grid and estimate how much the answer depends on grid size">Check grid sensitivity</button><span class="msg" id="gridMsg"></span></div>
           <h3 class="grp">Local refinement</h3>
           <div class="row2">
             <label class="field" title="How much finer the nested grid is than the current one"><span class="k">Refine</span><select id="zoomK"><option value="2">2× finer</option><option value="3">3× finer</option><option value="4">4× finer</option></select></label>
-            <button class="btn" id="btnZoom" title="Lay a finer grid over a box around the last point clicked on the surface (or the body centre), fed by the current solution">Refine here</button>
+            <button class="btn" id="btnZoom" title="A finer grid over a box around that point, fed by the current solution">Refine at body centre</button>
           </div>
           <div class="row2"><button class="btn" id="btnZoomOut" disabled>Back to full domain</button><span class="msg" id="zoomMsg"></span></div>
-          <p class="hint">Click a point on the body first (a lip, a gap, a leading edge). The finer grid takes its boundaries from the current solution, so settle that first. High-speed flowfield only.</p>
           <h3 class="grp">Validation</h3>
           <div class="row2"><button class="btn" id="btnVal">Run validation suite</button><span class="msg" id="valMsg"></span></div>
           <div id="valTable"></div>
-          <details class="more">
-            <summary>What the suite checks</summary>
-            <p class="hint">Cone surface pressure at Mach 2 and 6 against the exact Taylor–Maccoll solution; sphere stagnation pressure at Mach 3 against the Rayleigh pitot formula, and at 6 km/s in equilibrium air against a Cantera equilibrium calculation; pitot-intake recovery at Mach 1.6 against the normal shock; and low-speed sphere drag at Re 10⁴ against the standard drag curve. Each runs on the current grid until it settles (at most 10 flow-throughs or 10 minutes) and is marked * if it did not. Exact references are computed at the solver's own γ. Hover a row for details. Your case is restored afterwards.</p>
-          </details>
           <div class="pane lbm-only">
             <dl class="kv" id="flowInfo"></dl>
-            <details class="more">
+            <details id="lbmSet">
               <summary>Low-speed solver settings</summary>
               <div class="pane">
                 <label class="ctl" title="Set from the airspeed bar; capped at one million"><span class="k">Reynolds number</span><output id="oRe"></output><input type="range" id="re" min="2" max="6" step="0.05"></label>
@@ -570,7 +527,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
                   <label class="chk"><input type="checkbox" id="spfAuto" checked>Auto steps</label>
                 </div>
                 <label class="ctl"><span class="k">Steps per frame</span><output id="oSpf"></output><input type="range" id="spf" min="1" max="80" step="1"></label>
-                <p class="hint">Sharp-edged bodies such as the delta wing separate at the edge, so their vortices barely depend on Reynolds number. Rounded bodies need more cells across the boundary layer than any browser grid gives, so treat their drag as rough.</p>
               </div>
             </details>
           </div>
@@ -583,16 +539,11 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             <label class="field" title="Equilibrium air: vibration, dissociation and ionisation from an 11-species equilibrium table, so a hot shock layer is denser and cooler than a perfect gas would make it. Automatic switches it on once the free-stream total temperature passes 1,500 K."><span class="k">Air in the flowfield</span><select id="hAir"><option value="auto">Automatic</option><option value="equilibrium">Equilibrium air (real gas)</option><option value="perfect">Perfect gas, γ below</option></select></label>
             <label class="field" title="Ratio of specific heats for the perfect-gas model and the quick estimates. 1.4 is cold air; about 1.2 approximates hot, partly dissociated air at orbital speed. Set automatically from the airspeed."><span class="k">Gas γ</span><input type="number" id="hGamma" value="1.4" min="1.05" max="1.67" step="0.01"></label>
             <dl class="kv" id="eulInfo"></dl>
-            <details class="more">
-              <summary>How the flowfield is calculated</summary>
-              <p class="hint">The flow solver resolves shock waves, expansions and the wake, and gives a second opinion on surface pressure. It has no friction layer, so heating comes from the engineering estimates on the Heat tab. Shocks are about two cells thick, so a thin shock layer needs a finer grid or a bigger body. (Inviscid MUSCL–HLLE finite volume, two-stage Runge–Kutta, slip walls, perfect gas.)</p>
-            </details>
           </div>
         </section>
 
         <section class="pane" data-pane="heat" hidden>
           <div class="pane lbm-only">
-            <p class="hint">Heating and entry analysis use the high-speed solver. It switches on by itself above Mach 0.6 on the airspeed bar.</p>
             <button class="btn primary" id="btnToHyp">Switch to high speed</button>
           </div>
           <div class="pane hyp-only">
@@ -609,7 +560,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
               <label class="field"><span class="k">Start speed, m/s</span><input type="number" id="eV" min="500" max="16000" step="10"></label>
               <label class="field" title="Angle below the horizon. Returning from orbit is shallow, about −1° to −2°; steeper is hotter but shorter."><span class="k">Dive angle, °</span><input type="number" id="eFpa" min="-30" max="0" step="0.1"></label>
             </div>
-            <p class="hint">Bank and angle of attack follow the entry timeline on the Flight tab.</p>
             <canvas class="chart" id="trajChart" aria-label="Entry trajectory: altitude and nose heating against time"></canvas>
             <label class="ctl"><span class="k">Moment in the entry</span><output id="oTsel"></output><input type="range" id="tsel" min="0" max="1" step="1"></label>
             <div class="row2"><button class="btn" id="btnPeak">Jump to the hottest moment</button><span class="msg" id="selMsg"></span></div>
@@ -617,7 +567,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             <details id="tpsBox" open>
               <summary>Heat shield</summary>
               <div class="pane">
-                <p class="hint">Layers from the outside in; the last is the airframe. The burn-through map uses this stack over the whole vehicle. Click the model to check the stack at one spot.</p>
                 <div id="stack" class="stack"></div>
                 <div class="row2">
                   <button class="btn" id="btnAddLayer">Add layer</button>
@@ -626,10 +575,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
                 <div class="row2"><span class="msg" id="tpsLoc">At the nose</span><button class="btn" id="btnStag">Back to the nose</button></div>
                 <div id="tpsRes" class="tpsres"></div>
                 <canvas class="chart" id="tpsChart" aria-label="Temperature of each layer through the entry"></canvas>
-                <details class="more">
-                  <summary>How this is calculated</summary>
-                  <p class="hint">Heat conducts through the layers in one dimension (straight through the skin, not sideways). The outer face is heated by the air and cools by radiating. Heat keeps soaking inwards for 20 minutes after the run, which is often when the airframe peaks. Material values are typical published figures, not supplier data, so check them before relying on the margins. Ablating shields (PICA) are treated as if they don't erode.</p>
-                </details>
               </div>
             </details>
             <details>
@@ -644,10 +589,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
                   <label class="field" title="Leave blank to measure it from the model's curvature"><span class="k">Nose radius, m</span><input type="number" id="hRn" placeholder="auto" min="0" step="0.01"></label>
                 </div>
                 <dl class="kv" id="hypInfo"></dl>
-                <details class="more">
-                  <summary>How heating is calculated</summary>
-                  <p class="hint">Rounded areas such as the nose and leading edges use the standard blunt-body estimate, from the local curvature. Flatter areas use a flat-plate estimate based on distance from the nose. Each spot takes whichever is higher, so the map leans conservative. Edges sharper than two cells are rounded off to two cells, so refine the grid for sharp leading edges. Whether the flow is smooth or turbulent is the biggest unknown, so try both settings. Once the flowfield has settled, the boundary layer takes its edge pressure and velocity from the flowfield itself, which carries the right entropy along each streamline; before that, and with the flowfield off, it uses Newtonian pressure. Above about 90 km the heating is combined with the free-molecular limit so it never exceeds the energy the air molecules bring. Skin friction from the same boundary layer is added to the drag. (Sutton–Graves with Lees distribution; Eckert reference enthalpy; Schaaf–Chambre free-molecular flow.)</p>
-                </details>
               </div>
             </details>
           </div>
@@ -676,7 +617,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
             <div class="pane">
               <label class="ctl" title="Lower shows weaker shocks and expansions"><span class="k">Shock threshold</span><output id="oKthr"></output><input type="range" id="kthr" min="0.02" max="1.5" step="0.01"></label>
               <label class="ctl"><span class="k">Glow exposure</span><output id="oGexp"></output><input type="range" id="gexp" min="-3" max="3" step="0.05"></label>
-              <p class="hint">Glow is auto-exposed, like a camera, so it reads at any altitude; the colours are what change with speed. Hot surfaces glow as blackbodies at their temperature, which is physical. The shock-layer colour is an approximate air-emission palette from the flowfield temperature and density: it shows where air glows and roughly what colour, not radiative heating. Perfect-gas temperatures overshoot at orbital speed, so keep γ near 1.2 there.</p>
             </div>
           </details>
           <details>
@@ -711,10 +651,6 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
           <div class="row2"><button class="btn primary" id="btnFEA">Analyse structure</button><select id="feaShow" aria-label="Show on the surface"><option value="">Show: flow</option><option value="5">Show: stress</option><option value="6">Show: peak temperature</option></select></div>
           <p class="msg" id="feaMsg"></p>
           <dl class="kv" id="feaInfo"></dl>
-          <details class="more">
-            <summary>How the structure is analysed</summary>
-            <p class="hint">Linear elastic finite elements, one eight-node brick per voxel of the model (with incompatible bending modes, so even a one-voxel skin bends correctly: a test cantilever matches beam theory to 0.2 %). The skin is the shell of voxels within the set thickness of the surface; a skin thinner than a voxel is smeared over one voxel with its stiffness and mass scaled down. The load is the flow solver's surface pressure at the current condition. In flight nothing holds the vehicle, so the load is balanced by its own inertia (inertia relief), using the vehicle mass from the Model tab carried on the skin. Spars, ribs and frames are not modelled unless you build them into the shape (Edit shape as code). Stress is at each voxel's centre; the peak quoted ignores the highest 0.5 % of voxels, where the stair-stepped voxel surface makes stress spike.</p>
-          </details>
           <div class="pane lbm-only">
             <h3 class="grp">Time-averaged pressure</h3>
             <div class="checks">
@@ -722,29 +658,18 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
               <label class="chk"><input type="checkbox" id="showMean">Show mean on surface</label>
             </div>
             <div class="row2"><button class="btn" id="btnAvgReset">Restart mean</button><span class="msg" id="avgMsg">Mean off</span></div>
-            <p class="hint">Start the mean after about two flow-throughs, once the start-up has washed out. The export uses the mean when one is running.</p>
             <h3 class="grp">Export</h3>
             <button class="btn primary" id="btnExport">Export surface pressure for FEA</button>
-            <p class="hint">A spreadsheet of every point on the skin with its position and pressure, scaled to the airspeed and altitude on the axes and the vehicle length on the Model tab.</p>
-            <details class="more">
-              <summary>Column guide for FE tools</summary>
-              <p class="hint">Columns <code>x,y,z,nx,ny,nz,cp,p_pa</code>, in metres in the body frame with outward normals; gauge pressure <code>p = Cp·½ρV²</code>. Map the points onto your FE faces by nearest neighbour (ParaView Resample With Dataset, or a KD-tree) and apply as a distributed pressure, e.g. CalculiX <code>*DLOAD … P</code>. The solver's Reynolds number is capped at one million, so the pressure pattern is scaled from that.</p>
-            </details>
           </div>
           <div class="pane hyp-only">
             <h3 class="grp">Export</h3>
             <button class="btn primary" id="btnExportHyp">Export surface loads for FEA</button>
-            <p class="hint">A spreadsheet of every point on the skin with its position, pressure, heating and temperature at the current moment. It also has the peak temperature over the whole entry and the burn-through flag for the current heat shield.</p>
             <div class="row2">
               <button class="btn" id="btnExportTraj">Flight path</button>
               <button class="btn" id="btnSweep" title="Lift, drag and pitching moment at a range of angles of attack">Aero table</button>
               <button class="btn" id="btnExportTps">Heat shield history</button>
             </div>
             <span class="msg" id="sweepMsg"></span>
-            <details class="more">
-              <summary>Column guide for FE tools</summary>
-              <p class="hint">Columns, in the body frame with outward normals: <code>x_m,y_m,z_m,nx,ny,nz,cp,p_pa,q_cw_w_m2,h_film_w_m2k,t_recovery_k,t_radeq_k,regime,t_peak_k,t_struct_peak_k,burn_through</code>. Map the points onto your FE faces by nearest neighbour, for example ParaView Resample With Dataset. In CalculiX, apply pressure as <code>*DLOAD</code>. Apply heating as <code>*FILM</code> with coefficient <code>h_film</code> and sink temperature <code>t_recovery</code>, which gives the right heat flux at any wall temperature.</p>
-            </details>
           </div>
         </section>
       </div>
@@ -4363,6 +4288,7 @@ function wireEngines() {
 function updateHud() {
   updateChain();
   updateConvUI(); gridCheckStep(); validationStep(); optStep(); zoomGuard();
+  { const z = $("#btnZoom"), t = hy.probeB ? "Refine at clicked point" : "Refine at body centre"; if (z.textContent !== t) z.textContent = t; }
   updateEngineInfo();
   if (st.duct && st.duct.on) { updateDuctInfo(); drawDuctChart(); if (duct.sweep) $("#ductSweepMsg").textContent = `${duct.sweep.dir > 0 ? "Raising" : "Lowering"} back pressure · point ${duct.pts.length + 1}`; }
   const [nx, ny, nz] = R.dims;
@@ -6153,19 +6079,12 @@ function updateThermUI() {
   const el = $("#thermHint"), K = hy.risk, sm = surfModeNow();
   if (!el) return;
   const pc = (f) => (f > 0 && f < 0.005 ? "under 1" : Math.round(100 * f)) + " %";
+  let t = "";
   if (sm === 4 && K) {
-    if (!K.structT) { el.textContent = `Hottest the skin gets during the whole entry, with no heat shield: up to ${degC(K.pkMax)}. Add heat shield layers below to see where heat would get through.`; return; }
-    el.textContent = `The hottest each spot gets during the whole entry. Brighter red is hotter; pale yellow means the outer layer (${K.outerName}) goes past its rated ${degC(K.outerLim)}. ` +
-      (K.fBurn > 0 ? `Black stripes show where enough heat soaks through to take the airframe past its ${degC(K.structLim)} limit: ${pc(K.fBurn)} of the skin. Thicken the shield there or change material.`
-        : K.fNear > 0 ? `No burn-through. Faint stripes mark the ${pc(K.fNear)} of the skin where the airframe gets within 15 % of its ${degC(K.structLim)} limit.`
-        : `No burn-through: the airframe stays below its ${degC(K.structLim)} limit everywhere.`);
-  } else if (sm === 2) {
-    el.textContent = "Skin temperature right now, blue for cool and red for hot. Now means the moment chosen below, or the airspeed and altitude bars once you use them. It is the hottest the skin could be at that moment.";
-  } else {
-    const en = envNow(), Mn = en ? en.M : 10;
-    el.textContent = "Air pressure on the skin. Orange is pushed on hardest; blue is suction." +
-      (!st.euler && Mn < 4 ? " With the flow solver off this is the quick estimate, which is only reliable above about Mach 5. Turn the flowfield on (Solver tab) for supersonic speeds." : "");
-  }
+    if (!K.structT) t = `Peak skin ${degC(K.pkMax)} · no heat shield`;
+    else t = K.fBurn > 0 ? `Burn-through on ${pc(K.fBurn)} of the skin` : K.fNear > 0 ? `No burn-through · ${pc(K.fNear)} within 15 % of the airframe limit` : "No burn-through";
+  } else if (sm !== 2 && !st.euler && (envNow() ? envNow().M : 10) < 4) t = "Quick estimate: reliable above Mach 5 only";
+  el.textContent = t;
 }
 
 function surfRange(sm) {
@@ -7761,12 +7680,7 @@ function buildUI() {
   let mode = "", pinch = 0, mid = null;
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   let downAt = null;
-  // the navigation hint is only needed until the first drag or zoom
-  const hideHint = () => $("#navhint").classList.add("gone");
-  setTimeout(hideHint, 12000);
-  canvas.addEventListener("wheel", hideHint, { passive: true, once: true });
   canvas.addEventListener("pointerdown", (e) => {
-    hideHint();
     canvas.setPointerCapture(e.pointerId);
     ptrs.set(e.pointerId, [e.clientX, e.clientY]);
     downAt = ptrs.size === 1 && e.button === 0 ? [e.clientX, e.clientY, performance.now()] : null;

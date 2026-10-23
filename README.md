@@ -24,6 +24,7 @@ All results are physical approximations from the models named above — useful f
 ## Files
 
 - `index.html` — the whole application (HTML, CSS, JS and WGSL shaders).
+- `METHODS.md` — how each part works, its assumptions and how to read it, by panel tab (moved out of the app so the panel carries controls and results only).
 - `patch.png`, `favicon-32.png`, `apple-touch-icon.png` — mission patch and icons.
 - `models/redarrow.json` — default spaceplane model.
 - `.github/workflows/pages.yml` — optional GitHub Pages deploy on every push to `main`. The live site is served by Vercel at https://windtunnel.supernovalabs.co.uk (static, no build step).
