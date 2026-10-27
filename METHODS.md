@@ -10,15 +10,29 @@ For imported models that arrive pointing the wrong way. The nose should face int
 
 ### Optimise shape
 
-Finds the body of revolution with the least wave drag for its length and volume, scoring each candidate with the flow solver. Linear theory's answer is the Sears–Haack body, so this checks that the optimiser and solver find a known optimum before you trust them on your own problems.
+**Spaceplane, whole mission.** A winged body (fuselage with elliptic nose, delta wing, fin) from seven bounded parameters: fuselage radius, nose length, sweep, root chord, wing thickness, fin height, wing height. Every candidate is flown through the whole mission:
 
-Five radii along the body are the design variables (ends closed, volume held by scaling); a Nelder–Mead simplex searches them, up to 60 candidates, each run until its drag settles. Wall friction is turned off so only wave drag counts. Takes a while: each candidate is a full flow solution.
+- ascent drag loss, from the ascent simulator with the candidate's drag curve;
+- peak nose heating, from the entry simulator with the candidate's own α table;
+- hypersonic L/D (cross-range), best between 15° and 45°;
+- landing speed at α 15° (Helmbold lift slope plus Polhamus vortex lift on the planform);
+- volume, and pitch stability (dCm/dα over 30–45°, about the balance point).
+
+The score is the sum of the first three relative to the starting shape, weighted by the priority; volume below the requirement, landing above the limit and pitch instability are penalties. Surface models only (Newtonian), so a candidate takes seconds and the flowfield is paused. Up to 150 candidates.
+
+**Least wave drag body (benchmark).** Five radii of a body of revolution at fixed length and volume, each candidate scored by the flow solver's pressure drag. Linear theory's answer is the Sears–Haack body, so this checks the optimiser and solver find a known optimum before you trust them on your own problems.
 
 ### Edit shape as code
 
 Write `fn sdf(p: vec3f) -> f32`; negative is solid. Body frame: x downstream from the nose, y span, z up, one unit = the vehicle length above. It runs on the GPU at every cell, so booleans and lattices cost nothing extra. Library: `sdSphere sdBox sdRoundBox sdEllipsoid sdCapsule sdCylinderX sdRoundCone sdTorus sdWing sdDeltaWing sdPlate sdTri2 sdGyroid stl opUnion opSub opInter opSmoothUnion opSmoothSub rotX rotY rotZ`.
 
 ## Flight
+
+### Ascent
+
+Planar point-mass ascent over a rotating spherical Earth, serial stages. Thrust follows back pressure (F = F_vac − p·A_e, exit area from the two Isps); an optional g limit throttles down to 40 %. Guidance: vertical rise to 60 m/s, a pitch kick, a gravity turn while the air matters (dynamic pressure above 1 kPa or below 40 km), then zero-effort-miss steering that zeroes the climb rate at the target altitude as the speed reaches circular, for direct insertion. The kick angle is searched for the most Δv left at insertion. Losses are integrated along the path: gravity, drag, steering.
+
+Drag is the tunnel model's zero-lift drag on its frontal area, by component build-up from the measured geometry: turbulent skin friction on the wetted area (Schlichting, compressible), base drag (Hoerner), and wave drag from the slender-body area rule of the voxel S(x) — rising through the transonic drag rise and blending to the Newtonian pressure drag of the actual shape by Mach 5. Where S(x) falls faster than an 8° boat-tail the flow is taken as separated: the drop counts as base area. The launcher presets are class approximations (no fairing, residuals or reserves), so payload margins are optimistic by a few hundred m/s.
 
 ### Controls
 

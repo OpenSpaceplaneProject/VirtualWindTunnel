@@ -16,7 +16,8 @@ Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent 
 - **Engines:** ideal-rocket bell and aerospike exhausts; intakes (pitot, external-, mixed-compression) with an engine face that sets back pressure (rig, turbojet demand, ramjet combustor); full-flowpath ramjet and scramjet with heat release in the combustor.
 - **Structure:** voxel finite elements (bricks with incompatible bending modes) loaded by the flow's surface pressure with inertia relief; optional heat soak along the entry and thermal stress.
 - **Trust tools:** convergence detection with uncertainty bands, a grid-sensitivity check, local refinement by a nested finer grid, and a validation suite against exact and published answers.
-- **Shape optimiser:** Nelder–Mead on a body of revolution, scored by the flow solver, benchmarked against the Sears–Haack minimum-wave-drag body.
+- **Shape optimiser:** a winged spaceplane scored over the whole mission (ascent drag, entry heating, cross-range, landing speed, volume, stability), plus a Sears–Haack benchmark scored by the flow solver.
+- **Ascent and staging:** multi-stage ascent to orbit with pitch kick, gravity turn, closed-loop insertion, max-Q, staging and losses; drag from the model's measured geometry.
 - **Entry simulation, aerothermal loads, import** (STL, OBJ, GLB, STEP) as before.
 
 All results are physical approximations from the models named above — useful for design exploration, not a substitute for validated CFD, FEA or test.
