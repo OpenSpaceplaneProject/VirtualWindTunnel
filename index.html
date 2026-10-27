@@ -80,6 +80,10 @@ body {
 .hlStat { font-size: 10.5px; color: var(--muted); }
 .tlRows { display: flex; flex-direction: column; gap: 8px; }
 .tlRow { display: grid; grid-template-columns: 18px minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.8fr) 26px; gap: 4px; align-items: center; }
+.pane.bldGrid, .bldGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.bldGrid > .field { min-width: 0; }
+.chart.tall { height: 220px; }
+.field.grow { flex: 1; }
 .tlRow.stRow { grid-template-columns: repeat(5, minmax(0, 1fr)) 26px; }
 .tlRow.stRow input { padding: 5px 3px; font-size: 11px; }
 .tlRow .n { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); }
@@ -433,6 +437,36 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               <div class="row2"><button class="btn" id="btnAlign">Align longest axis with flow</button><button class="btn" id="btnOrReset">Reset</button></div>
             </div>
           </details>
+          <details id="bldBox">
+            <summary>Spaceplane builder</summary>
+            <div class="pane">
+              <label class="field"><span class="k">Reference</span><select id="bldRef"></select></label>
+              <div class="row2">
+                <label class="field grow"><span class="k">Name</span><input type="text" id="bldName"></label>
+                <label class="field"><span class="k">Length, m</span><input type="number" id="bldL" min="0.5" step="0.1"></label>
+              </div>
+              <label class="field" id="bldTailL"><span class="k">Tail</span><select id="bldTail"></select></label>
+              <div id="bldFields"></div>
+              <details class="more" id="bldInt">
+                <summary>Tanks, payload and mass</summary>
+                <div class="pane bldGrid">
+                  <label class="field"><span class="k">Propellant</span><select id="bldProp"></select></label>
+                  <label class="field"><span class="k">Propellant, t</span><input type="number" data-i="mp" min="0" step="any"></label>
+                  <label class="field" title="Nose to tail: fu fuel, ox oxidiser, pay payload bay; repeat a tank to split it"><span class="k">Order</span><input type="text" data-i="order"></label>
+                  <label class="field"><span class="k">Payload, t</span><input type="number" data-i="pay" min="0" step="any"></label>
+                  <label class="field"><span class="k">Bay length, of L</span><input type="number" data-i="payLen" min="0" max="0.8" step="0.01"></label>
+                  <label class="field"><span class="k">Engines</span><input type="number" data-i="eng" min="0" step="1"></label>
+                  <label class="field"><span class="k">Thrust each, kN</span><input type="number" data-i="engF" min="0" step="any"></label>
+                  <label class="field"><span class="k">Engine mass, t</span><input type="number" data-i="engM" min="0" step="any"></label>
+                  <label class="field" title="Airframe mass per m² of wetted area: about 25 for aluminium, 12–18 for composites"><span class="k">Structure, kg/m²</span><input type="number" data-i="ks" min="1" step="1"></label>
+                  <label class="field" title="Systems, landing gear, crew, margin"><span class="k">Other, t</span><input type="number" data-i="other" min="0" step="any"></label>
+                </div>
+              </details>
+              <canvas class="chart tall" id="bldChart" aria-label="Plan and side view with tanks, payload bay and balance points"></canvas>
+              <dl class="kv" id="bldInfo"></dl>
+              <button class="btn primary" id="btnBld">Build in the tunnel</button>
+            </div>
+          </details>
           <details id="optBox">
             <summary>Optimise shape</summary>
             <div class="pane">
@@ -440,10 +474,18 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
                 <label class="field"><span class="k">Problem</span><select id="optProb"><option value="sp">Spaceplane, whole mission</option><option value="sh">Least wave drag body (benchmark)</option></select></label>
                 <button class="btn primary" id="btnOpt">Optimise shape</button>
               </div>
-              <div class="row3" id="optSp">
+              <div id="optSpWrap">
+              <div class="row2 chips" id="optVary">
+                <label class="chk"><input type="checkbox" value="fus" checked>Fuselage</label>
+                <label class="chk"><input type="checkbox" value="wing" checked>Wing</label>
+                <label class="chk"><input type="checkbox" value="strake">Strakes</label>
+                <label class="chk"><input type="checkbox" value="tail" checked>Tail</label>
+                <label class="chk"><input type="checkbox" value="canard">Canards</label>
+              </div>
+              <div class="row2" id="optSp">
                 <label class="field"><span class="k">Priority</span><select id="optPri"><option value="bal">Balanced</option><option value="heat">Heating</option><option value="xr">Cross-range</option><option value="asc">Ascent drag</option></select></label>
-                <label class="field" title="Blank keeps the starting shape's volume"><span class="k">Volume ≥ m³</span><input type="number" id="optVol" placeholder="start" min="0" step="1"></label>
                 <label class="field"><span class="k">Landing ≤ m/s</span><input type="number" id="optVl" value="110" min="40" step="1"></label>
+              </div>
               </div>
               <div class="row2" id="optSh" hidden><label class="field"><span class="k">Mach</span><input type="number" id="optMach" value="1.8" min="1.2" max="4" step="0.1"></label></div>
               <p class="msg" id="optMsg"></p>
@@ -486,6 +528,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <div class="row2">
               <button class="btn" id="btnAddStage">Add stage</button>
               <label class="field" title="Throttle back to hold this acceleration; blank for full thrust"><span class="k">Max g</span><input type="number" id="ascG" min="1.5" step="0.1" placeholder="none"></label>
+              <label class="chk" id="ascOutL" title="The tunnel model rides on top in the airflow, so no fairing; off: it is inside a fairing"><input type="checkbox" id="ascOut" checked>Model outside</label>
             </div>
             <canvas class="chart" id="ascChart" aria-label="Ascent: altitude and speed against time, with staging and max-Q"></canvas>
             <dl class="kv" id="ascInfo"></dl>
@@ -3895,7 +3938,7 @@ const OMEGA_E = 7.2921159e-5;
 function ascentRun(p, kick) {
   const stg = p.stages.map((s) => ({ ...s })), dt = 0.25, gmax = p.gmax > 0 ? p.gmax : Infinity;
   const lat = (p.lat || 0) * Math.PI / 180, wcos = OMEGA_E * Math.cos(lat);
-  let k = 0, m = p.payload + stg.reduce((a, s) => a + s.mp + s.md, 0);
+  let k = 0, m = p.payload + (p.fair || 0) + stg.reduce((a, s) => a + s.mp + s.md, 0), fairOn = (p.fair || 0) > 0;
   let r = RE_EARTH, th = 0, vr = 0, vt = wcos * RE_EARTH, t = 0;
   const rT = RE_EARTH + p.hT * 1000;
   const out = { t: [], h: [], V: [], q: [], M: [], acc: [], ev: [], x: [] };
@@ -3905,7 +3948,7 @@ function ascentRun(p, kick) {
   const deriv = (s, thr) => {
     const [r_, th_, vr_, vt_] = s, h = r_ - RE_EARTH, A = atmos(h / 1000);
     const ur = vr_, ut = vt_ - wcos * r_, ua = Math.hypot(ur, ut) || 1e-9, q = 0.5 * A.rho * ua * ua, M = ua / A.a;
-    const Dm = q * p.Sref * p.cd(M, A, ua) / m;
+    const Dm = (q * p.CdA(M, A, ua)) / m;
     let Fm = 0, dr = 1, dtg = 0;
     const g = MU_EARTH / (r_ * r_);
     if (thr > 0 && k < stg.length) {
@@ -3946,8 +3989,9 @@ function ascentRun(p, kick) {
     lg += a1.g * sg * dt; ld += a1.Dm * dt; ls += a1.Fm * (1 - (a1.dr * a1.ur + a1.dtg * a1.ut) / a1.ua) * dt;
     if (a1.q > maxQ.q) maxQ = { q: a1.q, t, M: a1.M, h: (r - RE_EARTH) / 1000 };
     if (it % 4 === 0) { out.t.push(t); out.h.push((r - RE_EARTH) / 1000); out.V.push(Math.hypot(vr, vt)); out.q.push(a1.q); out.M.push(a1.M); out.acc.push((a1.Fm) / G0); out.x.push(th * RE_EARTH / 1000); }
-    if (r < RE_EARTH - 1) { phase = "crashed"; break; }
+    if (r < RE_EARTH - 1) { phase = t < 10 ? "grounded" : "crashed"; break; }
     if (vr < 0 && r - RE_EARTH < 60000 && t > 30) { phase = "fell"; break; }
+    if (fairOn && r - RE_EARTH > 110000) { m -= p.fair; fairOn = false; out.ev.push({ t, name: "Fairing jettison" }); }
     if (!guided && kicked && t > tk + 8 && a1.q < 1000 && r - RE_EARTH > 40000) { guided = true; out.ev.push({ t, name: "Closed-loop guidance" }); }
     if ((vr * vr + vt * vt) / 2 - MU_EARTH / r >= eT) { phase = "orbit"; out.ev.push({ t, name: "Orbit insertion" }); break; }
     if (S.mp <= 0) {
@@ -4038,25 +4082,42 @@ function cdBuildup(G, M, A, V) {
 
 // Launch vehicles: [propellant t, dry t, vacuum thrust kN, Isp sea level s, Isp vacuum s] per stage
 const LV = {
-  f9: { name: "Falcon 9 class", pay: 15, stages: [[411, 22.2, 8227, 282, 311], [107.5, 4, 981, 200, 348]] },
-  electron: { name: "Electron class", pay: 0.3, stages: [[9.25, 0.95, 224, 303, 311], [2.05, 0.25, 25.8, 200, 343]] },
-  saturn: { name: "Saturn V class", pay: 120, stages: [[2077, 131, 38700, 263, 304], [444, 36, 5141, 200, 421], [109, 11, 1033, 200, 421]] },
+  self: { name: "This vehicle, single stage" },
+  f9: { name: "Falcon 9 class", pay: 15, d: 3.7, len: 70, fair: 1.9, stages: [[411, 22.2, 8227, 282, 311], [107.5, 4, 981, 200, 348]] },
+  electron: { name: "Electron class", pay: 0.3, d: 1.2, len: 18, fair: 0.05, stages: [[9.25, 0.95, 224, 303, 311], [2.05, 0.25, 25.8, 200, 343]] },
+  saturn: { name: "Saturn V class", pay: 120, d: 10.1, len: 110, fair: 4, stages: [[2077, 131, 38700, 263, 304], [444, 36, 5141, 200, 421], [109, 11, 1033, 200, 421]] },
   custom: { name: "Custom" },
 };
-const asc = { lv: "f9", pay: 15, stages: LV.f9.stages.map((s) => s.slice()), h: 200, lat: 28.5, g: 0 };
+// a launcher stack as a cylinder with a 1.5-diameter ogive nose, for its drag (engines firing: no base drag)
+function stackGeom(d, len) {
+  const R = d / 2, n = 120, sx = [], ln = Math.min(1.5 * d, len / 2);
+  let Sw = 0;
+  for (let i = 0; i < n; i++) { const x = ((i + 0.5) * len) / n, u = Math.min(1, x / ln), r = R * (2 * u - u * u); sx.push(Math.PI * r * r); Sw += (2 * Math.PI * r * len) / n; }
+  return { L: len, Sw, front: Math.PI * R * R, Dw: waveDragSB([0, ...sx], len), CDn: 0.12, Sbase: 0 };
+}
+const asc = { lv: "f9", pay: 15, stages: LV.f9.stages.map((s) => s.slice()), h: 200, lat: 28.5, g: 0, d: 3.7, len: 70, fair: 1.9, out: true };
+// the design being flown: the optimiser's candidate while it runs, otherwise the builder's
+const bldActive = () => (OPT.on && OPT.pending && OPT.pending.P ? OPT.pending.P : BLD);
 function computeAscent() {
-  const G = geomNow();
-  if (!G || !asc.stages.length) { hy.asc = null; drawAscent(); updateAscentInfo(); return; }
-  const key = G.key + JSON.stringify(asc) + st.ent.L;
+  const G = geomNow(), self = asc.lv === "self", B = bldActive(), bm = B && (B.m || bldMass(B));
+  if (!G || (!self && !asc.stages.length) || (self && !(bm && bm.mp > 0 && B.int.eng > 0))) { hy.asc = null; drawAscent(); updateAscentInfo(); return; }
+  const PR = self ? PROPS[B.int.prop] : null;
+  // 1 % of each stage's propellant is unusable (residuals), carried as dry mass
+  const stages = self ? [{ mp: 0.99 * bm.mp, md: 0.01 * bm.mp, Fvac: B.int.eng * B.int.engF * 1e3, IspS: PR.isp[0], IspV: PR.isp[1] }]
+    : asc.stages.map(([mp, md, F, s, v]) => ({ mp: 990 * mp, md: md * 1e3 + 10 * mp, Fvac: F * 1e3, IspS: s, IspV: v }));
+  const payload = self ? bm.dry + B.int.pay * 1e3 : asc.pay * 1e3, SG = self ? null : stackGeom(asc.d, asc.len), exposed = self || asc.out;
+  const key = G.key + JSON.stringify(asc) + JSON.stringify(stages) + payload + st.ent.L;
   if (hy.asc && hy.asc.key === key) return;   // depends only on the shape and the launcher
   hy.asc = simulateAscent({
-    stages: asc.stages.map(([mp, md, F, s, v]) => ({ mp: mp * 1e3, md: md * 1e3, Fvac: F * 1e3, IspS: s, IspV: v })),
-    payload: asc.pay * 1e3, Sref: G.front, cd: (M, A, V) => cdBuildup(G, M, A, V), lat: asc.lat, hT: asc.h, kickV: 60, gmax: asc.g,
+    stages, payload, fair: exposed ? 0 : asc.fair * 1e3, lat: asc.lat, hT: asc.h, kickV: 60, gmax: asc.g,
+    CdA: (M, A, V) => (exposed ? cdBuildup(G, M, A, V) * G.front : 0) + (SG ? cdBuildup(SG, M, A, V) * SG.front : 0),
   });
   hy.asc.key = key;
   drawAscent(); updateAscentInfo();
 }
 function buildAscentUI() {
+  const self = asc.lv === "self";
+  $("#ascStages").hidden = self; $("#btnAddStage").hidden = self; $("#ascPay").disabled = self; $("#ascOutL").hidden = self; $("#ascOut").checked = asc.out;
   $("#ascLv").value = asc.lv; $("#ascPay").value = asc.pay; $("#ascH").value = asc.h; $("#ascLat").value = asc.lat; $("#ascG").value = asc.g || "";
   const box = $("#ascStages");
   box.textContent = "";
@@ -4084,7 +4145,7 @@ function initAscentUI() {
   sel.addEventListener("change", () => {
     asc.lv = sel.value;
     const P = LV[asc.lv];
-    if (P.stages) { asc.stages = P.stages.map((s) => s.slice()); asc.pay = P.pay; }
+    if (P.stages) { asc.stages = P.stages.map((s) => s.slice()); asc.pay = P.pay; asc.d = P.d; asc.len = P.len; asc.fair = P.fair; }
     buildAscentUI(); computeAscent();
   });
   const num = (id, f) => $(id).addEventListener("change", (e) => { f(e.target.value === "" ? null : +e.target.value); computeAscent(); });
@@ -4092,6 +4153,7 @@ function initAscentUI() {
   num("#ascH", (v) => { asc.h = Math.min(2000, Math.max(120, v || 200)); });
   num("#ascLat", (v) => { asc.lat = Math.min(90, Math.max(-90, v || 0)); });
   num("#ascG", (v) => { asc.g = v > 0 ? Math.max(1.5, v) : 0; });
+  $("#ascOut").addEventListener("change", (e) => { asc.out = e.target.checked; computeAscent(); });
   $("#btnAddStage").addEventListener("click", () => {
     asc.stages.push(asc.stages.length ? asc.stages[asc.stages.length - 1].map((v, j) => (j < 3 ? +(v / 4).toPrecision(3) : v)) : [100, 8, 2000, 280, 320]);
     asc.lv = "custom"; buildAscentUI(); computeAscent();
@@ -4133,7 +4195,7 @@ function updateAscentInfo() {
   if (!el) return;
   if (!A) { el.innerHTML = ""; return; }
   const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`, km = (r) => ((r - RE_EARTH) / 1000).toFixed(0);
-  const res = A.phase === "orbit" ? `Orbit ${km(A.peri)} × ${km(A.apo)} km at ${A.t.toFixed(0)} s` : A.phase === "low" ? `Orbit too low: perigee ${km(A.peri)} km` : `Short of orbit by ${A.short.toFixed(0)} m/s`;
+  const res = A.phase === "grounded" ? "No lift-off: sea-level thrust is below the weight" : A.phase === "orbit" ? `Orbit ${km(A.peri)} × ${km(A.apo)} km at ${A.t.toFixed(0)} s` : A.phase === "low" ? `Orbit too low: perigee ${km(A.peri)} km` : `Short of orbit by ${A.short.toFixed(0)} m/s`;
   const stg = A.out.ev.filter((e) => /separation/.test(e.name)).map((e) => `${e.t.toFixed(0)} s`).join(", ");
   el.innerHTML = row("Result", res) +
     row(A.phase === "orbit" ? "Δv left" : "Propellant", A.phase === "orbit" ? `${A.margin.toFixed(0)} m/s of ${A.ideal.toFixed(0)}` : "all used") +
@@ -4141,7 +4203,386 @@ function updateAscentInfo() {
     (stg ? row("Staging", stg) : "") +
     row("Losses: gravity · drag · steering", `${A.lg.toFixed(0)} · ${A.ld.toFixed(0)} · ${A.ls.toFixed(0)} m/s`) +
     row("Pitch kick", `${A.kick.toFixed(2)}° at 60 m/s`) +
-    (hy.geom ? row("Drag coefficient at Mach 0.5 · 1.2 · 3", [0.5, 1.2, 3].map((M) => { const At = atmos(10), G = geomNow(); return cdBuildup(G, M, At, M * At.a).toFixed(3); }).join(" · ") + ` on ${geomNow().front.toFixed(1)} m² frontal`) : "");
+    (hy.geom && (asc.lv === "self" || asc.out) ? row("Drag coefficient at Mach 0.5 · 1.2 · 3", [0.5, 1.2, 3].map((M) => { const At = atmos(10), G = geomNow(); return cdBuildup(G, M, At, M * At.a).toFixed(3); }).join(" · ") + ` on ${geomNow().front.toFixed(1)} m² frontal`) : "");
+}
+
+// ─────────────── Spaceplane builder ───────────────
+// A spaceplane as components (fuselage, wing, strakes, tails, canards, body flap) plus its insides
+// (propellant tanks, payload bay, engines), from one design record. Lengths are fractions of the vehicle
+// length L. The same record makes the shape (a generated SDF), the internal layout, the mass and the
+// balance point, and it is what the optimiser varies. Masses are first-order sizing estimates
+// (areal and volumetric densities), not a structural design.
+const PROPS = {
+  "LOX/LH2": { ox: 1141, fu: 71, of: 6, isp: [366, 452], tank: 12 },
+  "LOX/CH4": { ox: 1141, fu: 423, of: 3.6, isp: [330, 375], tank: 10 },
+  "LOX/RP-1": { ox: 1141, fu: 810, of: 2.6, isp: [300, 340], tank: 9 },
+  "LOX/NH3": { ox: 1141, fu: 682, of: 1.25, isp: [240, 276], tank: 9 },
+  "NTO/MMH": { ox: 1440, fu: 880, of: 1.65, isp: [290, 320], tank: 8 },
+};
+const TAILS = { none: "None", single: "Single fin", twin: "Twin fins", triple: "Twin plus centre", v: "V-tail", tips: "Tip fins" };
+const bldDef = () => ({
+  name: "Custom", L: 20,
+  fus: { ln: 0.24, rf: 0.07, w: 1, flat: 0, boat: 0.07, base: 0 },
+  wing: { on: 1, x: 0.44, cr: 0.53, b: 0.31, sweep: 60, taper: 0, z: -0.43, t: 0.012, dih: 0 },
+  strake: { on: 0, len: 0.15, join: 0.35 },
+  tail: { type: "single", h: 0.17, cr: 0.23, sweep: 45, taper: 0.35, x: 0.95, cant: 0, y: 0.5 },
+  canard: { on: 0, x: 0.2, b: 0.1, cr: 0.08, sweep: 45 },
+  flap: { on: 0, len: 0.05, w: 0.6 },
+  int: { prop: "LOX/LH2", mp: 0, pay: 0, payLen: 0, order: "fu,ox,pay", eng: 0, engF: 0, engM: 0, ks: 18, other: 0 },
+});
+// [key, label, min, max, step]; the optimiser's bounds are these ranges
+const BLD_SCHEMA = [
+  ["Fuselage", "fus", [["ln", "Nose length", 0.05, 0.85, 0.01], ["rf", "Radius", 0.02, 0.2, 0.002], ["w", "Width / height", 0.6, 3, 0.05], ["flat", "Flat bottom", 0, 0.8, 0.05], ["boat", "Tail closure", 0.02, 0.3, 0.01], ["base", "Base, of radius", 0, 1, 0.05]]],
+  ["Wing", "wing", [["x", "Apex at", 0.1, 0.8, 0.01], ["cr", "Root chord", 0.1, 0.8, 0.01], ["b", "Semi-span", 0.05, 0.4, 0.005], ["sweep", "Sweep, °", 0, 80, 1], ["taper", "Taper", 0, 1, 0.05], ["z", "Height, of radius", -1, 1, 0.05], ["t", "Thickness", 0.003, 0.03, 0.001], ["dih", "Dihedral, °", -10, 30, 1]]],
+  ["Strakes", "strake", [["len", "Ahead of apex", 0.02, 0.4, 0.01], ["join", "Joins wing at", 0.1, 0.8, 0.05]]],
+  ["Tail", "tail", [["h", "Height", 0.03, 0.3, 0.005], ["cr", "Root chord", 0.05, 0.4, 0.01], ["sweep", "Sweep, °", 0, 75, 1], ["taper", "Taper", 0.1, 1, 0.05], ["x", "Trailing edge at", 0.6, 1.05, 0.01], ["cant", "Cant, °", 0, 60, 1], ["y", "Spacing, of span", 0, 1, 0.05]]],
+  ["Canards", "canard", [["x", "Apex at", 0.05, 0.6, 0.01], ["b", "Semi-span", 0.02, 0.25, 0.005], ["cr", "Root chord", 0.02, 0.25, 0.005], ["sweep", "Sweep, °", 0, 75, 1]]],
+  ["Body flap", "flap", [["len", "Length", 0.01, 0.12, 0.005], ["w", "Width, of fuselage", 0.2, 1, 0.05]]],
+];
+// Reference designs. Public dimensions and masses, rounded; shapes are approximations by components, and
+// "other" (systems, gear, crew, margin) is set so the dry or gross mass matches the published figure.
+const BLD_LIB = {
+  shuttle: { name: "Space Shuttle orbiter", L: 37.2, src: "NASA public data",
+    fus: { ln: 0.2, rf: 0.072, w: 1.05, flat: 0.35, boat: 0.06, base: 0.75 },
+    wing: { on: 1, x: 0.47, cr: 0.48, b: 0.32, sweep: 45, taper: 0.2, z: -0.55, t: 0.012, dih: 3.5 },
+    strake: { on: 1, len: 0.17, join: 0.3 }, tail: { type: "single", h: 0.21, cr: 0.27, sweep: 45, taper: 0.4, x: 0.98, cant: 0, y: 0 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.06, w: 0.75 },
+    int: { prop: "NTO/MMH", mp: 10.8, pay: 24.4, payLen: 0.49, order: "pay,fu,ox", eng: 3, engF: 2279, engM: 3.18, ks: 25, other: 27 } },
+  buran: { name: "Buran", L: 36.4, src: "NPO Molniya public data",
+    fus: { ln: 0.2, rf: 0.075, w: 1.05, flat: 0.35, boat: 0.06, base: 0.6 },
+    wing: { on: 1, x: 0.46, cr: 0.5, b: 0.33, sweep: 45, taper: 0.2, z: -0.55, t: 0.012, dih: 3 },
+    strake: { on: 1, len: 0.17, join: 0.3 }, tail: { type: "single", h: 0.2, cr: 0.26, sweep: 45, taper: 0.4, x: 0.98, cant: 0, y: 0 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.05, w: 0.7 },
+    int: { prop: "LOX/RP-1", mp: 14.5, pay: 30, payLen: 0.5, order: "pay,fu,ox", eng: 0, engF: 0, engM: 0, ks: 26, other: 19 } },
+  x37b: { name: "Boeing X-37B", L: 8.9, src: "USAF fact sheet",
+    fus: { ln: 0.22, rf: 0.1, w: 1.15, flat: 0.45, boat: 0.06, base: 0.6 },
+    wing: { on: 1, x: 0.52, cr: 0.4, b: 0.25, sweep: 48, taper: 0.35, z: -0.6, t: 0.014, dih: 4 },
+    strake: { on: 1, len: 0.12, join: 0.25 }, tail: { type: "v", h: 0.15, cr: 0.2, sweep: 45, taper: 0.45, x: 0.98, cant: 38, y: 0.2 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.05, w: 0.7 },
+    int: { prop: "NTO/MMH", mp: 0.6, pay: 0.2, payLen: 0.25, order: "pay,fu,ox", eng: 1, engF: 30, engM: 0.1, ks: 16, other: 2.2 } },
+  dreamchaser: { name: "Sierra Space Dream Chaser", L: 9, src: "Sierra Space public data",
+    fus: { ln: 0.6, rf: 0.14, w: 1.5, flat: 0.6, boat: 0.08, base: 0.7 },
+    wing: { on: 1, x: 0.5, cr: 0.45, b: 0.39, sweep: 45, taper: 0.25, z: -0.6, t: 0.016, dih: 10 },
+    strake: { on: 0 }, tail: { type: "tips", h: 0.17, cr: 0.25, sweep: 45, taper: 0.5, x: 0.98, cant: 35, y: 1 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
+    int: { prop: "NTO/MMH", mp: 0.5, pay: 5, payLen: 0.25, order: "pay,fu,ox", eng: 2, engF: 4, engM: 0.05, ks: 18, other: 0.8 } },
+  hl20: { name: "NASA HL-20", L: 8.84, src: "NASA Langley HL-20 studies",
+    fus: { ln: 0.6, rf: 0.13, w: 1.45, flat: 0.6, boat: 0.08, base: 0.75 },
+    wing: { on: 1, x: 0.45, cr: 0.5, b: 0.38, sweep: 45, taper: 0.4, z: -0.6, t: 0.014, dih: 12 },
+    strake: { on: 0 }, tail: { type: "triple", h: 0.16, cr: 0.25, sweep: 45, taper: 0.5, x: 0.98, cant: 40, y: 1 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
+    int: { prop: "NTO/MMH", mp: 0.4, pay: 0.6, payLen: 0.3, order: "pay,fu,ox", eng: 0, engF: 0, engM: 0, ks: 16, other: 7 } },
+  x24b: { name: "Martin X-24B", L: 11.4, src: "NASA Dryden fact sheet",
+    fus: { ln: 0.7, rf: 0.085, w: 1.6, flat: 0.75, boat: 0.04, base: 0.7 },
+    wing: { on: 1, x: 0.3, cr: 0.68, b: 0.25, sweep: 70, taper: 0, z: -0.7, t: 0.012, dih: 0 },
+    strake: { on: 0 }, tail: { type: "triple", h: 0.14, cr: 0.3, sweep: 50, taper: 0.5, x: 0.99, cant: 15, y: 0.75 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.03, w: 0.7 },
+    int: { prop: "LOX/RP-1", mp: 2.2, pay: 0, payLen: 0, order: "fu,ox", eng: 1, engF: 36, engM: 0.2, ks: 18, other: 1.8 } },
+  mig105: { name: "Mikoyan MiG-105 Spiral", L: 10.6, src: "Mikoyan public data",
+    fus: { ln: 0.5, rf: 0.11, w: 1.55, flat: 0.6, boat: 0.08, base: 0.6 },
+    wing: { on: 1, x: 0.55, cr: 0.42, b: 0.3, sweep: 50, taper: 0.4, z: -0.4, t: 0.012, dih: 30 },
+    strake: { on: 0 }, tail: { type: "single", h: 0.16, cr: 0.24, sweep: 55, taper: 0.4, x: 0.98, cant: 0, y: 0 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
+    int: { prop: "NTO/MMH", mp: 0.4, pay: 0, payLen: 0, order: "fu,ox", eng: 0, engF: 0, engM: 0, ks: 18, other: 1 } },
+  hermes: { name: "ESA Hermes", L: 15.5, src: "ESA programme data (final configuration)",
+    fus: { ln: 0.22, rf: 0.09, w: 1.2, flat: 0.4, boat: 0.06, base: 0.65 },
+    wing: { on: 1, x: 0.42, cr: 0.56, b: 0.33, sweep: 55, taper: 0.15, z: -0.55, t: 0.013, dih: 4 },
+    strake: { on: 0 }, tail: { type: "tips", h: 0.12, cr: 0.2, sweep: 50, taper: 0.5, x: 0.98, cant: 15, y: 1 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
+    int: { prop: "NTO/MMH", mp: 2, pay: 3, payLen: 0.25, order: "pay,fu,ox", eng: 2, engF: 20, engM: 0.1, ks: 20, other: 8.7 } },
+  hopex: { name: "NASDA HOPE-X", L: 16.5, src: "NASDA public data",
+    fus: { ln: 0.22, rf: 0.085, w: 1.2, flat: 0.45, boat: 0.06, base: 0.6 },
+    wing: { on: 1, x: 0.5, cr: 0.48, b: 0.29, sweep: 50, taper: 0.3, z: -0.55, t: 0.012, dih: 4 },
+    strake: { on: 1, len: 0.18, join: 0.3 }, tail: { type: "tips", h: 0.13, cr: 0.2, sweep: 45, taper: 0.5, x: 0.98, cant: 10, y: 1 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
+    int: { prop: "NTO/MMH", mp: 1.5, pay: 3, payLen: 0.2, order: "pay,fu,ox", eng: 2, engF: 20, engM: 0.1, ks: 18, other: 1.5 } },
+  x15: { name: "North American X-15", L: 15.5, src: "NASA Dryden fact sheet",
+    fus: { ln: 0.2, rf: 0.042, w: 1.6, flat: 0, boat: 0.03, base: 0.8 },
+    wing: { on: 1, x: 0.47, cr: 0.27, b: 0.22, sweep: 25, taper: 0.2, z: 0, t: 0.008, dih: 0 },
+    strake: { on: 0 }, tail: { type: "single", h: 0.14, cr: 0.2, sweep: 50, taper: 0.6, x: 0.99, cant: 0, y: 0 },
+    canard: { on: 0 }, flap: { on: 0 },
+    int: { prop: "LOX/NH3", mp: 8.2, pay: 0, payLen: 0, order: "ox,fu", eng: 1, engF: 262, engM: 0.42, ks: 30, other: 1.5 } },
+  skylon: { name: "Reaction Engines Skylon D1", L: 83.1, src: "Reaction Engines published studies",
+    fus: { ln: 0.2, rf: 0.038, w: 1, flat: 0, boat: 0.15, base: 0 },
+    wing: { on: 1, x: 0.38, cr: 0.32, b: 0.16, sweep: 45, taper: 0.15, z: 0, t: 0.006, dih: 0 },
+    strake: { on: 0 }, tail: { type: "single", h: 0.08, cr: 0.12, sweep: 50, taper: 0.4, x: 0.99, cant: 0, y: 0 },
+    canard: { on: 1, x: 0.1, b: 0.06, cr: 0.05, sweep: 45 }, flap: { on: 0 },
+    int: { prop: "LOX/LH2", mp: 220, pay: 15, payLen: 0.15, order: "fu,pay,ox,fu", eng: 2, engF: 2000, engM: 7, ks: 7, other: 0 } },
+  x33: { name: "Lockheed Martin X-33", L: 21, src: "NASA X-33 programme data",
+    fus: { ln: 0.65, rf: 0.11, w: 2.6, flat: 0.7, boat: 0.05, base: 0.9 },
+    wing: { on: 1, x: 0.72, cr: 0.26, b: 0.36, sweep: 30, taper: 0.4, z: -0.55, t: 0.01, dih: 20 },
+    strake: { on: 0 }, tail: { type: "twin", h: 0.14, cr: 0.2, sweep: 45, taper: 0.5, x: 0.98, cant: 25, y: 0.45 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.8 },
+    int: { prop: "LOX/LH2", mp: 95, pay: 0, payLen: 0, order: "fu,ox,fu", eng: 2, engF: 1200, engM: 3.2, ks: 18, other: 3 } },
+  osp: { name: "OSP concept, from Spaceplane Source renders", L: 20, src: "proportions estimated from the Spaceplane Source renders",
+    fus: { ln: 0.3, rf: 0.07, w: 1.6, flat: 0.5, boat: 0.06, base: 0.7 },
+    wing: { on: 1, x: 0.46, cr: 0.5, b: 0.34, sweep: 55, taper: 0.1, z: -0.4, t: 0.012, dih: 2 },
+    strake: { on: 1, len: 0.22, join: 0.35 }, tail: { type: "twin", h: 0.15, cr: 0.22, sweep: 50, taper: 0.4, x: 0.97, cant: 20, y: 0.4 },
+    canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.7 },
+    int: { prop: "LOX/LH2", mp: 0, pay: 2, payLen: 0.2, order: "pay,fu,ox", eng: 1, engF: 1000, engM: 1.5, ks: 15, other: 2 } },
+  f14ssto: { name: "F-14-sized SSTO (Critical Path analysis)", L: 19.1, src: "SSTO_Critical_Path_Analysis: dry 70 t, GLOW 172.9 t; F-14 dimensions",
+    fus: { ln: 0.28, rf: 0.075, w: 1.5, flat: 0.45, boat: 0.06, base: 0.6 },
+    wing: { on: 1, x: 0.42, cr: 0.54, b: 0.4, sweep: 55, taper: 0.15, z: -0.3, t: 0.012, dih: 0 },
+    strake: { on: 1, len: 0.2, join: 0.3 }, tail: { type: "twin", h: 0.15, cr: 0.22, sweep: 45, taper: 0.4, x: 0.98, cant: 10, y: 0.35 },
+    canard: { on: 0 }, flap: { on: 0 },
+    int: { prop: "LOX/LH2", mp: 102.9, pay: 0, payLen: 0, order: "fu,ox", eng: 2, engF: 1500, engM: 3, ks: 18, other: 49.7 } },
+  carssto: { name: "Passenger-car SSTO (Slow Ascent analysis)", L: 6, src: "Passenger_Car_SSTO_Slow_Ascent_Analysis: 6 m × 10 m, dry 2.58 t, 1.65 t LH2 + 5.61 t LOX",
+    fus: { ln: 0.4, rf: 0.14, w: 1.3, flat: 0.4, boat: 0.08, base: 0.6 },
+    wing: { on: 1, x: 0.35, cr: 0.6, b: 0.4, sweep: 50, taper: 0.2, z: -0.3, t: 0.015, dih: 0 },
+    strake: { on: 0 }, tail: { type: "twin", h: 0.17, cr: 0.25, sweep: 45, taper: 0.4, x: 0.98, cant: 15, y: 0.3 },
+    canard: { on: 0 }, flap: { on: 0 },
+    int: { prop: "LOX/LH2", mp: 7.26, pay: 0.2, payLen: 0.15, order: "pay,fu,ox", eng: 1, engF: 120, engM: 0.5, ks: 15, other: 0.8 } },
+};
+let BLD = null;
+const bldFill = (src) => { const d = bldDef(); for (const k of Object.keys(src)) d[k] = typeof src[k] === "object" && !Array.isArray(src[k]) ? { ...d[k], ...src[k] } : src[k]; return d; };
+
+// fuselage half-height profile: elliptic nose, parallel body, quarter-ellipse closure to a base radius
+function bldProfile(f) {
+  const rf = f.rf, x1 = 1 - f.boat, ln = Math.min(f.ln, x1 - 0.02), rb = Math.min(1, f.base) * rf, pts = [[0, 0]];
+  for (const u of [0.02, 0.08, 0.2, 0.4, 0.65, 1]) { const x = ln * u, e = (ln - x) / ln; pts.push([x, rf * Math.sqrt(Math.max(0, 1 - e * e))]); }
+  pts.push([x1, rf]);
+  for (const u of [0.45, 0.8, 1]) pts.push([x1 + f.boat * u, rb + (rf - rb) * Math.sqrt(Math.max(0, 1 - u * u))]);
+  if (rb > 1e-4) pts.push([1, 0]);
+  return pts;
+}
+const bldR = (prof, x) => { for (let i = 0; i + 1 < prof.length; i++) { const [x0, r0] = prof[i], [x1, r1] = prof[i + 1]; if (x >= x0 && x <= x1) return x1 > x0 ? r0 + ((r1 - r0) * (x - x0)) / (x1 - x0) : Math.max(r0, r1); } return 0; };
+// cross-section area of an ellipse r × r·w cut flat at z = −rf·(1 − flat) (fraction of L²)
+function bldSec(f, r) {
+  if (r <= 0) return 0;
+  const zc = f.flat > 0 ? Math.min(1, (f.rf * (1 - f.flat)) / r) : 1, cut = zc < 1 ? Math.acos(zc) - zc * Math.sqrt(1 - zc * zc) : 0;
+  return r * r * f.w * (Math.PI - cut);
+}
+// wing half planform corners (body frame, fractions of L): root LE, tip LE, tip TE, root TE
+function wingPts(w) { const xt = w.b * Math.tan(w.sweep * D); return [[w.x, 0], [w.x + xt, w.b], [w.x + xt + w.taper * w.cr, w.b], [w.x + w.cr, 0]]; }
+const f5 = (v) => (+v).toFixed(5);
+
+function bldCode(d) {
+  const f = d.fus, prof = bldProfile(f), pad = prof.concat(Array(16 - prof.length).fill(prof[prof.length - 1]));
+  const rows = [];
+  for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${f5(x)}, ${f5(r)})`).join(", "));
+  const L = [`// ${d.name}: spaceplane builder, length 1 (${d.L} m).`, "fn sdf(p: vec3f) -> f32 {",
+    `  var d = sdRev(vec3f(p.x, p.y / ${f5(f.w)}, p.z), array<vec2f, 16>(\n${rows.join(",\n")}), ${prof.length}u) * ${f5(Math.min(1, f.w))};`];
+  if (f.flat > 0) L.push(`  d = max(d, ${f5(-f.rf * (1 - f.flat))} - p.z);   // flat underside`);
+  // a trapezoid half planform (x, |y|), extended past the centreline so the root is solid
+  const v2 = (x, y) => `vec2f(${f5(x)}, ${f5(y)})`;
+  const quad = (v, [a, b, c, e]) => {
+    const A = v2(a[0], -0.05), B = v2(...b), C = v2(...c), E = v2(e[0], -0.05), t1 = `sdTri2(${v}, ${A}, ${B}, ${E})`;
+    return Math.hypot(c[0] - b[0], c[1] - b[1]) < 1e-4 ? t1 : `min(${t1}, sdTri2(${v}, ${B}, ${C}, ${E}))`;
+  };
+  const w = d.wing;
+  if (w.on) {
+    const zw = w.z * f.rf, P = wingPts(w);
+    L.push(`  let wq = vec3f(p.x, abs(p.y), p.z - ${f5(zw)} - abs(p.y) * ${f5(Math.tan(w.dih * D))});`);
+    let pl = quad("wq.xy", P);
+    if (d.strake.on) {
+      const j = d.strake.join * w.cr, yj = Math.min(w.b, j / Math.max(Math.tan(w.sweep * D), 1e-3));
+      pl = `min(${pl}, sdTri2(wq.xy, vec2f(${f5(w.x - d.strake.len)}, -0.05), vec2f(${f5(w.x + j)}, ${f5(yj)}), vec2f(${f5(w.x + j)}, -0.05)))`;
+    }
+    L.push(`  let wing = sdPlate(${pl} + ${f5(w.t)}, wq.z, ${f5(w.t / 3)}, ${f5(w.t)});`, "  d = opSmoothUnion(d, wing, 0.025);");
+  }
+  const c = d.canard;
+  if (c.on) {
+    const P = wingPts({ x: c.x, b: c.b, sweep: c.sweep, taper: 0.3, cr: c.cr });
+    L.push(`  let cq = vec3f(p.x, abs(p.y), p.z);`, `  d = opSmoothUnion(d, sdPlate(${quad("cq.xy", P)} + 0.004, cq.z, 0.002, 0.004), 0.015);`);
+  }
+  const t = d.tail;
+  if (t.type !== "none") {
+    // fin as a trapezoid in (x, span) with root on the body; canted fins rotate the span direction outward
+    const fin = (y0, z0, cant, tag, xr = t.x, cr = t.cr) => {
+      const ca = Math.cos(cant * D), sa = Math.sin(cant * D), x0 = xr - cr, xt = t.h * Math.tan(t.sweep * D);
+      const P = [[x0, 0], [x0 + xt, t.h], [x0 + xt + t.taper * cr, t.h], [xr, 0]].map(([x, s]) => `vec2f(${f5(x)}, ${f5(s)})`);
+      L.push(`  let ${tag} = vec3f(p.x, abs(p.y) - ${f5(y0)}, p.z - ${f5(z0)});`,
+        `  let ${tag}s = vec2f(${tag}.x, ${tag}.y * ${f5(sa)} + ${tag}.z * ${f5(ca)});`,
+        `  d = opSmoothUnion(d, sdPlate(min(sdTri2(${tag}s, ${P[0]}, ${P[1]}, ${P[3]}), sdTri2(${tag}s, ${P[1]}, ${P[2]}, ${P[3]})) + 0.006, ${tag}.y * ${f5(ca)} - ${tag}.z * ${f5(sa)}, 0.0025, 0.006), 0.012);`);
+    };
+    const top = f.rf * 0.75, span = w.on ? w.b : f.rf * f.w;
+    if (t.type === "single" || t.type === "triple") fin(0, top, 0, "fc");
+    if (t.type === "twin" || t.type === "triple") fin(Math.max(f.rf * f.w * 0.4, t.y * span), t.type === "triple" ? (w.on ? w.z * f.rf : 0) : top * 0.6, t.cant, "ft");
+    if (t.type === "v") fin(Math.max(0.01, t.y * f.rf * f.w), top * 0.7, Math.max(t.cant, 20), "fv");
+    // tip fins sit on the wing-tip chord
+    if (t.type === "tips" && w.on) { const P = wingPts(w), ct = Math.max(P[2][0] - P[1][0], 0.02); fin(w.b - 0.004, w.z * f.rf + w.b * Math.tan(w.dih * D), t.cant, "fw", P[2][0], Math.max(ct, Math.min(t.cr, ct * 1.6))); }
+  }
+  if (d.flap.on) {
+    const fl = d.flap, zb = f.flat > 0 ? -f.rf * (1 - f.flat) + 0.006 : -f.rf * 0.6;
+    L.push(`  d = opSmoothUnion(d, sdRoundBox(p - vec3f(${f5(1 + fl.len / 2 - 0.015)}, 0.0, ${f5(zb)}), vec3f(${f5(fl.len / 2 + 0.015)}, ${f5((fl.w * f.rf * f.w))}, 0.007), 0.005), 0.008);`);
+  }
+  L.push("  return d;", "}");
+  return L.join("\n");
+}
+
+// Internal layout and mass. Tanks and the payload bay are packed nose to tail in the listed order,
+// from behind the nose cone (crew, avionics) to the engine bay, each taking the length its volume needs
+// at 80 % of the local cross-section (structure, insulation, systems take the rest).
+function bldMass(d) {
+  const f = d.fus, L = d.L, prof = bldProfile(f), I = d.int, P = PROPS[I.prop] || PROPS["LOX/LH2"], N = 400;
+  const sec = (x) => bldSec(f, bldR(prof, x)) * L * L;   // m²
+  const mFu = (I.mp * 1000) / (1 + P.of), mOx = (I.mp * 1000 * P.of) / (1 + P.of);
+  const items = [];
+  const fuParts = I.order.split(",").filter((k) => k === "fu").length || 1, oxParts = I.order.split(",").filter((k) => k === "ox").length || 1;
+  for (const k of I.order.split(",")) {
+    if (k === "fu" && mFu > 0) items.push({ k, name: "Fuel", m: mFu / fuParts, V: (1.03 * mFu) / P.fu / fuParts });
+    if (k === "ox" && mOx > 0) items.push({ k, name: "Oxidiser", m: mOx / oxParts, V: (1.03 * mOx) / P.ox / oxParts });
+    if (k === "pay" && (I.pay > 0 || I.payLen > 0)) items.push({ k, name: "Payload bay", m: I.pay * 1000, len: I.payLen });
+  }
+  const x0 = f.ln * 0.7, xEnd = 1 - (I.eng > 0 ? Math.max(f.boat, 0.08) : Math.max(0.5 * f.boat, 0.02));
+  let x = x0, over = 0, Vavail = 0;
+  for (let i = 0; i < N; i++) { const xx = x0 + ((xEnd - x0) * (i + 0.5)) / N; Vavail += 0.8 * sec(xx) * ((xEnd - x0) / N) * L; }
+  for (const it of items) {
+    it.x0 = x;
+    if (it.len) x += it.len;
+    else { let v = 0; const dx = 0.002; while (v < it.V && x < 1.5) { v += 0.8 * sec(Math.min(x, 1)) * dx * L; x += dx; } }
+    it.x1 = x; it.xc = (it.x0 + it.x1) / 2; x += 0.005;
+  }
+  over = Math.max(0, x - 0.005 - xEnd);
+  // areas from the components: fuselage by perimeter integration, wing and fins both faces
+  let Sf = 0, xSf = 0;
+  for (let i = 0; i < N; i++) {
+    const xx = (i + 0.5) / N, r = bldR(prof, xx), a = r, b = r * f.w, per = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+    Sf += per / N; xSf += (per * xx) / N;
+  }
+  const w = d.wing, wp = wingPts(w), Sw1 = w.on ? (w.b * (w.cr + w.taper * w.cr)) / 2 : 0;
+  const xw = w.on ? (wp[0][0] + wp[1][0] + wp[2][0] + wp[3][0]) / 4 : 0.5;
+  const Sst = d.strake.on && w.on ? (d.strake.len + d.strake.join * w.cr) * Math.min(w.b, (d.strake.join * w.cr) / Math.tan(w.sweep * D)) / 2 : 0;
+  const t = d.tail, nf = { none: 0, single: 1, twin: 2, triple: 3, v: 2, tips: 2 }[t.type] || 0, Sfin = (nf * t.h * (t.cr + t.taper * t.cr)) / 2;
+  const Sc = d.canard.on ? d.canard.b * d.canard.cr * 1.3 : 0;
+  const Swet = (Sf + 4 * Sw1 + 2 * Sst + 2 * Sfin + 2 * Sc) * L * L;      // m²
+  const Splan = (2 * Sw1 + 2 * Sst + 2 * Sc) * L * L + 2 * f.rf * f.w * L * L * (1 - f.ln * 0.4);
+  const xA = (xSf * 1 + 4 * Sw1 * xw + 2 * Sst * (w.x - 0.05) + 2 * Sfin * (t.x - t.cr / 2) + 2 * Sc * d.canard.x) / Math.max(Sf + 4 * Sw1 + 2 * Sst + 2 * Sfin + 2 * Sc, 1e-9);
+  const tankV = items.filter((i) => i.V).reduce((a, i) => a + i.V, 0);
+  const M = [
+    ["Structure", I.ks * Swet, xA],
+    ["Heat shield", Swet * (0.5 * 10 + 0.5 * 4), xA],
+    ["Tanks", tankV * P.tank, items.filter((i) => i.V).reduce((a, i) => a + i.V * i.xc, 0) / Math.max(tankV, 1e-9) || 0.5],
+    ["Engines", I.eng * I.engM * 1000, 0.97],
+    ["Other: systems, gear, crew", I.other * 1000, 0.5],
+  ];
+  const dry = M.reduce((a, m) => a + m[1], 0), xDry = M.reduce((a, m) => a + m[1] * m[2], 0) / Math.max(dry, 1);
+  const pay = items.find((i) => i.k === "pay"), mp = I.mp * 1000, xPay = pay ? pay.xc : 0.5;
+  const propX = items.filter((i) => i.k !== "pay").reduce((a, i) => a + i.m * i.xc, 0) / Math.max(mp, 1e-9) || 0.5;
+  const resid = 0.01 * mp, land = dry + I.pay * 1000 + resid, gross = dry + I.pay * 1000 + mp;
+  return { M, items, dry, gross, land, mp, Swet, Splan, over, Vavail, tankV, xEnd, x0,
+    cgLand: (dry * xDry + I.pay * 1000 * xPay + resid * propX) / land, cgGross: (dry * xDry + I.pay * 1000 * xPay + mp * propX) / gross, P };
+}
+
+// UI: reference selector, one field per schema entry, the layout drawing and the mass table
+function bldApply(recompile = true) {
+  const m = bldMass(BLD);
+  BLD.m = m;
+  st.ent.L = BLD.L; st.ent.mass = Math.round(m.land); st.ent.cg = +m.cgLand.toFixed(3);
+  $("#eL").value = st.ent.L; $("#eMass").value = st.ent.mass; $("#eCg").value = st.ent.cg;
+  bldDraw(); bldInfo();
+  if (recompile) {
+    clearTimeout(bldApply.t);
+    bldApply.t = setTimeout(() => {
+      const code = bldCode(BLD);
+      PRESETS.builder = { ...(PRESETS.spaceplane || {}), cat: "body", name: BLD.name, code, entry: { ...(PRESETS.spaceplane || {}).entry, mass: st.ent.mass, L: BLD.L, cg: st.ent.cg } };
+      if (st.preset !== "builder") applyPreset("builder");
+      else { $("#code").value = code; const go = () => (compiling ? setTimeout(go, 60) : compileSDF(code)); go(); }
+      computeAscent();
+    }, 250);
+  }
+}
+function buildBuilderUI() {
+  const sel = $("#bldRef");
+  for (const [k, v] of Object.entries(BLD_LIB)) { const o = document.createElement("option"); o.value = k; o.textContent = v.name; sel.appendChild(o); }
+  const o = document.createElement("option"); o.value = "custom"; o.textContent = "Custom"; sel.appendChild(o);
+  sel.addEventListener("change", () => { if (sel.value === "custom") return; BLD = bldFill(JSON.parse(JSON.stringify(BLD_LIB[sel.value]))); bldFields(); bldApply(); });
+  const tsel = $("#bldTail");
+  for (const [k, v] of Object.entries(TAILS)) { const o = document.createElement("option"); o.value = k; o.textContent = v; tsel.appendChild(o); }
+  const psel = $("#bldProp");
+  for (const k of Object.keys(PROPS)) { const o = document.createElement("option"); o.value = k; o.textContent = k; psel.appendChild(o); }
+  const box = $("#bldFields");
+  for (const [g, key, fields] of BLD_SCHEMA) {
+    const det = document.createElement("details"); det.className = "more";
+    const sum = document.createElement("summary");
+    if (["strake", "canard", "flap"].includes(key)) {
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.on = key; cb.setAttribute("aria-label", `${g} on`);
+      cb.addEventListener("click", (e) => e.stopPropagation());
+      cb.addEventListener("change", () => { BLD[key].on = cb.checked ? 1 : 0; bldEdited(); });
+      sum.append(cb, " ");
+    }
+    sum.append(g); det.appendChild(sum);
+    const pane = document.createElement("div"); pane.className = "pane bldGrid";
+    for (const [k, lab, lo, hi, step] of fields) {
+      const l = document.createElement("label"); l.className = "field";
+      l.innerHTML = `<span class="k">${lab}</span>`;
+      const x = document.createElement("input"); x.type = "number"; x.min = lo; x.max = hi; x.step = step; x.dataset.p = `${key}.${k}`;
+      x.addEventListener("change", () => { BLD[key][k] = Math.min(hi, Math.max(lo, +x.value || 0)); x.value = BLD[key][k]; bldEdited(); });
+      l.appendChild(x); pane.appendChild(l);
+    }
+    if (key === "tail") pane.prepend($("#bldTailL"));
+    det.appendChild(pane); box.appendChild(det);
+  }
+  tsel.addEventListener("change", () => { BLD.tail.type = tsel.value; bldEdited(); });
+  psel.addEventListener("change", () => { BLD.int.prop = psel.value; bldEdited(); });
+  document.querySelectorAll("#bldInt input[data-i]").forEach((x) => x.addEventListener("change", () => {
+    BLD.int[x.dataset.i] = x.type === "text" ? x.value.replace(/\s/g, "") : Math.max(0, +x.value || 0); bldEdited();
+  }));
+  $("#bldL").addEventListener("change", (e) => { BLD.L = Math.max(0.5, +e.target.value || 20); bldEdited(); });
+  $("#bldName").addEventListener("change", (e) => { BLD.name = e.target.value || "Custom"; });
+  $("#btnBld").addEventListener("click", () => bldApply());
+  BLD = bldFill(JSON.parse(JSON.stringify(BLD_LIB.shuttle)));
+  bldFields();
+}
+function bldEdited() { $("#bldRef").value = "custom"; if (BLD.name && !/\(edited\)$/.test(BLD.name)) BLD.name += " (edited)"; $("#bldName").value = BLD.name; bldApply(); }
+function bldFields() {
+  document.querySelectorAll("#bldFields input[data-p]").forEach((x) => { const [g, k] = x.dataset.p.split("."); x.value = BLD[g][k]; });
+  document.querySelectorAll("#bldFields input[data-on]").forEach((x) => { x.checked = !!BLD[x.dataset.on].on; });
+  document.querySelectorAll("#bldInt input[data-i]").forEach((x) => { x.value = BLD.int[x.dataset.i]; });
+  $("#bldTail").value = BLD.tail.type; $("#bldProp").value = BLD.int.prop; $("#bldL").value = BLD.L; $("#bldName").value = BLD.name;
+}
+function bldDraw() {
+  const c = $("#bldChart");
+  if (!c || c.offsetParent === null || !BLD || !BLD.m) return;
+  const s_ = setupChart(c);
+  if (!s_) return;
+  const { g, w, h } = s_, d = BLD, m = d.m, f = d.fus, prof = bldProfile(f);
+  // plan view (top half) and side view (bottom half), nose left, one scale that fits both
+  const halfW = Math.max(f.rf * f.w, d.wing.on ? d.wing.b : 0, d.canard.on ? d.canard.b : 0, 0.02);
+  const tz = d.tail.type === "none" ? 0 : f.rf * 0.75 + d.tail.h, zLo = d.flap.on || f.flat > 0 ? f.rf : f.rf, ph = h / 2;
+  const sc = Math.min((w - 20) / 1.1, (ph - 10) / (2 * halfW), (ph - 14) / (tz + zLo + f.rf));
+  const X = (x) => (w - 1.06 * sc) / 2 + x * sc, Yp = (y) => ph * 0.5 - y * sc, Ys = (z) => ph + 7 + (ph - 14) / 2 + ((tz - zLo) / 2) * sc - z * sc;
+  g.lineWidth = 1;
+  const COL = { fu: "rgba(120,180,255,0.55)", ox: "rgba(240,140,90,0.55)", pay: "rgba(200,200,140,0.45)" };
+  for (const it of m.items) {
+    const x0 = Math.min(it.x0, 1), x1 = Math.min(it.x1, 1.04);
+    g.fillStyle = COL[it.k];
+    g.beginPath();
+    for (let k = 0; k <= 12; k++) { const x = x0 + ((x1 - x0) * k) / 12, r = 0.9 * bldR(prof, Math.min(x, 1)); k ? g.lineTo(X(x), Ys(r * 0.9)) : g.moveTo(X(x), Ys(r * 0.9)); }
+    for (let k = 12; k >= 0; k--) { const x = x0 + ((x1 - x0) * k) / 12, r = 0.9 * bldR(prof, Math.min(x, 1)); g.lineTo(X(x), Ys(-Math.min(r, f.flat > 0 ? f.rf * (1 - f.flat) : r) * 0.9)); }
+    g.fill();
+    g.fillRect(X(x0), Yp(f.rf * f.w * 0.8), (x1 - x0) * sc, f.rf * f.w * 1.6 * sc);
+  }
+  g.strokeStyle = "#d6cebd";
+  const outline = (Y, wid, bot) => { g.beginPath(); prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(r * wid)) : g.moveTo(X(x), Y(0)))); g.stroke();
+    g.beginPath(); prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(-(bot ? Math.min(r, f.flat > 0 ? f.rf * (1 - f.flat) : r) : r * wid))) : g.moveTo(X(x), Y(0)))); g.stroke(); };
+  outline(Yp, f.w, false); outline(Ys, 1, true);
+  if (d.wing.on) {
+    const P = wingPts(d.wing);
+    for (const sgn of [1, -1]) { g.beginPath(); P.forEach(([x, y], i) => (i ? g.lineTo(X(x), Yp(sgn * y)) : g.moveTo(X(x), Yp(sgn * y)))); g.stroke(); }
+    if (d.strake.on) { const j = d.strake.join * d.wing.cr, yj = j / Math.tan(d.wing.sweep * D); for (const sgn of [1, -1]) { g.beginPath(); g.moveTo(X(d.wing.x - d.strake.len), Yp(sgn * f.rf * f.w * 0.9)); g.lineTo(X(d.wing.x + j), Yp(sgn * Math.min(yj, d.wing.b))); g.stroke(); } }
+    g.beginPath(); g.moveTo(X(d.wing.x), Ys(d.wing.z * f.rf)); g.lineTo(X(d.wing.x + d.wing.cr), Ys(d.wing.z * f.rf)); g.stroke();
+  }
+  const t = d.tail;
+  if (t.type !== "none") { const x0 = t.x - t.cr, xt = t.h * Math.tan(t.sweep * D), z0 = f.rf * 0.75 * (t.type === "single" || t.type === "triple" ? 1 : 0.6);
+    g.beginPath(); g.moveTo(X(x0), Ys(z0)); g.lineTo(X(x0 + xt), Ys(z0 + t.h * Math.cos(t.cant * D))); g.lineTo(X(x0 + xt + t.taper * t.cr), Ys(z0 + t.h * Math.cos(t.cant * D))); g.lineTo(X(t.x), Ys(z0)); g.stroke(); }
+  // balance points: full (gross) and landing
+  for (const [x, col, lab] of [[m.cgGross, "#f0743c", "full"], [m.cgLand, "#9fb3d8", "landing"]]) {
+    g.fillStyle = col; g.beginPath(); g.arc(X(x), Ys(0), 3.5, 0, 7); g.fill();
+    g.font = "10px 'IBM Plex Mono', ui-monospace, monospace"; g.textAlign = "center"; g.fillText(lab, X(x), Ys(0) + (lab === "full" ? -8 : 15));
+  }
+  if (m.over > 0) { g.strokeStyle = "#ff5a4f"; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(X(m.xEnd), Ys(-f.rf * 1.3)); g.lineTo(X(m.xEnd), Ys(f.rf * 1.3)); g.stroke(); g.setLineDash([]); }
+}
+function bldInfo() {
+  const el = $("#bldInfo"), m = BLD.m, row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`, t = (kg) => `${(kg / 1000).toFixed(kg < 1e4 ? 2 : 1)} t`;
+  el.innerHTML = row("Gross · dry · landing", `${t(m.gross)} · ${t(m.dry)} · ${t(m.land)}`) +
+    m.M.map(([k, v]) => row(k, t(v))).join("") +
+    (m.mp ? row("Propellant", `${t(m.mp)} ${BLD.int.prop} · tanks ${m.tankV.toFixed(1)} m³`) : "") +
+    row("Usable volume", `${m.Vavail.toFixed(1)} m³` + (m.over > 0 ? ` · <span class="err">does not fit: ${(m.over * BLD.L).toFixed(2)} m too long</span>` : "")) +
+    row("Balance point, full · landing", `${m.cgGross.toFixed(3)} · ${m.cgLand.toFixed(3)} L`) +
+    row("Wetted · planform area", `${m.Swet.toFixed(0)} · ${m.Splan.toFixed(0)} m²`) +
+    (BLD.wing.on && wingPts(BLD.wing)[2][0] > 1.08 ? row("Wing tip", `<span class="err">${((wingPts(BLD.wing)[2][0] - 1) * BLD.L).toFixed(1)} m behind the tail: less sweep or span</span>`) : "") +
+    (BLD.src ? row("Source", BLD.src) : "");
 }
 
 // ─────────────── Shape optimiser ───────────────
@@ -4153,36 +4594,22 @@ function updateAscentInfo() {
 // Benchmark: a body of revolution at fixed length and volume, scored by the flow solver's pressure drag;
 // slender-body theory says the answer is the Sears–Haack body, so it checks the search itself.
 const OPT = { on: false, prob: "sp", best: null, hist: [], evals: 0, simplex: null, phase: "", pending: null, t0: 0, ft0: 0 };
-// spaceplane parameters: [name, lower, upper, start]
-const SP_P = [["rf", 0.04, 0.11, 0.07], ["ln", 0.08, 0.35, 0.24], ["sweep", 50, 78, 60], ["cr", 0.35, 0.65, 0.53], ["t", 0.004, 0.02, 0.012], ["hf", 0.06, 0.22, 0.17], ["zw", -0.6, 0, -0.43]];
-const spParams = (x) => Object.fromEntries(SP_P.map(([k, lo, hi], i) => [k, lo + (hi - lo) / (1 + Math.exp(-x[i]))]));
-const spX0 = () => SP_P.map(([, lo, hi, v]) => Math.log((v - lo) / (hi - v)));
-function spProfile(P) {
-  // fuselage half-profile: elliptic nose, parallel body, rounded close at the tail
-  const { rf, ln } = P, pts = [[0, 0]];
-  for (const u of [0.02, 0.08, 0.2, 0.4, 0.65, 1]) { const x = ln * u, e = (ln - x) / ln; pts.push([x, rf * Math.sqrt(Math.max(0, 1 - e * e))]); }
-  pts.push([0.93, rf]);
-  for (const u of [0.45, 0.8, 1]) pts.push([0.93 + 0.07 * u, rf * Math.sqrt(Math.max(0, 1 - u * u))]);
-  return pts;
+// spaceplane: the builder's numeric fields in the chosen groups, each mapped from (−∞, ∞) into its range
+function spFree() {
+  const on = new Set([...document.querySelectorAll("#optVary input:checked")].map((x) => x.value)), out = [];
+  for (const [, key, fields] of BLD_SCHEMA) {
+    if (!on.has(key) || (BLD[key] && BLD[key].on === 0)) continue;
+    for (const [k, , lo, hi] of fields) out.push([key, k, lo, hi]);
+  }
+  return out;
 }
-function spCode(P) {
-  const prof = spProfile(P), pad = prof.concat(Array(16 - prof.length).fill(prof[prof.length - 1]));
-  const v = (a) => a.map((q) => q.toFixed(5));
-  const rows = [];
-  for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${x.toFixed(5)}, ${r.toFixed(5)})`).join(", "));
-  const k = Math.tan((90 - P.sweep) * D), xa = 0.97 - P.cr, [rf, t, hf, zw] = v([P.rf, P.t, P.hf, P.zw * P.rf]);
-  return `// Optimiser candidate: winged spaceplane, length 1. Sweep ${P.sweep.toFixed(1)}°, root chord ${P.cr.toFixed(3)}, fuselage radius ${P.rf.toFixed(3)}.
-fn sdf(p: vec3f) -> f32 {
-  let fus = sdRev(p, array<vec2f, 16>(
-${rows.join(",\n")}), ${prof.length}u);
-  let w = p - vec3f(${xa.toFixed(5)}, 0.0, ${zw});
-  let c = ${P.cr.toFixed(5)}; let s = ${Math.min(0.4, P.cr * k).toFixed(5)};
-  let wing = sdPlate(sdTri2(w.xy, vec2f(0.0, 0.0), vec2f(c, s), vec2f(c, -s)) + ${t}, w.z, ${t} / 3.0, ${t});
-  let f = p - vec3f(0.0, 0.0, ${rf} * 0.7);
-  let fin = sdPlate(sdTri2(f.xz, vec2f(0.70, 0.0), vec2f(0.93, 0.0), vec2f(0.93, ${hf})) + 0.008, f.y, 0.003, 0.008);
-  return opSmoothUnion(opSmoothUnion(fus, wing, 0.03), fin, 0.015);
-}`;
+function spParams(x) {
+  const d = JSON.parse(JSON.stringify(OPT.base));
+  OPT.free.forEach(([g, k, lo, hi], i) => { d[g][k] = lo + (hi - lo) / (1 + Math.exp(-x[i])); });
+  d.name = OPT.base.name.replace(/ \(edited\)$|, optimised$/, "") + ", optimised";
+  return d;
 }
+const spX0 = () => OPT.free.map(([g, k, lo, hi]) => { const u = Math.min(0.97, Math.max(0.03, (OPT.base[g][k] - lo) / (hi - lo))); return Math.log(u / (1 - u)); });
 // benchmark: radius at five stations (ends closed), Catmull–Rom through them, scaled to the target volume
 const OPT_XI = [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6];
 const shRadius = (xi, R) => R * Math.pow(Math.max(0, 4 * xi * (1 - xi)), 0.75);
@@ -4208,10 +4635,10 @@ function optCode(prof) {
   for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${x.toFixed(5)}, ${r.toFixed(5)})`).join(", "));
   return `// Optimiser candidate: body of revolution at fixed length and volume.\nfn sdf(p: vec3f) -> f32 {\n  return sdRev(p, array<vec2f, 16>(\n${rows.join(",\n")}), ${prof.length}u);\n}`;
 }
-const candCode = (c) => (OPT.prob === "sp" ? spCode(c.P) : optCode(c.prof));
+const candCode = (c) => (OPT.prob === "sp" ? bldCode(c.P) : optCode(c.prof));
 function syncOptUI() {
   const sp = $("#optProb").value === "sp";
-  $("#optSp").hidden = !sp; $("#optSh").hidden = sp;
+  $("#optSpWrap").hidden = !sp; $("#optSh").hidden = sp;
 }
 function optStart() {
   if (OPT.on) { optStop("Stopped."); return; }
@@ -4219,10 +4646,14 @@ function optStart() {
   OPT.hist = []; OPT.evals = 0; OPT.best = null; OPT.norm = null;
   let x0, step;
   if (OPT.prob === "sp") {
+    OPT.base = JSON.parse(JSON.stringify(BLD)); delete OPT.base.m;
+    OPT.free = spFree();
+    if (!OPT.free.length) { $("#optMsg").textContent = "Choose at least one group to vary."; return; }
     x0 = spX0(); step = 0.6;
-    OPT.pri = $("#optPri").value; OPT.vReq = +$("#optVol").value || 0; OPT.vLand = +$("#optVl").value || 110;
-    PRESETS.spopt = { ...PRESETS.spaceplane, name: "Optimiser candidate, spaceplane", code: spCode(spParams(x0)) };
-    applyPreset("spopt");
+    OPT.pri = $("#optPri").value; OPT.vLand = +$("#optVl").value || 110;
+    bldApply(false);
+    PRESETS.builder = { ...(PRESETS.spaceplane || {}), cat: "body", name: BLD.name, code: bldCode(BLD), entry: { ...(PRESETS.spaceplane || {}).entry, mass: st.ent.mass, L: BLD.L, cg: st.ent.cg } };
+    applyPreset("builder");
     OPT.wasRunning = running; running = false; syncRun();   // the scores come from the surface models, not the flowfield
   } else {
     const M = Math.max(1.2, Math.min(4, +$("#optMach").value || 1.8)), Rm = 0.06;
@@ -4250,7 +4681,11 @@ function optStop(msg) {
 }
 function optSubmit(c) {
   OPT.pending = c; OPT.evals++; OPT.key = null; OPT.gen = -1; OPT.busy = false;
-  if (OPT.prob === "sp") c.P = spParams(c.x); else c.prof = optProfile(c.x, OPT.V);
+  if (OPT.prob === "sp") {
+    // mass and balance follow the shape: set them before the analysis, whose moments are about the balance point
+    c.P = spParams(c.x); c.P.m = bldMass(c.P);
+    st.ent.mass = Math.round(c.P.m.land); st.ent.cg = +c.P.m.cgLand.toFixed(3);
+  } else c.prof = optProfile(c.x, OPT.V);
   const code = candCode(c);
   // wait for any compile in flight (the preset's own) so this one is not dropped
   const go = () => {
@@ -4266,7 +4701,7 @@ function optNext() {
   if (OPT.queue && OPT.queue.length) { optSubmit(OPT.queue.shift()); return; }
   const S = OPT.simplex; S.sort((a, b) => a.f - b.f);
   const n = S.length - 1, worst = S[n];
-  const spread = Math.abs(S[n].f - S[0].f) / Math.max(Math.abs(S[0].f), 1e-9), cap = OPT.prob === "sp" ? 150 : 100;
+  const spread = Math.abs(S[n].f - S[0].f) / Math.max(Math.abs(S[0].f), 1e-9), cap = OPT.prob === "sp" ? 300 : 100;
   if ((spread < 0.004 && OPT.evals > 2 * n + 2) || OPT.evals >= cap) { optStop(`Converged after ${OPT.evals} candidates.`); optApplyBest(); return; }
   const cen = Array(n).fill(0); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) cen[j] += S[i].x[j] / n;
   OPT.phase = "reflect"; OPT.trial = { x: cen.map((c, j) => c - (worst.x[j] - c)), f: null }; optSubmit(OPT.trial);
@@ -4318,8 +4753,9 @@ function spStep() {
     buildAeroTable().then(() => voxAnalyse(ATT, 0)).then((S) => { if (S) hy.surf = S; computeEntry(); }).finally(() => { hy.busy = false; OPT.busy = false; });
     return;
   }
-  const c = OPT.pending; OPT.pending = null;
+  const c = OPT.pending;
   c.m = spMetrics();
+  OPT.pending = null;
   c.f = spScore(c.m);
   $("#optMsg").textContent = `Candidate ${OPT.evals} scored ${c.f.toFixed(3)}${OPT.best ? ` · best ${Math.min(OPT.best.f, c.f).toFixed(3)}` : ""}`;
   optScored(c);
@@ -4339,13 +4775,14 @@ function spMetrics() {
   const AR = (G.span * G.span) / G.plan, Kp = (2 * Math.PI * AR) / (2 + Math.sqrt(AR * AR + 4)), al = 15 * D;
   const CLl = Kp * Math.sin(al) * Math.cos(al) ** 2 + Math.PI * Math.cos(al) * Math.sin(al) ** 2;
   const vLand = Math.sqrt((2 * m * G0) / (1.225 * G.plan * CLl));
-  return { q, LD, aLD, cma, trim, vLand, V: G.V, ld: A.ld, asc: A.phase, AR, span: G.span, plan: G.plan };
+  const bm = OPT.pending && OPT.pending.P ? OPT.pending.P.m : null;
+  return { q, LD, aLD, cma, trim, vLand, V: G.V, ld: A.ld, asc: A.phase, AR, span: G.span, plan: G.plan, over: bm ? bm.over : 0, gross: bm ? bm.gross : 0, land: m };
 }
 function spScore(m) {
-  if (!OPT.norm) OPT.norm = { q: m.q, LD: m.LD, ld: Math.max(m.ld, 1), V: OPT.vReq > 0 ? OPT.vReq : m.V };
+  if (!OPT.norm) OPT.norm = { q: m.q, LD: m.LD, ld: Math.max(m.ld, 1) };
   const N = OPT.norm, w = { bal: [1, 1, 1], heat: [3, 1, 1], xr: [1, 3, 1], asc: [1, 1, 3] }[OPT.pri] || [1, 1, 1];
   let f = (w[0] * m.q) / N.q + (w[1] * N.LD) / Math.max(m.LD, 0.05) + (w[2] * m.ld) / N.ld;
-  if (m.V < N.V) { const d = 1 - m.V / N.V; f += 10 * d + 100 * d * d; }
+  if (m.over > 0) f += 5 + 100 * m.over;   // tanks and bay do not fit inside
   if (m.vLand > OPT.vLand) { const d = m.vLand / OPT.vLand - 1; f += 10 * d + 100 * d * d; }
   if (m.cma > 0) f += 1 + 500 * m.cma;
   return f;
@@ -4353,7 +4790,7 @@ function spScore(m) {
 function optApplyBest() {
   if (!OPT.best) return;
   const code = candCode(OPT.best);
-  if (OPT.prob === "sp" && PRESETS.spopt) PRESETS.spopt.code = code;
+  if (OPT.prob === "sp") { BLD = JSON.parse(JSON.stringify(OPT.best.P)); bldFields(); bldApply(); optDraw(); return; }
   $("#code").value = code;
   const go = () => (compiling ? setTimeout(go, 60) : compileSDF(code));
   go();
@@ -4371,10 +4808,9 @@ function optDraw() {
     const X = (x) => CH.l + x * pw, Y = (y) => CH.t + ph / 2 - (y / 0.6) * (ph / 2);
     const plan = (P, col, lw) => {
       g.strokeStyle = col; g.lineWidth = lw;
-      const prof = spProfile(P);
-      for (const sgn of [1, -1]) { g.beginPath(); prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(sgn * r)) : g.moveTo(X(x), Y(0)))); g.stroke(); }
-      const xa = 0.97 - P.cr, sp = Math.min(0.4, P.cr * Math.tan((90 - P.sweep) * D));   // semi-span capped to stay inside the domain
-      g.beginPath(); g.moveTo(X(xa), Y(0)); g.lineTo(X(0.97), Y(sp)); g.lineTo(X(0.97), Y(-sp)); g.closePath(); g.stroke();
+      const prof = bldProfile(P.fus);
+      for (const sgn of [1, -1]) { g.beginPath(); prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(sgn * r * P.fus.w)) : g.moveTo(X(x), Y(0)))); g.stroke(); }
+      if (P.wing.on) for (const sgn of [1, -1]) { g.beginPath(); wingPts(P.wing).forEach(([x, y], i) => (i ? g.lineTo(X(x), Y(sgn * y)) : g.moveTo(X(x), Y(sgn * y)))); g.stroke(); }
     };
     if (H.length && H[0].P) plan(H[0].P, "rgba(134,160,255,0.45)", 1);
     if (OPT.best && OPT.best.P) plan(OPT.best.P, "#f29c4f", 2);
@@ -4386,11 +4822,11 @@ function optDraw() {
         row("Peak nose heating", two((m) => `${(m.q / 1e4).toFixed(0)} W/cm²`)) +
         row("Hypersonic L/D", two((m) => `${m.LD.toFixed(2)} at ${m.aLD}°`)) +
         row("Ascent drag loss", two((m) => `${m.ld.toFixed(0)} m/s`)) +
-        row("Volume", two((m) => `${m.V.toFixed(0)} m³`) + ` · need ${OPT.norm.V.toFixed(0)}`) +
+        row("Landing mass", two((m) => `${(m.land / 1000).toFixed(1)} t`) + (b.over > 0 ? ` · <span class="err">tanks do not fit</span>` : "")) +
         row("Landing speed", two((m) => `${m.vLand.toFixed(0)} m/s`) + ` · limit ${OPT.vLand}`) +
         row("Pitch stiffness dCm/dα", two((m) => `${(m.cma * 1e3).toFixed(2)}×10⁻³/°`)) +
         row("Trim", two((m) => (m.trim === null ? "none" : `${m.trim.toFixed(0)}°`))) +
-        row("Best shape", `sweep ${P.sweep.toFixed(1)}° · root chord ${P.cr.toFixed(2)} L · span ${b.span.toFixed(1)} m · fuselage radius ${P.rf.toFixed(3)} L · nose ${P.ln.toFixed(2)} L`);
+        row("Best shape", `wing sweep ${P.wing.sweep.toFixed(1)}° · root chord ${P.wing.cr.toFixed(2)} L · span ${b.span.toFixed(1)} m · fuselage radius ${P.fus.rf.toFixed(3)} L · nose ${P.fus.ln.toFixed(2)} L`);
     }
     return;
   }
@@ -8013,6 +8449,8 @@ function buildUI() {
   $("#optProb").addEventListener("change", syncOptUI); syncOptUI();
   $("#optBox").addEventListener("toggle", () => requestAnimationFrame(optDraw));
   initAscentUI();
+  buildBuilderUI();
+  $("#bldBox").addEventListener("toggle", () => requestAnimationFrame(() => { if (BLD && !BLD.m) BLD.m = bldMass(BLD); bldDraw(); bldInfo(); }));
   $("#btnZoom").addEventListener("click", () => { if (dev && R) zoomIn(); });
   $("#btnZoomOut").addEventListener("click", () => zoomOut());
   $("#feaShow").addEventListener("change", (e) => { fea.show = e.target.value && fea.res ? +e.target.value : 0; if (fea.show === 6 && !fea.res.Tpk) fea.show = 5; $("#feaShow").value = fea.show ? String(fea.show) : ""; if (fea.show) writeStressTexture(); else hy.uploadPending = !!hy.vals; updateLegend(); });
@@ -8193,7 +8631,7 @@ function buildUI() {
     document.querySelectorAll(".pane[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== tb.dataset.tab; });
     if (tb.dataset.tab === "heat") requestAnimationFrame(() => { drawTraj(); drawTPS(); });
     if (tb.dataset.tab === "flight") requestAnimationFrame(drawAscent);
-    if (tb.dataset.tab === "model") requestAnimationFrame(optDraw);
+    if (tb.dataset.tab === "model") requestAnimationFrame(() => { optDraw(); bldDraw(); });
   }));
 
   // OrbitControls-style camera: left-drag orbit, right/shift-drag pan, wheel or pinch dolly,

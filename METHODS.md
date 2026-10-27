@@ -8,17 +8,35 @@ How each part of the Virtual Windtunnel works, what it assumes and how to read i
 
 For imported models that arrive pointing the wrong way. The nose should face into the flow, the wings run sideways and the belly face down. Yaw 180° turns a model that arrives tail-first. Use the Flight tab for angle of attack.
 
+### Spaceplane builder
+
+A spaceplane as components: fuselage (elliptic nose, width-to-height ratio, flat underside, tail closure, blunt base), wing (apex, root chord, semi-span, leading-edge sweep, taper, height, thickness, dihedral), strakes, tail (single, twin, twin plus centre, V, or tip fins, with cant), canards and a body flap. One design record generates the SDF shape, the internal layout, the mass and the balance point.
+
+Inside, the fuel tanks, oxidiser tanks and payload bay are packed nose to tail in the listed order, from behind the nose cone to the engine bay. Each takes the length its volume needs at 80 % of the local cross-section. If they don't fit, the overrun is shown.
+
+Mass is a first-order sizing estimate:
+
+- structure per m² of wetted area;
+- heat shield at 10 kg/m² windward and 4 kg/m² leeward;
+- tanks per m³ by propellant;
+- engines;
+- an "other" allowance (systems, gear, crew, margin).
+
+Building applies the landing mass and landing balance point to the vehicle, so pitching moments and the entry use them.
+
+The reference library holds the Shuttle orbiter, Buran, X-37B, Dream Chaser, HL-20, X-24B, MiG-105, Hermes, HOPE-X, X-15, Skylon, X-33, the OSP concept, and the two SSTO cases from the Spaceplane Source analyses. Dimensions and masses are public figures, rounded. Each shape is a component approximation, and "other" is set so the dry or gross mass matches the published figure.
+
 ### Optimise shape
 
-**Spaceplane, whole mission.** A winged body (fuselage with elliptic nose, delta wing, fin) from seven bounded parameters: fuselage radius, nose length, sweep, root chord, wing thickness, fin height, wing height. Every candidate is flown through the whole mission:
+**Spaceplane, whole mission.** Starts from the builder's design and varies the numeric fields of the chosen groups (fuselage, wing, strakes, tail, canards) within their ranges. Mass and balance point follow the shape. Every candidate is flown through the whole mission:
 
 - ascent drag loss, from the ascent simulator with the candidate's drag curve;
 - peak nose heating, from the entry simulator with the candidate's own α table;
 - hypersonic L/D (cross-range), best between 15° and 45°;
 - landing speed at α 15° (Helmbold lift slope plus Polhamus vortex lift on the planform);
-- volume, and pitch stability (dCm/dα over 30–45°, about the balance point).
+- whether the tanks and bay still fit, and pitch stability (dCm/dα over 30–45°, about the landing balance point).
 
-The score is the sum of the first three relative to the starting shape, weighted by the priority; volume below the requirement, landing above the limit and pitch instability are penalties. Surface models only (Newtonian), so a candidate takes seconds and the flowfield is paused. Up to 150 candidates.
+The score is the sum of the first three relative to the starting shape, weighted by the priority. Tanks that don't fit, landing above the limit and pitch instability are penalties. Surface models only (Newtonian), so a candidate takes seconds and the flowfield is paused. Up to 300 candidates; with many groups free the simplex moves slowly, so free one or two groups at a time.
 
 **Least wave drag body (benchmark).** Five radii of a body of revolution at fixed length and volume, each candidate scored by the flow solver's pressure drag. Linear theory's answer is the Sears–Haack body, so this checks the optimiser and solver find a known optimum before you trust them on your own problems.
 
@@ -32,7 +50,7 @@ Write `fn sdf(p: vec3f) -> f32`; negative is solid. Body frame: x downstream fro
 
 Planar point-mass ascent over a rotating spherical Earth, serial stages. Thrust follows back pressure (F = F_vac − p·A_e, exit area from the two Isps); an optional g limit throttles down to 40 %. Guidance: vertical rise to 60 m/s, a pitch kick, a gravity turn while the air matters (dynamic pressure above 1 kPa or below 40 km), then zero-effort-miss steering that zeroes the climb rate at the target altitude as the speed reaches circular, for direct insertion. The kick angle is searched for the most Δv left at insertion. Losses are integrated along the path: gravity, drag, steering.
 
-Drag is the tunnel model's zero-lift drag on its frontal area, by component build-up from the measured geometry: turbulent skin friction on the wetted area (Schlichting, compressible), base drag (Hoerner), and wave drag from the slender-body area rule of the voxel S(x) — rising through the transonic drag rise and blending to the Newtonian pressure drag of the actual shape by Mach 5. Where S(x) falls faster than an 8° boat-tail the flow is taken as separated: the drop counts as base area. The launcher presets are class approximations (no fairing, residuals or reserves), so payload margins are optimistic by a few hundred m/s.
+Drag is the tunnel model's zero-lift drag on its frontal area, by component build-up from the measured geometry: turbulent skin friction on the wetted area (Schlichting, compressible), base drag (Hoerner), and wave drag from the slender-body area rule of the voxel S(x) — rising through the transonic drag rise and blending to the Newtonian pressure drag of the actual shape by Mach 5. Where S(x) falls faster than an 8° boat-tail the flow is taken as separated: the drop counts as base area. Launchers: class presets with their stack drawn as a cylinder with an ogive nose for drag. A fairing is carried and dropped above 110 km unless the model rides outside. 1 % of each stage's propellant is unusable. "This vehicle, single stage" flies the builder's design on its own propellant and engines. Vertical rocket ascent only: horizontal take-off, wing lift during the climb and air-breathing modes are not modelled yet.
 
 ### Controls
 
