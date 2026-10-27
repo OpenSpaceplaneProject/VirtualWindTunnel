@@ -1219,6 +1219,28 @@ fn sdPlate(d2: f32, z: f32, h: f32, r: f32) -> f32 {
   let w = vec2f(d2, abs(z) - h);
   return min(max(w.x, w.y), 0.0) + length(max(w, vec2f(0.0))) - r;
 }
+// Piecewise-linear profile lookup, (x, value) pairs in increasing x.
+fn prof16(v: array<vec2f, 16>, n: u32, x: f32) -> f32 {
+  var w = v; var r = w[0].y;
+  for (var i = 0u; i + 1u < n; i++) { let a = w[i]; let b = w[i + 1u]; if (x >= a.x && x <= b.x) { r = mix(a.y, b.y, clamp((x - a.x) / max(b.x - a.x, 1e-6), 0.0, 1.0)); } }
+  if (x > w[n - 1u].x) { r = w[n - 1u].y; }
+  return r;
+}
+// Fuselage along x in [0, 1]: half-height H(x) and half-width W(x) profiles, superelliptic section of
+// exponent S (2 round, higher squarer), the upper surface falling to top.x of its height from x = top.y
+// to the tail, and the nose dropped by droop.x over its length droop.y. A bound on the distance, exact
+// at the surface.
+fn sdBody(p: vec3f, H: array<vec2f, 16>, W: array<vec2f, 16>, n: u32, S: f32, top: vec2f, droop: vec2f) -> f32 {
+  let x = clamp(p.x, 0.0, 1.0);
+  let h = prof16(H, n, x); let b = max(prof16(W, n, x), 1e-4);
+  let u = max(0.0, 1.0 - x / droop.y);
+  let zz = p.z + droop.x * u * u;
+  let tf = 1.0 - (1.0 - top.x) * clamp((x - top.y) / (1.0 - top.y), 0.0, 1.0);
+  let a = max(select(h, h * tf, zz > 0.0), 1e-4);
+  let q = vec2f(abs(p.y) / b, abs(zz) / a);
+  let k = pow(pow(q.x, S) + pow(q.y, S), 1.0 / S);
+  return max((k - 1.0) * max(min(a, b), 0.002) * 0.8, max(-p.x, p.x - 1.0));
+}
 // Sphere-cone: spheres of radius r1 at a and r2 at b joined by their tangent cone (exact SDF).
 fn sdRoundCone(p: vec3f, a: vec3f, b: vec3f, r1: f32, r2: f32) -> f32 {
   let ba = b - a; let l2 = dot(ba, ba); let rr = r1 - r2; let a2 = l2 - rr * rr; let il2 = 1.0 / l2;
@@ -4219,115 +4241,117 @@ const PROPS = {
   "LOX/NH3": { ox: 1141, fu: 682, of: 1.25, isp: [240, 276], tank: 9 },
   "NTO/MMH": { ox: 1440, fu: 880, of: 1.65, isp: [290, 320], tank: 8 },
 };
-const TAILS = { none: "None", single: "Single fin", twin: "Twin fins", triple: "Twin plus centre", v: "V-tail", tips: "Tip fins" };
+const TAILS = { none: "None", single: "Single fin", conv: "Fin and tailplane", cruci: "Cruciform", twin: "Twin fins", triple: "Twin plus centre", v: "V-tail", tips: "Tip fins" };
 const bldDef = () => ({
   name: "Custom", L: 20,
-  fus: { ln: 0.24, rf: 0.07, w: 1, flat: 0, boat: 0.07, base: 0 },
+  fus: { ln: 0.24, rf: 0.07, w: 1, flat: 0, boat: 0.07, base: 0, sq: 2, delta: 0, hump: 1, droop: 0 },
   wing: { on: 1, x: 0.44, cr: 0.53, b: 0.31, sweep: 60, taper: 0, z: -0.43, t: 0.012, dih: 0 },
   strake: { on: 0, len: 0.15, join: 0.35 },
-  tail: { type: "single", h: 0.17, cr: 0.23, sweep: 45, taper: 0.35, x: 0.95, cant: 0, y: 0.5 },
+  tail: { type: "single", h: 0.17, cr: 0.23, sweep: 45, taper: 0.35, x: 0.95, cant: 0, y: 0.5, hs: 0.1 },
+  nac: { on: 0, pos: 1, x: 0.55, len: 0.2, r: 0.02 },
   canard: { on: 0, x: 0.2, b: 0.1, cr: 0.08, sweep: 45 },
   flap: { on: 0, len: 0.05, w: 0.6 },
   int: { prop: "LOX/LH2", mp: 0, pay: 0, payLen: 0, order: "fu,ox,pay", eng: 0, engF: 0, engM: 0, ks: 18, other: 0 },
 });
 // [key, label, min, max, step]; the optimiser's bounds are these ranges
 const BLD_SCHEMA = [
-  ["Fuselage", "fus", [["ln", "Nose length", 0.05, 0.85, 0.01], ["rf", "Radius", 0.02, 0.2, 0.002], ["w", "Width / height", 0.6, 3, 0.05], ["flat", "Flat bottom", 0, 0.8, 0.05], ["boat", "Tail closure", 0.02, 0.3, 0.01], ["base", "Base, of radius", 0, 1, 0.05]]],
-  ["Wing", "wing", [["x", "Apex at", 0.1, 0.8, 0.01], ["cr", "Root chord", 0.1, 0.8, 0.01], ["b", "Semi-span", 0.05, 0.4, 0.005], ["sweep", "Sweep, °", 0, 80, 1], ["taper", "Taper", 0, 1, 0.05], ["z", "Height, of radius", -1, 1, 0.05], ["t", "Thickness", 0.003, 0.03, 0.001], ["dih", "Dihedral, °", -10, 30, 1]]],
+  ["Fuselage", "fus", [["ln", "Nose length", 0.05, 0.85, 0.01], ["rf", "Radius", 0.02, 0.2, 0.002], ["w", "Width / height", 0.6, 3, 0.05], ["flat", "Flat bottom", 0, 0.8, 0.05], ["boat", "Tail closure", 0.02, 0.3, 0.01], ["base", "Base, of radius", 0, 1, 0.05], ["sq", "Squareness", 2, 6, 0.1], ["delta", "Triangular planform", 0, 1, 0.05], ["hump", "Tail height, of radius", 0.2, 1, 0.05], ["droop", "Nose droop, of radius", 0, 0.6, 0.05]]],
+  ["Wing", "wing", [["x", "Apex at", 0.1, 0.8, 0.01], ["cr", "Root chord", 0.1, 0.8, 0.01], ["b", "Semi-span", 0.05, 0.4, 0.005], ["sweep", "Sweep, °", 0, 80, 1], ["taper", "Taper", 0, 1, 0.05], ["z", "Height, of radius", -1, 1, 0.05], ["t", "Thickness", 0.003, 0.03, 0.001], ["dih", "Dihedral, °", -10, 60, 1]]],
   ["Strakes", "strake", [["len", "Ahead of apex", 0.02, 0.4, 0.01], ["join", "Joins wing at", 0.1, 0.8, 0.05]]],
-  ["Tail", "tail", [["h", "Height", 0.03, 0.3, 0.005], ["cr", "Root chord", 0.05, 0.4, 0.01], ["sweep", "Sweep, °", 0, 75, 1], ["taper", "Taper", 0.1, 1, 0.05], ["x", "Trailing edge at", 0.6, 1.05, 0.01], ["cant", "Cant, °", 0, 60, 1], ["y", "Spacing, of span", 0, 1, 0.05]]],
+  ["Tail", "tail", [["h", "Height", 0.03, 0.3, 0.005], ["cr", "Root chord", 0.05, 0.4, 0.01], ["sweep", "Sweep, °", 0, 75, 1], ["taper", "Taper", 0.1, 1, 0.05], ["x", "Trailing edge at", 0.6, 1.05, 0.01], ["cant", "Cant, °", 0, 60, 1], ["y", "Spacing, of span", 0, 1, 0.05], ["hs", "Tailplane semi-span", 0.02, 0.3, 0.005]]],
   ["Canards", "canard", [["x", "Apex at", 0.05, 0.6, 0.01], ["b", "Semi-span", 0.02, 0.25, 0.005], ["cr", "Root chord", 0.02, 0.25, 0.005], ["sweep", "Sweep, °", 0, 75, 1]]],
+  ["Nacelles", "nac", [["pos", "Along the span", 0, 1, 0.05], ["x", "Inlet at", 0.1, 0.9, 0.01], ["len", "Length", 0.05, 0.5, 0.01], ["r", "Radius", 0.005, 0.06, 0.001]]],
   ["Body flap", "flap", [["len", "Length", 0.01, 0.12, 0.005], ["w", "Width, of fuselage", 0.2, 1, 0.05]]],
 ];
 // Reference designs. Public dimensions and masses, rounded; shapes are approximations by components, and
 // "other" (systems, gear, crew, margin) is set so the dry or gross mass matches the published figure.
 const BLD_LIB = {
   shuttle: { name: "Space Shuttle orbiter", L: 37.2, src: "NASA public data",
-    fus: { ln: 0.2, rf: 0.072, w: 1.05, flat: 0.35, boat: 0.06, base: 0.75 },
+    fus: { ln: 0.2, rf: 0.072, w: 1.05, flat: 0.35, boat: 0.06, base: 0.75, sq: 3, droop: 0.25 },
     wing: { on: 1, x: 0.47, cr: 0.48, b: 0.32, sweep: 45, taper: 0.2, z: -0.55, t: 0.012, dih: 3.5 },
     strake: { on: 1, len: 0.17, join: 0.3 }, tail: { type: "single", h: 0.21, cr: 0.27, sweep: 45, taper: 0.4, x: 0.98, cant: 0, y: 0 },
     canard: { on: 0 }, flap: { on: 1, len: 0.06, w: 0.75 },
     int: { prop: "NTO/MMH", mp: 10.8, pay: 24.4, payLen: 0.49, order: "pay,fu,ox", eng: 3, engF: 2279, engM: 3.18, ks: 25, other: 27 } },
   buran: { name: "Buran", L: 36.4, src: "NPO Molniya public data",
-    fus: { ln: 0.2, rf: 0.075, w: 1.05, flat: 0.35, boat: 0.06, base: 0.6 },
+    fus: { ln: 0.2, rf: 0.075, w: 1.05, flat: 0.35, boat: 0.06, base: 0.6, sq: 3, droop: 0.25 },
     wing: { on: 1, x: 0.46, cr: 0.5, b: 0.33, sweep: 45, taper: 0.2, z: -0.55, t: 0.012, dih: 3 },
     strake: { on: 1, len: 0.17, join: 0.3 }, tail: { type: "single", h: 0.2, cr: 0.26, sweep: 45, taper: 0.4, x: 0.98, cant: 0, y: 0 },
     canard: { on: 0 }, flap: { on: 1, len: 0.05, w: 0.7 },
     int: { prop: "LOX/RP-1", mp: 14.5, pay: 30, payLen: 0.5, order: "pay,fu,ox", eng: 0, engF: 0, engM: 0, ks: 26, other: 19 } },
   x37b: { name: "Boeing X-37B", L: 8.9, src: "USAF fact sheet",
-    fus: { ln: 0.22, rf: 0.1, w: 1.15, flat: 0.45, boat: 0.06, base: 0.6 },
+    fus: { ln: 0.22, rf: 0.1, w: 1.15, flat: 0.45, boat: 0.06, base: 0.6, sq: 2.6, droop: 0.15 },
     wing: { on: 1, x: 0.52, cr: 0.4, b: 0.25, sweep: 48, taper: 0.35, z: -0.6, t: 0.014, dih: 4 },
     strake: { on: 1, len: 0.12, join: 0.25 }, tail: { type: "v", h: 0.15, cr: 0.2, sweep: 45, taper: 0.45, x: 0.98, cant: 38, y: 0.2 },
     canard: { on: 0 }, flap: { on: 1, len: 0.05, w: 0.7 },
     int: { prop: "NTO/MMH", mp: 0.6, pay: 0.2, payLen: 0.25, order: "pay,fu,ox", eng: 1, engF: 30, engM: 0.1, ks: 16, other: 2.2 } },
   dreamchaser: { name: "Sierra Space Dream Chaser", L: 9, src: "Sierra Space public data",
-    fus: { ln: 0.6, rf: 0.14, w: 1.5, flat: 0.6, boat: 0.08, base: 0.7 },
+    fus: { ln: 0.6, rf: 0.14, w: 1.5, flat: 0.6, boat: 0.08, base: 0.7, sq: 2.2, hump: 0.55, delta: 0.5 },
     wing: { on: 1, x: 0.5, cr: 0.45, b: 0.39, sweep: 45, taper: 0.25, z: -0.6, t: 0.016, dih: 10 },
     strake: { on: 0 }, tail: { type: "tips", h: 0.17, cr: 0.25, sweep: 45, taper: 0.5, x: 0.98, cant: 35, y: 1 },
     canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
     int: { prop: "NTO/MMH", mp: 0.5, pay: 5, payLen: 0.25, order: "pay,fu,ox", eng: 2, engF: 4, engM: 0.05, ks: 18, other: 0.8 } },
   hl20: { name: "NASA HL-20", L: 8.84, src: "NASA Langley HL-20 studies",
-    fus: { ln: 0.6, rf: 0.13, w: 1.45, flat: 0.6, boat: 0.08, base: 0.75 },
-    wing: { on: 1, x: 0.45, cr: 0.5, b: 0.38, sweep: 45, taper: 0.4, z: -0.6, t: 0.014, dih: 12 },
+    fus: { ln: 0.6, rf: 0.13, w: 1.45, flat: 0.6, boat: 0.08, base: 0.75, sq: 2.2, hump: 0.5, delta: 0.6 },
+    wing: { on: 1, x: 0.55, cr: 0.4, b: 0.3, sweep: 45, taper: 0.45, z: -0.5, t: 0.014, dih: 40 },
     strake: { on: 0 }, tail: { type: "triple", h: 0.16, cr: 0.25, sweep: 45, taper: 0.5, x: 0.98, cant: 40, y: 1 },
     canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
     int: { prop: "NTO/MMH", mp: 0.4, pay: 0.6, payLen: 0.3, order: "pay,fu,ox", eng: 0, engF: 0, engM: 0, ks: 16, other: 7 } },
   x24b: { name: "Martin X-24B", L: 11.4, src: "NASA Dryden fact sheet",
-    fus: { ln: 0.7, rf: 0.085, w: 1.6, flat: 0.75, boat: 0.04, base: 0.7 },
-    wing: { on: 1, x: 0.3, cr: 0.68, b: 0.25, sweep: 70, taper: 0, z: -0.7, t: 0.012, dih: 0 },
+    fus: { ln: 0.7, rf: 0.085, w: 1.8, flat: 0.75, boat: 0.04, base: 0.7, sq: 2.5, hump: 0.5, delta: 0.9 },
+    wing: { on: 1, x: 0.55, cr: 0.43, b: 0.2, sweep: 60, taper: 0, z: -0.7, t: 0.012, dih: 0 },
     strake: { on: 0 }, tail: { type: "triple", h: 0.14, cr: 0.3, sweep: 50, taper: 0.5, x: 0.99, cant: 15, y: 0.75 },
     canard: { on: 0 }, flap: { on: 1, len: 0.03, w: 0.7 },
     int: { prop: "LOX/RP-1", mp: 2.2, pay: 0, payLen: 0, order: "fu,ox", eng: 1, engF: 36, engM: 0.2, ks: 18, other: 1.8 } },
   mig105: { name: "Mikoyan MiG-105 Spiral", L: 10.6, src: "Mikoyan public data",
-    fus: { ln: 0.5, rf: 0.11, w: 1.55, flat: 0.6, boat: 0.08, base: 0.6 },
+    fus: { ln: 0.5, rf: 0.11, w: 1.55, flat: 0.6, boat: 0.08, base: 0.6, sq: 2.4, hump: 0.6, delta: 0.6 },
     wing: { on: 1, x: 0.55, cr: 0.42, b: 0.3, sweep: 50, taper: 0.4, z: -0.4, t: 0.012, dih: 30 },
     strake: { on: 0 }, tail: { type: "single", h: 0.16, cr: 0.24, sweep: 55, taper: 0.4, x: 0.98, cant: 0, y: 0 },
     canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
     int: { prop: "NTO/MMH", mp: 0.4, pay: 0, payLen: 0, order: "fu,ox", eng: 0, engF: 0, engM: 0, ks: 18, other: 1 } },
   hermes: { name: "ESA Hermes", L: 15.5, src: "ESA programme data (final configuration)",
-    fus: { ln: 0.22, rf: 0.09, w: 1.2, flat: 0.4, boat: 0.06, base: 0.65 },
+    fus: { ln: 0.22, rf: 0.09, w: 1.2, flat: 0.4, boat: 0.06, base: 0.65, sq: 2.3, droop: 0.15 },
     wing: { on: 1, x: 0.42, cr: 0.56, b: 0.33, sweep: 55, taper: 0.15, z: -0.55, t: 0.013, dih: 4 },
     strake: { on: 0 }, tail: { type: "tips", h: 0.12, cr: 0.2, sweep: 50, taper: 0.5, x: 0.98, cant: 15, y: 1 },
     canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
     int: { prop: "NTO/MMH", mp: 2, pay: 3, payLen: 0.25, order: "pay,fu,ox", eng: 2, engF: 20, engM: 0.1, ks: 20, other: 8.7 } },
   hopex: { name: "NASDA HOPE-X", L: 16.5, src: "NASDA public data",
-    fus: { ln: 0.22, rf: 0.085, w: 1.2, flat: 0.45, boat: 0.06, base: 0.6 },
+    fus: { ln: 0.22, rf: 0.085, w: 1.2, flat: 0.45, boat: 0.06, base: 0.6, sq: 2.5, droop: 0.1 },
     wing: { on: 1, x: 0.5, cr: 0.48, b: 0.29, sweep: 50, taper: 0.3, z: -0.55, t: 0.012, dih: 4 },
     strake: { on: 1, len: 0.18, join: 0.3 }, tail: { type: "tips", h: 0.13, cr: 0.2, sweep: 45, taper: 0.5, x: 0.98, cant: 10, y: 1 },
     canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.6 },
     int: { prop: "NTO/MMH", mp: 1.5, pay: 3, payLen: 0.2, order: "pay,fu,ox", eng: 2, engF: 20, engM: 0.1, ks: 18, other: 1.5 } },
   x15: { name: "North American X-15", L: 15.5, src: "NASA Dryden fact sheet",
-    fus: { ln: 0.2, rf: 0.042, w: 1.6, flat: 0, boat: 0.03, base: 0.8 },
+    fus: { ln: 0.2, rf: 0.042, w: 1.6, flat: 0, boat: 0.03, base: 0.8, sq: 2.5 },
     wing: { on: 1, x: 0.47, cr: 0.27, b: 0.22, sweep: 25, taper: 0.2, z: 0, t: 0.008, dih: 0 },
-    strake: { on: 0 }, tail: { type: "single", h: 0.14, cr: 0.2, sweep: 50, taper: 0.6, x: 0.99, cant: 0, y: 0 },
+    strake: { on: 0 }, tail: { type: "cruci", h: 0.12, cr: 0.2, sweep: 50, taper: 0.6, x: 0.99, cant: 0, y: 0, hs: 0.1 },
     canard: { on: 0 }, flap: { on: 0 },
-    int: { prop: "LOX/NH3", mp: 8.2, pay: 0, payLen: 0, order: "ox,fu", eng: 1, engF: 262, engM: 0.42, ks: 30, other: 1.5 } },
+    int: { prop: "LOX/NH3", mp: 8.2, pay: 0, payLen: 0, order: "ox,fu", eng: 1, engF: 262, engM: 0.42, ks: 30, other: 0.5 } },
   skylon: { name: "Reaction Engines Skylon D1", L: 83.1, src: "Reaction Engines published studies",
     fus: { ln: 0.2, rf: 0.038, w: 1, flat: 0, boat: 0.15, base: 0 },
     wing: { on: 1, x: 0.38, cr: 0.32, b: 0.16, sweep: 45, taper: 0.15, z: 0, t: 0.006, dih: 0 },
     strake: { on: 0 }, tail: { type: "single", h: 0.08, cr: 0.12, sweep: 50, taper: 0.4, x: 0.99, cant: 0, y: 0 },
-    canard: { on: 1, x: 0.1, b: 0.06, cr: 0.05, sweep: 45 }, flap: { on: 0 },
+    nac: { on: 1, pos: 1, x: 0.42, len: 0.17, r: 0.021 }, canard: { on: 1, x: 0.1, b: 0.06, cr: 0.05, sweep: 45 }, flap: { on: 0 },
     int: { prop: "LOX/LH2", mp: 220, pay: 15, payLen: 0.15, order: "fu,pay,ox,fu", eng: 2, engF: 2000, engM: 7, ks: 7, other: 0 } },
   x33: { name: "Lockheed Martin X-33", L: 21, src: "NASA X-33 programme data",
-    fus: { ln: 0.65, rf: 0.11, w: 2.6, flat: 0.7, boat: 0.05, base: 0.9 },
+    fus: { ln: 0.3, rf: 0.14, w: 2.2, flat: 0.7, boat: 0.05, base: 0.9, sq: 2.2, hump: 0.6, delta: 0.85 },
     wing: { on: 1, x: 0.72, cr: 0.26, b: 0.36, sweep: 30, taper: 0.4, z: -0.55, t: 0.01, dih: 20 },
     strake: { on: 0 }, tail: { type: "twin", h: 0.14, cr: 0.2, sweep: 45, taper: 0.5, x: 0.98, cant: 25, y: 0.45 },
     canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.8 },
-    int: { prop: "LOX/LH2", mp: 95, pay: 0, payLen: 0, order: "fu,ox,fu", eng: 2, engF: 1200, engM: 3.2, ks: 18, other: 3 } },
+    int: { prop: "LOX/LH2", mp: 95, pay: 0, payLen: 0, order: "fu,ox,fu", eng: 2, engF: 1200, engM: 3.2, ks: 18, other: 5 } },
   osp: { name: "OSP concept, from Spaceplane Source renders", L: 20, src: "proportions estimated from the Spaceplane Source renders",
-    fus: { ln: 0.3, rf: 0.07, w: 1.6, flat: 0.5, boat: 0.06, base: 0.7 },
+    fus: { ln: 0.3, rf: 0.07, w: 1.6, flat: 0.5, boat: 0.06, base: 0.7, sq: 2.4, hump: 0.8, delta: 0.35, droop: 0.1 },
     wing: { on: 1, x: 0.46, cr: 0.5, b: 0.34, sweep: 55, taper: 0.1, z: -0.4, t: 0.012, dih: 2 },
     strake: { on: 1, len: 0.22, join: 0.35 }, tail: { type: "twin", h: 0.15, cr: 0.22, sweep: 50, taper: 0.4, x: 0.97, cant: 20, y: 0.4 },
     canard: { on: 0 }, flap: { on: 1, len: 0.04, w: 0.7 },
     int: { prop: "LOX/LH2", mp: 0, pay: 2, payLen: 0.2, order: "pay,fu,ox", eng: 1, engF: 1000, engM: 1.5, ks: 15, other: 2 } },
   f14ssto: { name: "F-14-sized SSTO (Critical Path analysis)", L: 19.1, src: "SSTO_Critical_Path_Analysis: dry 70 t, GLOW 172.9 t; F-14 dimensions",
-    fus: { ln: 0.28, rf: 0.075, w: 1.5, flat: 0.45, boat: 0.06, base: 0.6 },
+    fus: { ln: 0.28, rf: 0.075, w: 1.5, flat: 0.45, boat: 0.06, base: 0.6, sq: 2.3, delta: 0.3 },
     wing: { on: 1, x: 0.42, cr: 0.54, b: 0.4, sweep: 55, taper: 0.15, z: -0.3, t: 0.012, dih: 0 },
     strake: { on: 1, len: 0.2, join: 0.3 }, tail: { type: "twin", h: 0.15, cr: 0.22, sweep: 45, taper: 0.4, x: 0.98, cant: 10, y: 0.35 },
     canard: { on: 0 }, flap: { on: 0 },
     int: { prop: "LOX/LH2", mp: 102.9, pay: 0, payLen: 0, order: "fu,ox", eng: 2, engF: 1500, engM: 3, ks: 18, other: 49.7 } },
   carssto: { name: "Passenger-car SSTO (Slow Ascent analysis)", L: 6, src: "Passenger_Car_SSTO_Slow_Ascent_Analysis: 6 m × 10 m, dry 2.58 t, 1.65 t LH2 + 5.61 t LOX",
-    fus: { ln: 0.4, rf: 0.14, w: 1.3, flat: 0.4, boat: 0.08, base: 0.6 },
+    fus: { ln: 0.4, rf: 0.14, w: 1.3, flat: 0.4, boat: 0.08, base: 0.6, sq: 2.3, delta: 0.3 },
     wing: { on: 1, x: 0.35, cr: 0.6, b: 0.4, sweep: 50, taper: 0.2, z: -0.3, t: 0.015, dih: 0 },
     strake: { on: 0 }, tail: { type: "twin", h: 0.17, cr: 0.25, sweep: 45, taper: 0.4, x: 0.98, cant: 15, y: 0.3 },
     canard: { on: 0 }, flap: { on: 0 },
@@ -4339,7 +4363,7 @@ const bldFill = (src) => { const d = bldDef(); for (const k of Object.keys(src))
 // fuselage half-height profile: elliptic nose, parallel body, quarter-ellipse closure to a base radius
 function bldProfile(f) {
   const rf = f.rf, x1 = 1 - f.boat, ln = Math.min(f.ln, x1 - 0.02), rb = Math.min(1, f.base) * rf, pts = [[0, 0]];
-  for (const u of [0.02, 0.08, 0.2, 0.4, 0.65, 1]) { const x = ln * u, e = (ln - x) / ln; pts.push([x, rf * Math.sqrt(Math.max(0, 1 - e * e))]); }
+  for (const u of [0.005, 0.02, 0.05, 0.1, 0.2, 0.35, 0.55, 0.77, 1]) { const x = ln * u, e = (ln - x) / ln; pts.push([x, rf * Math.sqrt(Math.max(0, 1 - e * e))]); }
   pts.push([x1, rf]);
   for (const u of [0.45, 0.8, 1]) pts.push([x1 + f.boat * u, rb + (rf - rb) * Math.sqrt(Math.max(0, 1 - u * u))]);
   if (rb > 1e-4) pts.push([1, 0]);
@@ -4347,21 +4371,48 @@ function bldProfile(f) {
 }
 const bldR = (prof, x) => { for (let i = 0; i + 1 < prof.length; i++) { const [x0, r0] = prof[i], [x1, r1] = prof[i + 1]; if (x >= x0 && x <= x1) return x1 > x0 ? r0 + ((r1 - r0) * (x - x0)) / (x1 - x0) : Math.max(r0, r1); } return 0; };
 // cross-section area of an ellipse r × r·w cut flat at z = −rf·(1 − flat) (fraction of L²)
-function bldSec(f, r) {
-  if (r <= 0) return 0;
-  const zc = f.flat > 0 ? Math.min(1, (f.rf * (1 - f.flat)) / r) : 1, cut = zc < 1 ? Math.acos(zc) - zc * Math.sqrt(1 - zc * zc) : 0;
-  return r * r * f.w * (Math.PI - cut);
+// half-width profile at the height profile's stations: blends the round planform (width follows height)
+// with a triangular one (width growing linearly to the end of the parallel body)
+function bldWidth(f, H) {
+  const x1 = 1 - f.boat;
+  return H.map(([x, r]) => [x, f.rf * f.w * ((1 - f.delta) * (r / f.rf) + f.delta * (x <= x1 ? Math.min(1, x / x1) : r / f.rf))]);
+}
+// the section at x (fractions of L): half-width b, upper and lower half-heights about the centre zc,
+// and the flat-bottom plane zb, matching sdBody
+function bldAt(f, H, W, x) {
+  const h = bldR(H, x), b = bldR(W, x), u = Math.max(0, 1 - x / Math.max(f.ln, 0.05)), zc = -f.droop * f.rf * u * u;
+  const tf = 1 - (1 - f.hump) * Math.min(1, Math.max(0, (x - 0.35) / 0.65));
+  return { b, aT: h * tf, aB: h, zc, zb: f.flat > 0 ? -f.rf * (1 - f.flat) : -Infinity };
+}
+// half-width of the superelliptic section at height z (absolute), 0 outside
+function bldHalfW(f, s, z) {
+  if (z < s.zb) return 0;
+  const zz = z - s.zc, a = zz > 0 ? s.aT : s.aB;
+  if (a <= 0 || Math.abs(zz) >= a) return 0;
+  return s.b * Math.pow(1 - Math.pow(Math.abs(zz) / a, f.sq), 1 / f.sq);
+}
+function bldSec(f, s) {
+  const z0 = Math.max(s.zc - s.aB, s.zb), z1 = s.zc + s.aT, n = 32;
+  let A = 0; for (let i = 0; i < n; i++) A += 2 * bldHalfW(f, s, z0 + ((z1 - z0) * (i + 0.5)) / n);
+  return (A * (z1 - z0)) / n;
+}
+function bldPerim(f, s) {
+  const z0 = Math.max(s.zc - s.aB, s.zb), z1 = s.zc + s.aT, n = 24;
+  let P = 0, py = bldHalfW(f, s, z0), pz = z0;
+  for (let i = 1; i <= n; i++) { const z = z0 + ((z1 - z0) * i) / n, y = bldHalfW(f, s, Math.min(z, z1 - 1e-9)); P += 2 * Math.hypot(y - py, z - pz); py = y; pz = z; }
+  return P + 2 * bldHalfW(f, s, z0);   // the flat underside
 }
 // wing half planform corners (body frame, fractions of L): root LE, tip LE, tip TE, root TE
 function wingPts(w) { const xt = w.b * Math.tan(w.sweep * D); return [[w.x, 0], [w.x + xt, w.b], [w.x + xt + w.taper * w.cr, w.b], [w.x + w.cr, 0]]; }
 const f5 = (v) => (+v).toFixed(5);
 
 function bldCode(d) {
-  const f = d.fus, prof = bldProfile(f), pad = prof.concat(Array(16 - prof.length).fill(prof[prof.length - 1]));
-  const rows = [];
-  for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${f5(x)}, ${f5(r)})`).join(", "));
+  const f = d.fus, prof = bldProfile(f), wid = bldWidth(f, prof);
+  const arr = (P) => { const pad = P.concat(Array(16 - P.length).fill(P[P.length - 1])), rows = [];
+    for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${f5(x)}, ${f5(r)})`).join(", "));
+    return `array<vec2f, 16>(\n${rows.join(",\n")})`; };
   const L = [`// ${d.name}: spaceplane builder, length 1 (${d.L} m).`, "fn sdf(p: vec3f) -> f32 {",
-    `  var d = sdRev(vec3f(p.x, p.y / ${f5(f.w)}, p.z), array<vec2f, 16>(\n${rows.join(",\n")}), ${prof.length}u) * ${f5(Math.min(1, f.w))};`];
+    `  var d = sdBody(p, ${arr(prof)},\n  ${arr(wid)}, ${prof.length}u, ${f5(f.sq)}, vec2f(${f5(f.hump)}, 0.35), vec2f(${f5(f.droop * f.rf)}, ${f5(Math.max(f.ln, 0.05))}));`];
   if (f.flat > 0) L.push(`  d = max(d, ${f5(-f.rf * (1 - f.flat))} - p.z);   // flat underside`);
   // a trapezoid half planform (x, |y|), extended past the centreline so the root is solid
   const v2 = (x, y) => `vec2f(${f5(x)}, ${f5(y)})`;
@@ -4395,12 +4446,26 @@ function bldCode(d) {
         `  let ${tag}s = vec2f(${tag}.x, ${tag}.y * ${f5(sa)} + ${tag}.z * ${f5(ca)});`,
         `  d = opSmoothUnion(d, sdPlate(min(sdTri2(${tag}s, ${P[0]}, ${P[1]}, ${P[3]}), sdTri2(${tag}s, ${P[1]}, ${P[2]}, ${P[3]})) + 0.006, ${tag}.y * ${f5(ca)} - ${tag}.z * ${f5(sa)}, 0.0025, 0.006), 0.012);`);
     };
-    const top = f.rf * 0.75, span = w.on ? w.b : f.rf * f.w;
-    if (t.type === "single" || t.type === "triple") fin(0, top, 0, "fc");
-    if (t.type === "twin" || t.type === "triple") fin(Math.max(f.rf * f.w * 0.4, t.y * span), t.type === "triple" ? (w.on ? w.z * f.rf : 0) : top * 0.6, t.cant, "ft");
+    const s0 = bldAt(f, prof, wid, Math.min(1, t.x - t.cr / 2)), top = s0.zc + s0.aT * 0.8, span = w.on ? w.b : f.rf * f.w;
+    if (["single", "triple", "conv", "cruci"].includes(t.type)) fin(0, top, 0, "fc");
+    if (t.type === "cruci") fin(0, -top, 180, "fd");
+    if (t.type === "conv" || t.type === "cruci") {
+      const P = wingPts({ x: t.x - t.cr, b: t.hs, sweep: t.sweep, taper: t.taper, cr: t.cr });
+      L.push(`  let hq = vec3f(p.x, abs(p.y), p.z);`, `  d = opSmoothUnion(d, sdPlate(${quad("hq.xy", P)} + 0.005, hq.z, 0.002, 0.005), 0.012);`);
+    }
+    if (t.type === "twin" || t.type === "triple") { const y0 = Math.max(f.rf * f.w * 0.4, t.y * span); fin(y0, t.type === "triple" ? (w.on ? w.z * f.rf + y0 * Math.tan(w.dih * D) : 0) : top * 0.6, t.cant, "ft"); }
     if (t.type === "v") fin(Math.max(0.01, t.y * f.rf * f.w), top * 0.7, Math.max(t.cant, 20), "fv");
     // tip fins sit on the wing-tip chord
     if (t.type === "tips" && w.on) { const P = wingPts(w), ct = Math.max(P[2][0] - P[1][0], 0.02); fin(w.b - 0.004, w.z * f.rf + w.b * Math.tan(w.dih * D), t.cant, "fw", P[2][0], Math.max(ct, Math.min(t.cr, ct * 1.6))); }
+  }
+  if (d.nac.on) {
+    // engine nacelles, a pair: a cone-tipped cylinder, along the wing span (0 at the body side, 1 at the tip)
+    const n = d.nac, sec0 = bldAt(f, prof, wid, Math.min(1, n.x + n.len / 2));
+    const y = w.on ? sec0.b + n.r + n.pos * Math.max(0, w.b - sec0.b - n.r) : sec0.b + n.r * 0.8;
+    const z = w.on ? w.z * f.rf + y * Math.tan(w.dih * D) : 0;
+    L.push(`  let nq = vec3f(p.x, abs(p.y), p.z);`,
+      `  d = opSmoothUnion(d, sdRoundCone(nq, vec3f(${f5(n.x)}, ${f5(y)}, ${f5(z)}), vec3f(${f5(n.x + n.len * 0.25)}, ${f5(y)}, ${f5(z)}), ${f5(n.r * 0.35)}, ${f5(n.r)}), 0.01);`,
+      `  d = opSmoothUnion(d, sdCapsule(nq, vec3f(${f5(n.x + n.len * 0.25)}, ${f5(y)}, ${f5(z)}), vec3f(${f5(n.x + n.len - n.r)}, ${f5(y)}, ${f5(z)}), ${f5(n.r)}), 0.01);`);
   }
   if (d.flap.on) {
     const fl = d.flap, zb = f.flat > 0 ? -f.rf * (1 - f.flat) + 0.006 : -f.rf * 0.6;
@@ -4414,8 +4479,8 @@ function bldCode(d) {
 // from behind the nose cone (crew, avionics) to the engine bay, each taking the length its volume needs
 // at 80 % of the local cross-section (structure, insulation, systems take the rest).
 function bldMass(d) {
-  const f = d.fus, L = d.L, prof = bldProfile(f), I = d.int, P = PROPS[I.prop] || PROPS["LOX/LH2"], N = 400;
-  const sec = (x) => bldSec(f, bldR(prof, x)) * L * L;   // m²
+  const f = d.fus, L = d.L, prof = bldProfile(f), wid = bldWidth(f, prof), I = d.int, P = PROPS[I.prop] || PROPS["LOX/LH2"], N = 400;
+  const sec = (x) => bldSec(f, bldAt(f, prof, wid, Math.min(1, Math.max(0, x)))) * L * L;   // m²
   const mFu = (I.mp * 1000) / (1 + P.of), mOx = (I.mp * 1000 * P.of) / (1 + P.of);
   const items = [];
   const fuParts = I.order.split(",").filter((k) => k === "fu").length || 1, oxParts = I.order.split(",").filter((k) => k === "ox").length || 1;
@@ -4437,15 +4502,17 @@ function bldMass(d) {
   // areas from the components: fuselage by perimeter integration, wing and fins both faces
   let Sf = 0, xSf = 0;
   for (let i = 0; i < N; i++) {
-    const xx = (i + 0.5) / N, r = bldR(prof, xx), a = r, b = r * f.w, per = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+    const xx = (i + 0.5) / N, per = bldPerim(f, bldAt(f, prof, wid, xx));
     Sf += per / N; xSf += (per * xx) / N;
   }
   const w = d.wing, wp = wingPts(w), Sw1 = w.on ? (w.b * (w.cr + w.taper * w.cr)) / 2 : 0;
   const xw = w.on ? (wp[0][0] + wp[1][0] + wp[2][0] + wp[3][0]) / 4 : 0.5;
   const Sst = d.strake.on && w.on ? (d.strake.len + d.strake.join * w.cr) * Math.min(w.b, (d.strake.join * w.cr) / Math.tan(w.sweep * D)) / 2 : 0;
-  const t = d.tail, nf = { none: 0, single: 1, twin: 2, triple: 3, v: 2, tips: 2 }[t.type] || 0, Sfin = (nf * t.h * (t.cr + t.taper * t.cr)) / 2;
+  const t = d.tail, nf = { none: 0, single: 1, conv: 1, cruci: 2, twin: 2, triple: 3, v: 2, tips: 2 }[t.type] || 0;
+  const Sfin = (nf * t.h * (t.cr + t.taper * t.cr)) / 2 + (t.type === "conv" || t.type === "cruci" ? t.hs * t.cr * (1 + t.taper) : 0);
+  const Snac = d.nac.on ? 2 * 2 * Math.PI * d.nac.r * d.nac.len : 0;
   const Sc = d.canard.on ? d.canard.b * d.canard.cr * 1.3 : 0;
-  const Swet = (Sf + 4 * Sw1 + 2 * Sst + 2 * Sfin + 2 * Sc) * L * L;      // m²
+  const Swet = (Sf + 4 * Sw1 + 2 * Sst + 2 * Sfin + 2 * Sc + Snac) * L * L;      // m²
   const Splan = (2 * Sw1 + 2 * Sst + 2 * Sc) * L * L + 2 * f.rf * f.w * L * L * (1 - f.ln * 0.4);
   const xA = (xSf * 1 + 4 * Sw1 * xw + 2 * Sst * (w.x - 0.05) + 2 * Sfin * (t.x - t.cr / 2) + 2 * Sc * d.canard.x) / Math.max(Sf + 4 * Sw1 + 2 * Sst + 2 * Sfin + 2 * Sc, 1e-9);
   const tankV = items.filter((i) => i.V).reduce((a, i) => a + i.V, 0);
@@ -4453,7 +4520,7 @@ function bldMass(d) {
     ["Structure", I.ks * Swet, xA],
     ["Heat shield", Swet * (0.5 * 10 + 0.5 * 4), xA],
     ["Tanks", tankV * P.tank, items.filter((i) => i.V).reduce((a, i) => a + i.V * i.xc, 0) / Math.max(tankV, 1e-9) || 0.5],
-    ["Engines", I.eng * I.engM * 1000, 0.97],
+    ["Engines", I.eng * I.engM * 1000, d.nac.on ? d.nac.x + 0.6 * d.nac.len : 0.97],
     ["Other: systems, gear, crew", I.other * 1000, 0.5],
   ];
   const dry = M.reduce((a, m) => a + m[1], 0), xDry = M.reduce((a, m) => a + m[1] * m[2], 0) / Math.max(dry, 1);
@@ -4495,7 +4562,7 @@ function buildBuilderUI() {
   for (const [g, key, fields] of BLD_SCHEMA) {
     const det = document.createElement("details"); det.className = "more";
     const sum = document.createElement("summary");
-    if (["strake", "canard", "flap"].includes(key)) {
+    if (["strake", "canard", "flap", "nac"].includes(key)) {
       const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.on = key; cb.setAttribute("aria-label", `${g} on`);
       cb.addEventListener("click", (e) => e.stopPropagation());
       cb.addEventListener("change", () => { BLD[key].on = cb.checked ? 1 : 0; bldEdited(); });
@@ -4544,19 +4611,24 @@ function bldDraw() {
   const X = (x) => (w - 1.06 * sc) / 2 + x * sc, Yp = (y) => ph * 0.5 - y * sc, Ys = (z) => ph + 7 + (ph - 14) / 2 + ((tz - zLo) / 2) * sc - z * sc;
   g.lineWidth = 1;
   const COL = { fu: "rgba(120,180,255,0.55)", ox: "rgba(240,140,90,0.55)", pay: "rgba(200,200,140,0.45)" };
+  const wid = bldWidth(f, prof), at = (x) => bldAt(f, prof, wid, Math.min(1, Math.max(0, x)));
+  const topZ = (x) => { const q = at(x); return q.zc + q.aT; }, botZ = (x) => { const q = at(x); return Math.max(q.zc - q.aB, q.zb); };
   for (const it of m.items) {
-    const x0 = Math.min(it.x0, 1), x1 = Math.min(it.x1, 1.04);
+    const x0 = Math.min(it.x0, 1), x1 = Math.min(it.x1, 1.04), k9 = (v, c) => c + 0.85 * (v - c);
     g.fillStyle = COL[it.k];
     g.beginPath();
-    for (let k = 0; k <= 12; k++) { const x = x0 + ((x1 - x0) * k) / 12, r = 0.9 * bldR(prof, Math.min(x, 1)); k ? g.lineTo(X(x), Ys(r * 0.9)) : g.moveTo(X(x), Ys(r * 0.9)); }
-    for (let k = 12; k >= 0; k--) { const x = x0 + ((x1 - x0) * k) / 12, r = 0.9 * bldR(prof, Math.min(x, 1)); g.lineTo(X(x), Ys(-Math.min(r, f.flat > 0 ? f.rf * (1 - f.flat) : r) * 0.9)); }
+    for (let k = 0; k <= 12; k++) { const x = x0 + ((x1 - x0) * k) / 12, q = at(x); k ? g.lineTo(X(x), Ys(k9(topZ(x), q.zc))) : g.moveTo(X(x), Ys(k9(topZ(x), q.zc))); }
+    for (let k = 12; k >= 0; k--) { const x = x0 + ((x1 - x0) * k) / 12, q = at(x); g.lineTo(X(x), Ys(k9(botZ(x), q.zc))); }
     g.fill();
-    g.fillRect(X(x0), Yp(f.rf * f.w * 0.8), (x1 - x0) * sc, f.rf * f.w * 1.6 * sc);
+    g.beginPath();
+    for (let k = 0; k <= 12; k++) { const x = x0 + ((x1 - x0) * k) / 12; k ? g.lineTo(X(x), Yp(0.85 * at(x).b)) : g.moveTo(X(x), Yp(0.85 * at(x).b)); }
+    for (let k = 12; k >= 0; k--) { const x = x0 + ((x1 - x0) * k) / 12; g.lineTo(X(x), Yp(-0.85 * at(x).b)); }
+    g.fill();
   }
   g.strokeStyle = "#d6cebd";
-  const outline = (Y, wid, bot) => { g.beginPath(); prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(r * wid)) : g.moveTo(X(x), Y(0)))); g.stroke();
-    g.beginPath(); prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(-(bot ? Math.min(r, f.flat > 0 ? f.rf * (1 - f.flat) : r) : r * wid))) : g.moveTo(X(x), Y(0)))); g.stroke(); };
-  outline(Yp, f.w, false); outline(Ys, 1, true);
+  const xs = Array.from({ length: 81 }, (_, i) => i / 80);
+  const line = (F, Y) => { g.beginPath(); xs.forEach((x, i) => (i ? g.lineTo(X(x), Y(F(x))) : g.moveTo(X(x), Y(F(x))))); g.stroke(); };
+  line((x) => at(x).b, Yp); line((x) => -at(x).b, Yp); line(topZ, Ys); line(botZ, Ys);
   if (d.wing.on) {
     const P = wingPts(d.wing);
     for (const sgn of [1, -1]) { g.beginPath(); P.forEach(([x, y], i) => (i ? g.lineTo(X(x), Yp(sgn * y)) : g.moveTo(X(x), Yp(sgn * y)))); g.stroke(); }
@@ -4564,7 +4636,11 @@ function bldDraw() {
     g.beginPath(); g.moveTo(X(d.wing.x), Ys(d.wing.z * f.rf)); g.lineTo(X(d.wing.x + d.wing.cr), Ys(d.wing.z * f.rf)); g.stroke();
   }
   const t = d.tail;
-  if (t.type !== "none") { const x0 = t.x - t.cr, xt = t.h * Math.tan(t.sweep * D), z0 = f.rf * 0.75 * (t.type === "single" || t.type === "triple" ? 1 : 0.6);
+  if (d.nac.on) {
+    const n = d.nac, q = at(n.x + n.len / 2), y = d.wing.on ? q.b + n.r + n.pos * Math.max(0, d.wing.b - q.b - n.r) : q.b + n.r * 0.8;
+    for (const sgn of [1, -1]) g.strokeRect(X(n.x), Yp(sgn * y + n.r), n.len * sc, 2 * n.r * sc);
+  }
+  if (t.type !== "none") { const q = at(t.x - t.cr / 2), x0 = t.x - t.cr, xt = t.h * Math.tan(t.sweep * D), z0 = (q.zc + q.aT * 0.8) * (["single", "triple", "conv", "cruci"].includes(t.type) ? 1 : 0.6);
     g.beginPath(); g.moveTo(X(x0), Ys(z0)); g.lineTo(X(x0 + xt), Ys(z0 + t.h * Math.cos(t.cant * D))); g.lineTo(X(x0 + xt + t.taper * t.cr), Ys(z0 + t.h * Math.cos(t.cant * D))); g.lineTo(X(t.x), Ys(z0)); g.stroke(); }
   // balance points: full (gross) and landing
   for (const [x, col, lab] of [[m.cgGross, "#f0743c", "full"], [m.cgLand, "#9fb3d8", "landing"]]) {

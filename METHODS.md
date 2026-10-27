@@ -10,7 +10,7 @@ For imported models that arrive pointing the wrong way. The nose should face int
 
 ### Spaceplane builder
 
-A spaceplane as components: fuselage (elliptic nose, width-to-height ratio, flat underside, tail closure, blunt base), wing (apex, root chord, semi-span, leading-edge sweep, taper, height, thickness, dihedral), strakes, tail (single, twin, twin plus centre, V, or tip fins, with cant), canards and a body flap. One design record generates the SDF shape, the internal layout, the mass and the balance point.
+A spaceplane as components: fuselage (elliptic nose with optional droop, width-to-height ratio, section squareness from round to boxy, planform from round to triangular, upper surface falling aft as on lifting bodies, flat underside, tail closure, blunt base), wing (apex, root chord, semi-span, leading-edge sweep, taper, height, thickness, dihedral), strakes, tail (single fin, fin and tailplane, cruciform, twin, twin plus centre, V, or tip fins, with cant), canards, engine nacelles along the span, and a body flap. One design record generates the SDF shape, the internal layout, the mass and the balance point.
 
 Inside, the fuel tanks, oxidiser tanks and payload bay are packed nose to tail in the listed order, from behind the nose cone to the engine bay. Each takes the length its volume needs at 80 % of the local cross-section. If they don't fit, the overrun is shown.
 
