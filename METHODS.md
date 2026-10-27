@@ -10,11 +10,25 @@ For imported models that arrive pointing the wrong way. The nose should face int
 
 ### Spaceplane builder
 
-A spaceplane as components: fuselage (elliptic nose with optional droop, width-to-height ratio, section squareness from round to boxy, planform from round to triangular, upper surface falling aft as on lifting bodies, flat underside, tail closure, blunt base), wing (apex, root chord, semi-span, leading-edge sweep, taper, height, thickness, dihedral), strakes, tail (single fin, fin and tailplane, cruciform, twin, twin plus centre, V, or tip fins, with cant), canards, engine nacelles along the span, and a body flap. One design record generates the SDF shape, the internal layout, the mass and the balance point.
+The Builder tab of the Model panel. A spaceplane as components, each with sliders:
 
-Inside, the fuel tanks, oxidiser tanks and payload bay are packed nose to tail in the listed order, from behind the nose cone to the engine bay. Each takes the length its volume needs at 80 % of the local cross-section. If they don't fit, the overrun is shown.
+- **Fuselage:** elliptic nose with droop, width-to-height ratio, section squareness, planform from round to triangular, upper surface falling aft as on lifting bodies, flat underside, tail closure, blunt base.
+- **Wing:** apex, root chord, semi-span, sweep, taper, height, thickness, dihedral. The root sits on the fuselage side and the semi-span is measured from the centreline, like a published span.
+- **Strakes:** from the body side to the wing leading edge.
+- **Tail:** single fin, fin and tailplane, cruciform, twin, twin plus centre, V, or tip fins seated on the wing-tip chord.
+- **Also:** canards, engine nacelles along the span, a body flap, and rocket nozzles on the base, sized from the thrust (exit diameter ≈ 0.35 + 1.25·√(F/MN) m).
 
-Mass is a first-order sizing estimate:
+Each group has Randomise, within ranges where real spaceplanes sit, then corrected so tips stay ahead of the tail.
+
+**Inside**, every item is a box:
+
+- cabin, payload bay and tanks, packed nose to tail in the listed order (cab, pay, fu, ox);
+- the engine bay, sized by the engines;
+- main gear bays just behind the landing balance point, and a nose gear bay.
+
+Each tank takes the length its volume needs at 80 % of the local cross-section. Boxes are clipped to the hull's inscribed rectangle, and the overrun is shown when they don't fit.
+
+**Mass** is a first-order sizing estimate:
 
 - structure per m² of wetted area;
 - heat shield at 10 kg/m² windward and 4 kg/m² leeward;
@@ -22,9 +36,15 @@ Mass is a first-order sizing estimate:
 - engines;
 - an "other" allowance (systems, gear, crew, margin).
 
-Building applies the landing mass and landing balance point to the vehicle, so pitching moments and the entry use them.
+The landing mass and balance point feed the entry and the pitching moments. "Copy design as JSON" exports the design record with its box layout.
 
-The reference library holds the Shuttle orbiter, Buran, X-37B, Dream Chaser, HL-20, X-24B, MiG-105, Hermes, HOPE-X, X-15, Skylon, X-33, the OSP concept, and the two SSTO cases from the Spaceplane Source analyses. Dimensions and masses are public figures, rounded. Each shape is a component approximation, and "other" is set so the dry or gross mass matches the published figure.
+**Livery:**
+
+- **Part colours:** the generated shape names its parts, and the renderer colours each by `matId`.
+- **Dark underside:** optional.
+- **Paint:** three projections (top, underside, side) in one 1024² atlas, sampled by the surface normal. It's a stand-in for per-part UVs, and the projections map one-to-one onto a later UV layout.
+
+The reference library holds the Shuttle orbiter, Buran, X-37B, Dream Chaser, HL-20, X-24B, MiG-105, Hermes, HOPE-X, X-15, Skylon, X-33, the OSP concept, and the two SSTO cases from the Spaceplane Source analyses. Dimensions and masses are public figures, rounded. Shapes are component approximations, and "other" is set so the dry or gross mass matches the published figure.
 
 ### Optimise shape
 
