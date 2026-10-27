@@ -13,38 +13,40 @@ For imported models that arrive pointing the wrong way. The nose should face int
 The Builder tab of the Model panel. A spaceplane as components, each with sliders:
 
 - **Fuselage:** elliptic nose with droop, width-to-height ratio, section squareness, planform from round to triangular, upper surface falling aft as on lifting bodies, flat underside, tail closure, blunt base.
-- **Wing:** apex, root chord, semi-span, sweep, taper, height, thickness, dihedral. The root sits on the fuselage side and the semi-span is measured from the centreline, like a published span.
-- **Strakes:** from the body side to the wing leading edge.
-- **Tail:** single fin, fin and tailplane, cruciform, twin, twin plus centre, V, or tip fins seated on the wing-tip chord.
-- **Also:** canards, engine nacelles along the span, a body flap, and rocket nozzles on the base, sized from the thrust (exit diameter ≈ 0.35 + 1.25·√(F/MN) m).
+- **Wing:** apex, root chord, semi-span (from the centreline, like a published span), sweep, taper, height, NACA 4-digit thickness ratio, dihedral. The root sits on the fuselage side.
+- **Control surfaces:**
+  - elevons: a fraction of the local chord, between span stations, deflected about their hinge line;
+  - a rudder on the fin, opening both ways as a speed brake (the shape is mirrored, so a single-sided yaw deflection isn't possible yet);
+  - a body flap hinged at the underside's trailing edge.
+- **Other components:**
+  - strakes from the body side;
+  - tails: single fin, fin and tailplane, cruciform, twin, twin plus centre, V, or tip fins on the wing-tip chord;
+  - canards;
+  - engine nacelles along the span.
+- **Engines:** the Engines tab's ideal-rocket model. Chemistry follows the tanks unless set. The exit area is what gives the vacuum thrust asked for at the chosen area ratio. Bells are 80 % bells, and mass comes from thrust-to-weight. While the builder is the model it owns the engines: the Engines tab shows and simulates them (plumes in the flow solver, thrust and Isp in a single-stage ascent), and edits there come back to the builder. An RS-25-class engine (2,279 kN vacuum, area ratio 69) comes out at 1,878 kN and 365 s at sea level and 443 s in vacuum, against the published 1,860 kN, 366 s and 452 s.
+- **RCS:** a forward cluster and two aft pods, sized by thruster force and count. The builder reports quarter-turn times in pitch, yaw and roll, from inertias estimated from the mass layout.
 
-Each group has Randomise, within ranges where real spaceplanes sit, then corrected so tips stay ahead of the tail.
+Each group has Randomise, within ranges where real spaceplanes sit.
 
 **Inside**, every item is a box:
 
-- cabin, payload bay and tanks, packed nose to tail in the listed order (cab, pay, fu, ox);
+- cabin, payload bay and tanks, packed nose to tail in the listed order;
 - the engine bay, sized by the engines;
-- main gear bays just behind the landing balance point, and a nose gear bay.
+- gear bays sized to the section at their height.
 
-Each tank takes the length its volume needs at 80 % of the local cross-section. Boxes are clipped to the hull's inscribed rectangle, and the overrun is shown when they don't fit.
+"Place for least balance shift" tries every order (tanks split fore and aft as well) and keeps the one whose balance point moves least between full and landing.
 
-**Mass** is a first-order sizing estimate:
+**Mass** is a first-order sizing estimate: structure per m² wetted, heat shield, tanks per m³, engines, RCS and an "other" allowance. The landing mass and balance point feed the entry and pitching moments.
 
-- structure per m² of wetted area;
-- heat shield at 10 kg/m² windward and 4 kg/m² leeward;
-- tanks per m³ by propellant;
-- engines;
-- an "other" allowance (systems, gear, crew, margin).
+**Livery:** part colours, an optional dark underside, and paint in three projections, sampled by surface normal.
 
-The landing mass and balance point feed the entry and the pitching moments. "Copy design as JSON" exports the design record with its box layout.
+### From analysis to CAD
 
-**Livery:**
+The tunnel's SDF is for analysis: it rebuilds in milliseconds and never fails a union, which the solvers and the optimiser need. Exact geometry is the next stage.
 
-- **Part colours:** the generated shape names its parts, and the renderer colours each by `matId`.
-- **Dark underside:** optional.
-- **Paint:** three projections (top, underside, side) in one 1024² atlas, sampled by the surface normal. It's a stand-in for per-part UVs, and the projections map one-to-one onto a later UV layout.
+"Export for CAD" writes a design package: the record, everything the tunnel derived from it in metres (sections, planforms, fins, control surfaces, engines, boxes, RCS, mass), and what the analysis found. `cad/build_spaceplane.py` turns that package into STEP with build123d: outer mould line, deflected elevons and body flap, bells, nacelles and the internal boxes. It also writes a report comparing the CAD with the tunnel. `cad/AGENT.md` is the brief for the CAD agent that refines it into engineering geometry and reports back.
 
-The reference library holds the Shuttle orbiter, Buran, X-37B, Dream Chaser, HL-20, X-24B, MiG-105, Hermes, HOPE-X, X-15, Skylon, X-33, the OSP concept, and the two SSTO cases from the Spaceplane Source analyses. Dimensions and masses are public figures, rounded. Shapes are component approximations, and "other" is set so the dry or gross mass matches the published figure.
+The reference library holds the Shuttle orbiter, Buran, X-37B, Dream Chaser, HL-20, X-24B, MiG-105, Hermes, HOPE-X, X-15, Skylon, X-33, the OSP concept, and the two SSTO cases from the Spaceplane Source analyses. Dimensions and masses are public figures, rounded.
 
 ### Optimise shape
 

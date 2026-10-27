@@ -1,0 +1,27 @@
+{
+ "parts": [
+  "Outer mould line",
+  "Elevon port",
+  "Elevon starboard",
+  "Body flap",
+  "Nozzle 1",
+  "Nozzle 2",
+  "Nozzle 3"
+ ],
+ "fuselageVolumeM3": 784.9910371445725,
+ "outerMouldLineVolumeM3": 950.1213575140839,
+ "outerMouldLineAreaM2": 1159.666928582107,
+ "tunnelWettedAreaM2": 1195.0697714296712,
+ "tunnelUsableVolumeM3": 546.7164780604551,
+ "boxesInsideHull": [
+  "Cabin",
+  "Payload bay",
+  "Fuel tank",
+  "Oxidiser tank",
+  "Engine bay",
+  "Main gear bays",
+  "Main gear bays (starboard)",
+  "Nose gear bay"
+ ],
+ "boxesOutsideHull": []
+}
