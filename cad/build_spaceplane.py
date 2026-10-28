@@ -10,7 +10,7 @@ CAD with what the tunnel assumed. This is the deterministic starting point that 
 x aft from the nose, y to port, z up, metres.
 """
 import argparse, json, math, pathlib
-from build123d import Axis, Box, Compound, Cone, Face, Location, Plane, Solid, Wire, export_step, export_stl, mirror
+from build123d import Axis, Box, Compound, Cone, Cylinder, Face, Location, Plane, Solid, Sphere, Wire, export_step, export_stl, mirror
 
 
 def superellipse(sec, n=48):
@@ -120,7 +120,14 @@ def boxes(bx):
         (x0, x1), (y0, y1), (z0, z1) = b["x"], b["y"], b["z"]
         if x1 - x0 < 1e-3 or y1 - y0 < 1e-3 or z1 - z0 < 1e-3:
             continue
-        s = Box(x1 - x0, y1 - y0, z1 - z0).moved(Location(((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)))
+        c = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+        if b.get("shape") == "cylinder":   # a tank: cylinder along x with hemispherical ends
+            r = b["radius"]; lc = max(x1 - x0 - 2 * r, 0.0)
+            s = Sphere(r).moved(Location((x0 + r, c[1], c[2]))) + Sphere(r).moved(Location((x1 - r, c[1], c[2])))
+            if lc > 1e-4:
+                s = s + Cylinder(r, lc, rotation=(0, 90, 0)).moved(Location(c))
+        else:
+            s = Box(x1 - x0, y1 - y0, z1 - z0).moved(Location(c))
         s.label = b["name"]
         out.append(s)
         if b.get("mirrored"):
@@ -186,8 +193,9 @@ def main():
     rep = {"parts": ["Outer mould line", *[x.label for x in surfaces], *[x.label for x in nz]],
            "fuselageVolumeM3": body.volume, "outerMouldLineVolumeM3": oml.volume, "outerMouldLineAreaM2": oml.area,
            "tunnelWettedAreaM2": D["areas"]["wettedM2"], "tunnelUsableVolumeM3": D["volumes"]["usableM3"],
-           "boxesInsideHull": [b.label for b in inside if (b - body).volume < 1e-6 * max(b.volume, 1e-9)],
-           "boxesOutsideHull": [b.label for b in inside if (b - body).volume >= 1e-6 * max(b.volume, 1e-9)]}
+           # inside the outer mould line (a main gear bay may sit in the wing root), within 0.1 % of volume
+           "boxesInsideHull": [b.label for b in inside if (b - oml).volume < 1e-3 * max(b.volume, 1e-9)],
+           "boxesOutsideHull": {b.label: round((b - oml).volume / max(b.volume, 1e-9), 4) for b in inside if (b - oml).volume >= 1e-3 * max(b.volume, 1e-9)}}
     (out / f"{name}.cad-report.json").write_text(json.dumps(rep, indent=1))
     print(json.dumps(rep, indent=1))
 

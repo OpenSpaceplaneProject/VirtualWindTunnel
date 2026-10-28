@@ -37,15 +37,16 @@ A spaceplane as components, each with sliders:
 
 Each group has Randomise, within ranges where real spaceplanes sit.
 
-**Inside**, every item is a box:
+**Inside**, cabin, payload and tanks stack nose to tail in the listed order. Each is sized to fit the hull where it sits:
 
-- cabin, payload bay and tanks, packed nose to tail in the listed order;
-- the engine bay, sized by the engines;
-- gear bays sized to the section at their height.
+- **Tanks** are pressure vessels. The choice is a capsule (cylinder with hemispherical ends) on the centreline, two side by side in a wide, flat section, or an integral tank filling 80 % of the section, as the Shuttle II and X-33 studies used. The shortest wins. Integral tanks count 20 % longer for their non-circular wall, and are at least 0.6 of their height long.
+- **Payload** is an ISO 668 container when the hull can take one: 40 ft (12.19 × 2.44 × 2.59 m) if it fits, otherwise 20 ft. It allows 0.1 m clearance all round and 0.15 m at each end, and the floor rises where a round section needs it. Otherwise the bay is the set length.
+- **Main gear** sits just behind the landing balance point. It goes in the wing roots when they are deep enough, as on the Shuttle, and otherwise low in the body. The bay is about one tyre-and-strut deep (0.25 m × landing mass in tonnes^⅓). The nose gear sits under the cabin. Nothing overlaps a gear bay: items above one sit higher, and tanks shrink to suit. The stack is laid out three times, because the gear follows the balance point.
+- **Engine bay** is sized by the engines.
 
 "Place for least balance shift" tries every order (tanks split fore and aft as well) and keeps the one whose balance point moves least between full and landing.
 
-**Mass** is a first-order sizing estimate: structure per m² wetted, heat shield, tanks per m³, engines, RCS and an "other" allowance. The landing mass and balance point feed the entry and pitching moments.
+**Mass** is a first-order sizing estimate: structure per m² wetted, heat shield, tanks per m³, engines, RCS and an "other" allowance. Of the allowance, 3.5 % of the landing mass is landing gear, placed at the bays. The rest (avionics, power, hydraulics, life support, crew) goes where a designer would put it to balance the vehicle. Its centre is solved so the landing balance point sits a 2 % L static margin ahead of the planform centroid, which is where Newtonian lift acts at entry angles of attack. Anything that cannot reach is nose ballast, listed as such. The Test screen's trim and pitching moment are the real check. The landing mass and balance point feed the entry and pitching moments.
 
 **Livery:** part colours, an optional dark underside, and paint in three projections, sampled by surface normal.
 

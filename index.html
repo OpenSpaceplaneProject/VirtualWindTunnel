@@ -472,6 +472,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
                 <label class="field" title="Nose to tail: cab cabin, pay payload bay, fu fuel, ox oxidiser; repeat a tank to split it"><span class="k">Order</span><input type="text" data-i="order"></label>
                 <label class="field"><span class="k">Cabin, of L</span><input type="number" data-i="cab" min="0" max="0.6" step="0.01"></label>
                 <label class="field"><span class="k">Payload, t</span><input type="number" data-i="pay" min="0" step="any"></label>
+                <label class="field"><span class="k">Payload bay</span><select id="bldCont"><option value="auto">Container if it fits</option><option value="40">40 ft container</option><option value="20">20 ft container</option><option value="bay">Bay length</option></select></label>
                 <label class="field"><span class="k">Bay length, of L</span><input type="number" data-i="payLen" min="0" max="0.8" step="0.01"></label>
                 <label class="field" title="Airframe mass per m² of wetted area: about 25 for aluminium, 12–18 for composites"><span class="k">Structure, kg/m²</span><input type="number" data-i="ks" min="1" step="1"></label>
                 <label class="field" title="Systems, landing gear, crew, margin"><span class="k">Other, t</span><input type="number" data-i="other" min="0" step="any"></label>
@@ -4381,6 +4382,8 @@ const PROPS = {
   "LOX/NH3": { ox: 1141, fu: 682, of: 1.25, isp: [240, 276], tank: 9 },
   "NTO/MMH": { ox: 1440, fu: 880, of: 1.65, isp: [290, 320], tank: 8 },
 };
+// ISO 668 freight containers, outside dimensions in metres and maximum gross mass in kg
+const CONTAINER = { 20: { len: 6.058, w: 2.438, h: 2.591, max: 24000 }, 40: { len: 12.192, w: 2.438, h: 2.591, max: 30480 } };
 const TAILS = { none: "None", single: "Single fin", conv: "Fin and tailplane", cruci: "Cruciform", twin: "Twin fins", triple: "Twin plus centre", v: "V-tail", tips: "Tip fins" };
 const bldDef = () => ({
   name: "Custom", L: 20,
@@ -4394,7 +4397,7 @@ const bldDef = () => ({
   flap: { on: 0, len: 0.05, w: 0.6, df: 0 },
   eng: { type: "bell", prop: "tanks", n: 0, F: 1000, eps: 35, tw: 70 },
   rcs: { on: 0, F: 400, n: 12 },
-  int: { prop: "LOX/LH2", mp: 0, pay: 0, payLen: 0, cab: 0, order: "cab,fu,ox,pay", ks: 18, other: 0 },
+  int: { prop: "LOX/LH2", mp: 0, pay: 0, payLen: 0, cab: 0, order: "cab,fu,ox,pay", ks: 18, other: 0, tank: "auto", cont: "auto" },
   // part colours in PARTS order: fuselage, wing, tail, canards, nacelles, body flap, nozzles, control surfaces, underside
   paint: { colors: ["#e6e3dc", "#e6e3dc", "#e6e3dc", "#e6e3dc", "#b9b6ae", "#2a2a2c", "#5b5a58", "#a8a59d", "#1c1c1e"], belly: 0 },
 });
@@ -4769,46 +4772,103 @@ function bldCode(d) {
   return L.join("\n");
 }
 
-// Internal layout: every item is a box. Cabin, payload bay and tanks are packed nose to tail in the
-// listed order from behind the nose cone to the engine bay; each tank takes the length its volume needs
-// at 80 % of the local cross-section (structure, insulation and systems take the rest). The engine bay
-// is sized by the engines, and the gear bays sit behind the landing balance point (main) and under the
-// nose. Every box is clipped to the hull's inscribed rectangle, so the drawing shows what really fits.
+// Internal layout. Cabin, payload bay and tanks stack nose to tail in the listed order, from behind the
+// nose cone to the engine bay. Each item is sized to fit the hull where it sits:
+// - tanks are pressure vessels: a capsule (cylinder with hemispherical ends) on the centreline, two side
+//   by side where the section is wide and flat, or an integral tank filling 80 % of the section (as the
+//   Shuttle II and X-33 studies used), whichever is shortest; integral tanks count 20 % longer, for the
+//   non-circular wall they need;
+// - the cabin and payload bay are boxes of their set length;
+// - the main gear sits just behind the landing balance point, in the wing roots when they are deep
+//   enough (as on the Shuttle), otherwise low in the body; the nose gear sits under the cabin. Nothing
+//   else may overlap a gear bay: items over one sit above it, and tanks shrink to suit.
+// The stack is laid out twice, because the main gear follows the balance point, which follows the stack.
 function bldMass(d) {
   const f = d.fus, L = d.L, S = bldStations(f), I = d.int, P = PROPS[I.prop] || PROPS["LOX/LH2"], N = 400;
-  const at = (x) => bldSecAt(f, S, x), sec = (x) => bldSec(f, at(x)) * L * L;   // m²
+  const at = (x) => bldSecAt(f, S, Math.min(1, Math.max(0, x))), sec = (x) => bldSec(f, at(x)) * L * L;   // m²
   const mFu = (I.mp * 1000) / (1 + P.of), mOx = (I.mp * 1000 * P.of) / (1 + P.of), order = I.order.split(",").map((k) => k.trim()).filter(Boolean);
-  const nF = order.filter((k) => k === "fu").length || 1, nO = order.filter((k) => k === "ox").length || 1, items = [];
-  for (const k of order) {
-    if (k === "cab" && I.cab > 0) items.push({ k, name: "Cabin", m: 0, len: I.cab });
-    if (k === "fu" && mFu > 0) items.push({ k, name: "Fuel tank", m: mFu / nF, V: (1.03 * mFu) / P.fu / nF });
-    if (k === "ox" && mOx > 0) items.push({ k, name: "Oxidiser tank", m: mOx / nO, V: (1.03 * mOx) / P.ox / nO });
-    if (k === "pay" && (I.pay > 0 || I.payLen > 0)) items.push({ k, name: "Payload bay", m: I.pay * 1000, len: I.payLen });
-  }
+  const nF = order.filter((k) => k === "fu").length || 1, nO = order.filter((k) => k === "ox").length || 1;
   const E = engineDims(d), nE = Math.round(d.eng.n), engBay = nE > 0 && !d.nac.on ? Math.max(0.8 * E.len, 0.03) : 0;
   const x0 = Math.min(f.ln * 0.55, 0.3), xEnd = 1 - Math.max(engBay, 0.5 * f.boat, 0.02);
-  let x = x0, Vavail = 0;
+  let Vavail = 0;
   for (let i = 0; i < N; i++) { const xx = x0 + ((xEnd - x0) * (i + 0.5)) / N; Vavail += 0.8 * sec(xx) * ((xEnd - x0) / N) * L; }
-  for (const it of items) {
-    it.x0 = x;
-    if (it.len) x += it.len;
-    else { let v = 0; const dx = 0.002; while (v < it.V && x < 1.5) { v += 0.8 * sec(Math.min(x, 1)) * dx * L; x += dx; } }
-    it.x1 = x; it.xc = (it.x0 + it.x1) / 2; x += 0.005;
-  }
-  const over = Math.max(0, x - 0.005 - xEnd);
-  // the inscribed box of the hull over [a, b]: 70 % of the narrowest half-width and height there
-  const boxOf = (a, b, frac = 0.7) => {
+  // the hull section at x, with its floor raised over any gear bay in the body: top, bottom, half-width
+  // at mid-height (lengths in L)
+  const hullAt = (x, gears) => {
+    const q = at(x), top = q.zc + q.aT; let bot = Math.max(q.zc - q.aB, q.zb);
+    for (const g of gears) if (g.inBody && x >= g.x0 - 0.004 && x <= g.x1 + 0.004) bot = Math.max(bot, g.z1 + 0.004);
+    const zm = (top + bot) / 2;
+    return { top, bot, zm, hw: bldHalfW(f, q, zm), q };
+  };
+  // where a container fits over its length starting at x (its floor and roof), or null: 0.1 m clear
+  // all round, 0.15 m at each end
+  const containerFit = (x, c, gears) => {
+    const lb = (c.len + 0.3) / L, cl = 0.1 / L; let bot = -Infinity, top = Infinity;
+    for (let i = 0; i <= 12; i++) { const h = hullAt(x + (lb * i) / 12, gears); bot = Math.max(bot, h.bot); top = Math.min(top, h.top); }
+    // the lowest floor that fits: on a round section the floor rises until the corners clear
+    for (let z0 = bot + cl; z0 + c.h / L + cl <= top + 1e-9; z0 += 0.05 / L) {
+      const z1 = z0 + c.h / L;
+      let ok = true;
+      for (let i = 0; i <= 12 && ok; i++) { const q = at(x + (lb * i) / 12); ok = Math.min(bldHalfW(f, q, z0 - cl), bldHalfW(f, q, z1 + cl)) >= c.w / 2 / L + cl; }
+      if (ok) return { z0, z1 };
+    }
+    return null;
+  };
+  // the largest circle at x, on the centreline (n = 1) or two side by side (n = 2)
+  const rAt = (x, n, gears) => { const h = hullAt(x, gears); return Math.max(0, 0.9 * Math.min((h.top - h.bot) / 2, n === 2 ? h.hw / 2 : h.hw)); };
+  const capV = (r, l) => Math.PI * r * r * Math.max(l - 2 * r, 0) + (4 / 3) * Math.PI * r ** 3;   // m, m → m³
+  const stack = (gears) => {
+    const items = [];
+    for (const k of order) {
+      if (k === "cab" && I.cab > 0) items.push({ k, name: "Cabin", m: 0, len: I.cab });
+      if (k === "fu" && mFu > 0) items.push({ k, name: "Fuel tank", m: mFu / nF, V: (1.03 * mFu) / P.fu / nF });
+      if (k === "ox" && mOx > 0) items.push({ k, name: "Oxidiser tank", m: mOx / nO, V: (1.03 * mOx) / P.ox / nO });
+      if (k === "pay" && (I.pay > 0 || I.payLen > 0 || (I.cont && I.cont !== "bay"))) items.push({ k, name: "Payload bay", m: I.pay * 1000, len: I.payLen });
+    }
+    let x = x0;
+    for (const it of items) {
+      it.x0 = x;
+      if (it.k === "pay" && I.cont !== "bay") {
+        // an ISO container standing on the bay floor, when the hull is deep and wide enough for it
+        const want = I.cont === "40" ? ["40"] : I.cont === "20" ? ["20"] : ["40", "20"];
+        for (const c of want) {
+          const z = containerFit(x, CONTAINER[c], gears), lb = (CONTAINER[c].len + 0.3) / L;
+          if (want.length === 1 || (z && x + lb <= xEnd)) { Object.assign(it, { cont: c, fits: !!z, len: lb, name: `${c} ft container` }); break; }
+        }
+      }
+      if (it.len) { x += it.len; it.x1 = x; }
+      else {
+        const dx = 0.002, opts = [];
+        for (const n of [1, 2]) {   // capsules: grow the length until the volume fits at the narrowest radius
+          let l = 0, r = Infinity;
+          while (l < 1.5) { l += dx; r = Math.min(r, rAt(x + l, n, gears)); if (r > 0 && n * capV(r * L, Math.max(l, 2 * r) * L) >= it.V) break; }
+          const rs = Math.cbrt((3 * it.V) / (4 * Math.PI * n)) / L;   // a sphere is enough: shrink to it
+          if (rs <= r && l <= 2 * r + dx) { r = rs; l = 2 * rs; }
+          r = Math.min(r, l / 2);
+          opts.push({ shape: n === 2 ? "twin" : "capsule", l: Math.max(l, 2 * r), r, cost: Math.max(l, 2 * r) });
+        }
+        let l = 0, v = 0;   // integral: 80 % of the (gear-free) section
+        while (v < it.V && l < 1.5) { const h = hullAt(x + l, gears); v += 0.8 * (sec(x + l) * (h.top - h.bot) / Math.max(h.q.aT + h.q.zc - Math.max(h.q.zc - h.q.aB, h.q.zb), 1e-9)) * dx * L; l += dx; }
+        // an integral tank is at least 0.6 of its height long (it is closed by domes), so a small volume
+        // does not become a sliver across the whole section
+        const hgt = hullAt(x, gears).top - hullAt(x, gears).bot, li = Math.max(l, 0.6 * hgt);
+        opts.push({ shape: "integral", l: li, cost: li * 1.2 });
+        const pick = I.tank && I.tank !== "auto" ? opts.find((o) => o.shape === I.tank) || opts[0] : opts.reduce((a, o) => (o.cost < a.cost ? o : a));
+        Object.assign(it, { shape: pick.shape, r: pick.r }); x += pick.l; it.x1 = x;
+      }
+      it.xc = (it.x0 + it.x1) / 2; x += 0.005;
+    }
+    return { items, over: Math.max(0, x - 0.005 - xEnd) };
+  };
+  // the box over [a, b] that fits the hull (above any gear bay), as wide as the hull at its top and bottom
+  const boxOf = (a, b, frac, gears) => {
     let top = Infinity, bot = -Infinity;
-    for (let i = 0; i <= 8; i++) { const q = at(a + ((b - a) * i) / 8); top = Math.min(top, q.zc + q.aT); bot = Math.max(bot, Math.max(q.zc - q.aB, q.zb)); }
+    for (let i = 0; i <= 8; i++) { const h = hullAt(a + ((b - a) * i) / 8, gears); top = Math.min(top, h.top); bot = Math.max(bot, h.bot); }
     const zc = (top + bot) / 2, hh = Math.max(0, (top - bot) / 2) * frac, z0 = zc - hh, z1 = zc + hh;
-    // the section narrows towards its top and bottom: the box is as wide as the hull at both
     let hw = Infinity;
     for (let i = 0; i <= 8; i++) { const q = at(a + ((b - a) * i) / 8); hw = Math.min(hw, bldHalfW(f, q, z0), bldHalfW(f, q, z1)); }
-    hw = Math.max(0, hw) * 0.97;
-    return { y0: -hw, y1: hw, z0, z1 };
+    return { y0: -Math.max(0, hw) * 0.97, y1: Math.max(0, hw) * 0.97, z0, z1 };
   };
-  const boxes = items.map((it) => ({ k: it.k, name: it.name, x0: it.x0, x1: it.x1, ...boxOf(Math.min(it.x0, 1), Math.min(it.x1, 1)) }));
-  if (engBay) boxes.push({ k: "eng", name: "Engine bay", x0: 1 - engBay, x1: 0.99, ...boxOf(1 - engBay, 0.99, 0.85) });
   // areas from the components: fuselage by perimeter integration, wing and fins both faces
   let Sf = 0, xSf = 0;
   for (let i = 0; i < N; i++) { const xx = (i + 0.5) / N, per = bldPerim(f, at(xx)); Sf += per / N; xSf += (per * xx) / N; }
@@ -4819,34 +4879,88 @@ function bldMass(d) {
   const Sfin = (nf * t.h * (t.cr + t.taper * t.cr)) / 2 + (t.type === "conv" || t.type === "cruci" ? t.hs * t.cr * (1 + t.taper) : 0);
   const Snac = d.nac.on ? 2 * 2 * Math.PI * d.nac.r * d.nac.len : 0, Sc = d.canard.on ? d.canard.b * d.canard.cr * 1.3 : 0;
   const Swet = (Sf + 4 * Sw1 + 2 * Sst + 2 * Sfin + 2 * Sc + Snac) * L * L;      // m²
-  let Sbody = 0; for (let i = 0; i < N; i++) Sbody += (2 * at((i + 0.5) / N).b) / N;
+  let Sbody = 0, xSb = 0; for (let i = 0; i < N; i++) { const bw = (2 * at((i + 0.5) / N).b) / N; Sbody += bw; xSb += bw * (i + 0.5) / N; }
   const Splan = (2 * Sw1 + 2 * Sst + 2 * Sc + Sbody) * L * L;
+  // centre of the planform: where Newtonian lift acts at high angle of attack, so the balance point
+  // has to sit ahead of it (a static margin) for the vehicle to be stable on entry
+  const tp_ = tailplaneSpec(d, S), Stp = tp_ ? t.hs * t.cr * (1 + t.taper) / 2 : 0;
+  const xPlan = (xSb + 2 * Sw1 * xw + 2 * Sst * (sp ? (sp[0][0] + 2 * sp[2][0]) / 3 : 0) + 2 * Sc * (d.canard.x + d.canard.cr / 2) + 2 * Stp * (t.x - t.cr / 2)) / Math.max(Sbody + 2 * Sw1 + 2 * Sst + 2 * Sc + 2 * Stp, 1e-9);
+  const xTarget = xPlan - (I.margin ?? 0.02);
   const xA = (xSf + 4 * Sw1 * xw + 2 * Sst * (w.x - 0.05) + 2 * Sfin * (t.x - t.cr / 2) + 2 * Sc * d.canard.x) / Math.max(Sf + 4 * Sw1 + 2 * Sst + 2 * Sfin + 2 * Sc, 1e-9);
-  const tankV = items.filter((i) => i.V).reduce((a, i) => a + i.V, 0);
-  const M = [
-    ["Structure", I.ks * Swet, xA],
-    ["Heat shield", Swet * (0.5 * 10 + 0.5 * 4), xA],
-    ["Tanks", tankV * P.tank, items.filter((i) => i.V).reduce((a, i) => a + i.V * i.xc, 0) / Math.max(tankV, 1e-9) || 0.5],
-    ["Engines", nE * E.mass, d.nac.on ? d.nac.x + 0.6 * d.nac.len : 1 - engBay / 2],
-    ["RCS", d.rcs.on ? 3 * d.rcs.n * (2 + d.rcs.F / 500) : 0, 0.5],
-    ["Other: systems, gear, crew", I.other * 1000, 0.5],
-  ];
-  const dry = M.reduce((a, m) => a + m[1], 0), xDry = M.reduce((a, m) => a + m[1] * m[2], 0) / Math.max(dry, 1);
-  const pay = items.find((i) => i.k === "pay"), mp = I.mp * 1000, xPay = pay ? pay.xc : 0.5;
-  const propX = items.filter((i) => i.V).reduce((a, i) => a + i.m * i.xc, 0) / Math.max(mp, 1e-9) || 0.5;
-  const resid = 0.01 * mp, land = dry + I.pay * 1000 + resid, gross = dry + I.pay * 1000 + mp;
-  const cgLand = (dry * xDry + I.pay * 1000 * xPay + resid * propX) / land, cgGross = (dry * xDry + I.pay * 1000 * xPay + mp * propX) / gross;
-  // gear bays: mains just behind the landing balance point, outboard and low; nose gear under the cabin
-  const gearBox = (xa, xb, depth, ys, name, pair) => {
-    let low = -Infinity, hw = Infinity;
-    for (let i = 0; i <= 4; i++) { const q = at(xa + ((xb - xa) * i) / 4); low = Math.max(low, Math.max(q.zc - q.aB, q.zb)); }
-    const z0 = low + 0.004, z1 = z0 + depth;
-    for (let i = 0; i <= 4; i++) { const q = at(xa + ((xb - xa) * i) / 4); hw = Math.min(hw, bldHalfW(f, q, z0), bldHalfW(f, q, z1)); }
-    boxes.push({ k: "gear", name, x0: xa, x1: xb, y0: ys[0] * hw, y1: ys[1] * hw, z0, z1, pair });
+  // the gear: a bay about one tyre-and-strut deep, scaled on landing mass (Shuttle main: about 1.2 m)
+  const gearFor = (cg, land) => {
+    const D_ = (0.25 * Math.cbrt(Math.max(land, 100) / 1000)) / L, xa = cg + 0.02, xb = xa + 2.2 * D_, out = [];
+    const xq = (xa + xb) / 2;
+    // wing root: deep enough over the bay, and the bay under the wing there
+    if (w.on && xa >= wp[0][0] && xb <= wp[3][0]) {
+      const c = wp[3][0] - wp[0][0], u = (xq - wp[0][0]) / c, th = 2 * 5 * w.tc * c * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1036 * u ** 4);
+      if (th >= 0.9 * D_) { const zw = w.z * f.rf, y0 = Math.max(yr, bldHalfW(f, at(xq), zw)) + 0.003; const zg = zw + Math.max(0, y0 + 0.4 * D_ - yr) * Math.tan(w.dih * D); out.push({ k: "gear", name: "Main gear bays", x0: xa, x1: xb, y0, y1: y0 + 0.8 * D_, z0: zg - th * 0.38, z1: zg + th * 0.38, pair: true, inBody: false }); }
+    }
+    if (!out.length) {
+      let low = -Infinity, hw = Infinity; for (let i = 0; i <= 4; i++) { const q = at(xa + ((xb - xa) * i) / 4); low = Math.max(low, Math.max(q.zc - q.aB, q.zb)); }
+      const z0 = low + 0.004, z1 = z0 + D_; for (let i = 0; i <= 4; i++) { const q = at(xa + ((xb - xa) * i) / 4); hw = Math.min(hw, bldHalfW(f, q, z0), bldHalfW(f, q, z1)); }
+      out.push({ k: "gear", name: "Main gear bays", x0: xa, x1: xb, y0: Math.max(0.15 * hw, 0.9 * hw - 0.8 * D_), y1: 0.9 * hw, z0, z1, pair: true, inBody: true });
+    }
+    let low = -Infinity, hw = Infinity; const na = x0, nb = x0 + 1.8 * D_ * 0.8;
+    for (let i = 0; i <= 4; i++) { const q = at(na + ((nb - na) * i) / 4); low = Math.max(low, Math.max(q.zc - q.aB, q.zb)); }
+    const nz0 = low + 0.004, nz1 = nz0 + 0.8 * D_; for (let i = 0; i <= 4; i++) { const q = at(na + ((nb - na) * i) / 4); hw = Math.min(hw, bldHalfW(f, q, nz0), bldHalfW(f, q, nz1)); }
+    out.push({ k: "gear", name: "Nose gear bay", x0: na, x1: nb, y0: -Math.min(0.4 * D_, 0.9 * hw), y1: Math.min(0.4 * D_, 0.9 * hw), z0: nz0, z1: nz1, pair: false, inBody: true });
+    return out;
   };
-  const gq = at(cgLand + 0.06), nq = at(x0 + 0.03);
-  gearBox(cgLand + 0.02, cgLand + 0.09, Math.min(0.45 * gq.aB, 0.04), [0.3, 0.9], "Main gear bays", true);
-  gearBox(x0, x0 + 0.05, Math.min(0.45 * nq.aB, 0.03), [-0.4, 0.4], "Nose gear bay", false);
+  // masses: structure and heat shield over the wetted area; tanks by volume; engines aft; the gear at its
+  // bays (3.5 % of landing mass, as flown designs carry); systems and crew 40 % at the cabin (or the nose
+  // section) and 60 % spread by body volume
+  const massOf = (items, gears) => {
+    const tankV = items.filter((i) => i.V).reduce((a, i) => a + i.V, 0), cab = items.find((i) => i.k === "cab");
+    const M0 = [
+      ["Structure", I.ks * Swet, xA],
+      ["Heat shield", Swet * (0.5 * 10 + 0.5 * 4), xA],
+      ["Tanks", tankV * P.tank, items.filter((i) => i.V).reduce((a, i) => a + i.V * i.xc, 0) / Math.max(tankV, 1e-9) || 0.5],
+      ["Engines", nE * E.mass, d.nac.on ? d.nac.x + 0.6 * d.nac.len : 1 - engBay / 2],
+      ["RCS", d.rcs.on ? 3 * d.rcs.n * (2 + d.rcs.F / 500) : 0, 0.5],
+    ];
+    const dry0 = M0.reduce((a, m) => a + m[1], 0) + I.other * 1000, mGear = Math.min(I.other * 1000, 0.035 * (dry0 + I.pay * 1000));
+    const main = gears.find((g) => g.name.startsWith("Main")), nose = gears.find((g) => g.name.startsWith("Nose"));
+    const xG = main && nose ? 0.85 * (main.x0 + main.x1) / 2 + 0.15 * (nose.x0 + nose.x1) / 2 : 0.55;
+    // systems and crew (avionics, power, hydraulics, life support, OMS) go where the designer puts them,
+    // which is wherever balances the vehicle: their centre is solved for the landing balance point to sit
+    // the static margin ahead of the planform centre, within the usable length. What that cannot reach
+    // is ballast, at the nose or the tail.
+    const pay = items.find((i) => i.k === "pay"), mp = I.mp * 1000, mPay = I.pay * 1000, xPay = pay ? pay.xc : 0.5;
+    const propX = items.filter((i) => i.V).reduce((a, i) => a + i.m * i.xc, 0) / Math.max(mp, 1e-9) || 0.5, resid = 0.01 * mp;
+    const mSys = I.other * 1000 - mGear, fixed = [...M0, ["Landing gear", mGear, xG]];
+    const mFix = fixed.reduce((a, m) => a + m[1], 0) + mPay + resid, momFix = fixed.reduce((a, m) => a + m[1] * m[2], 0) + mPay * xPay + resid * propX;
+    const lo = x0 + 0.02, hi = xEnd, need = mSys > 0 ? (xTarget * (mFix + mSys) - momFix) / mSys : xTarget;
+    const xSys = Math.min(hi, Math.max(lo, need));
+    const m0 = mFix + Math.max(mSys, 0), mom0 = momFix + Math.max(mSys, 0) * xSys, cg0 = mom0 / m0;
+    // ahead of the target is only more stable; behind it, ballast in the nose brings it forward
+    const xBal = x0, ballast = cg0 > xTarget + 1e-4 ? (mom0 - xTarget * m0) / (xTarget - x0) : 0;
+    const M = [...fixed, ["Systems and crew", mSys, xSys], ...(ballast > 1 ? [["Ballast", ballast, xBal]] : [])];
+    const dry = M.reduce((a, m) => a + m[1], 0), xDry = M.reduce((a, m) => a + m[1] * m[2], 0) / Math.max(dry, 1);
+    const land = dry + mPay + resid, gross = dry + mPay + mp;
+    return { M, dry, land, gross, mp, tankV, ballast, xBal, cgLand: (dry * xDry + mPay * xPay + resid * propX) / land, cgGross: (dry * xDry + mPay * xPay + mp * propX) / gross };
+  };
+  let st0 = stack([]), ms = massOf(st0.items, gearFor(0.6, 0)), gears = gearFor(ms.cgLand, ms.land);
+  for (let k = 0; k < 2; k++) { st0 = stack(gears); ms = massOf(st0.items, gears); gears = gearFor(ms.cgLand, ms.land); }
+  st0 = stack(gears); ms = massOf(st0.items, gears);
+  const { items, over } = st0;
+  const boxes = items.map((it) => {
+    if (it.shape === "capsule" || it.shape === "twin") {
+      let top = Infinity, bot = -Infinity, hw = Infinity;   // centred between the lowest top and highest floor along it
+      for (let i = 0; i <= 8; i++) { const h = hullAt(it.x0 + ((it.x1 - it.x0) * i) / 8, gears); top = Math.min(top, h.top); bot = Math.max(bot, h.bot); hw = Math.min(hw, h.hw); }
+      const zc = top - bot >= 2 * it.r ? (top + bot) / 2 : bot + it.r;
+      const yc = it.shape === "twin" ? Math.max(it.r, hw / 2) : 0;
+      return { k: it.k, name: it.name, x0: it.x0, x1: it.x1, shape: "cylinder", r: it.r, y0: yc - it.r, y1: yc + it.r, z0: zc - it.r, z1: zc + it.r, pair: it.shape === "twin" };
+    }
+    if (it.cont) {
+      const c = CONTAINER[it.cont], z = containerFit(it.x0, c, gears) || { z0: hullAt(it.xc, gears).bot + 0.1 / L, z1: hullAt(it.xc, gears).bot + (0.1 + c.h) / L };
+      return { k: it.k, name: it.name, x0: it.x0 + 0.15 / L, x1: it.x0 + (0.15 + c.len) / L, shape: "box", y0: -c.w / 2 / L, y1: c.w / 2 / L, z0: z.z0, z1: z.z1, container: it.cont, fits: it.fits };
+    }
+    return { k: it.k, name: it.name, x0: it.x0, x1: it.x1, shape: "box", ...boxOf(Math.min(it.x0, 1), Math.min(it.x1, 1), it.k === "pay" ? 0.8 : 0.85, gears) };
+  });
+  if (engBay) boxes.push({ k: "eng", name: "Engine bay", x0: 1 - engBay, x1: 0.99, shape: "box", ...boxOf(1 - engBay, 0.99, 0.85, gears) });
+  for (const g of gears) { const { inBody, ...b } = g; boxes.push({ ...b, shape: "box" }); }
+  const { M, dry, land, gross, mp, tankV, cgLand, cgGross, ballast } = ms;
   // RCS: a forward cluster in the nose and a pod either side at the tail. Control authority from the
   // thrusters firing in each axis (a quarter of each cluster per direction) about the landing balance
   // point, against pitch, yaw and roll inertia estimated from the mass layout.
@@ -4861,7 +4975,7 @@ function bldMass(d) {
     const t90 = (a) => 2 * Math.sqrt((Math.PI / 2) / Math.max(a, 1e-9));   // bang-bang quarter turn
     rcs = { pts: [[xf, 0, qf.zc], [xa, ya, qa.zc], [xa, -ya, qa.zc]], acc, t90: { pitch: t90(acc.pitch), yaw: t90(acc.yaw), roll: t90(acc.roll) } };
   }
-  return { M, items, boxes, dry, gross, land, mp, Swet, Splan, over, Vavail, tankV, xEnd, x0, cgLand, cgGross, P, engBay, E, rcs };
+  return { M, items, boxes, dry, gross, land, mp, Swet, Splan, over, Vavail, tankV, xEnd, x0, cgLand, cgGross, P, engBay, E, rcs, xPlan, xTarget, ballast };
 }
 
 // Tank and bay placement: try every order of the items (the cabin stays at the front) and with each
@@ -5103,6 +5217,7 @@ function buildBuilderUI() {
   });
   $("#btnBldCad").addEventListener("click", () => saveFile(`${(BLD.name || "spaceplane").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.design.json`, JSON.stringify(cadPackage(BLD), null, 1)));
   $("#bldProp").addEventListener("change", (e) => { BLD.int.prop = e.target.value; bldEdited(); });
+  $("#bldCont").addEventListener("change", (e) => { BLD.int.cont = e.target.value; bldEdited(); });
   document.querySelectorAll("#bldInt input[data-i]").forEach((x) => x.addEventListener("change", () => {
     BLD.int[x.dataset.i] = x.type === "text" ? x.value.replace(/\s/g, "") : Math.max(0, +x.value || 0); bldEdited();
   }));
@@ -5145,7 +5260,7 @@ function bldFields() {
   document.querySelectorAll("#livPal input[data-m]").forEach((x) => { x.value = BLD.paint.colors[+x.dataset.m]; });
   $("#livBelly").checked = !!BLD.paint.belly;
   $("#bldEngType").value = BLD.eng.type; $("#bldEngProp").value = BLD.eng.prop;
-  $("#bldTail").value = BLD.tail.type; $("#bldProp").value = BLD.int.prop; $("#bldL").value = BLD.L; $("#bldName").value = BLD.name;
+  $("#bldTail").value = BLD.tail.type; $("#bldProp").value = BLD.int.prop; $("#bldCont").value = BLD.int.cont || "auto"; $("#bldL").value = BLD.L; $("#bldName").value = BLD.name;
 }
 // The hand-off to the CAD stage: the design record (the source of truth), what the tunnel derived from
 // it (stations, planform corners, boxes, engines, mass), and what the analysis found, in one file the
@@ -5175,7 +5290,7 @@ function cadPackage(d) {
         return { x: n.x * L, y: y * L, z: z * L, length: n.len * L, radius: n.r * L, mirrored: true }; })() : null,
       engines: NZ.pts.map(([y, z]) => ({ y: y * L, z: z * L, exitRadius: NZ.re * L, throatRadius: NZ.rt * L, bellLength: NZ.bell * L, type: d.eng.type })),
       enginePerformance: d.eng.n > 0 ? { chemistry: engChem(d).name, seaLevel: { thrustN: M.E.sl.F, isp: M.E.sl.Isp }, vacuum: { thrustN: M.E.vac.F, isp: M.E.vac.Isp }, massKg: M.E.mass } : null,
-      boxes: M.boxes.map((b) => ({ name: b.name, kind: b.k, x: [b.x0 * L, b.x1 * L], y: [b.y0 * L, b.y1 * L], z: [b.z0 * L, b.z1 * L], mirrored: !!b.pair })),
+      boxes: M.boxes.map((b) => ({ name: b.name, kind: b.k, shape: b.shape || "box", ...(b.shape === "cylinder" ? { radius: b.r * L, axis: "x", ends: "hemispherical" } : {}), x: [b.x0 * L, b.x1 * L], y: [b.y0 * L, b.y1 * L], z: [b.z0 * L, b.z1 * L], mirrored: !!b.pair })),
       rcs: M.rcs ? { clusters: M.rcs.pts.map(([x, y, z]) => [x * L, y * L, z * L]), thrusterN: d.rcs.F, perCluster: d.rcs.n, quarterTurnS: M.rcs.t90 } : null,
       mass: { grossKg: M.gross, dryKg: M.dry, landingKg: M.land, propellantKg: M.mp, breakdown: Object.fromEntries(M.M.map(([k, v]) => [k, v])), balanceFull: M.cgGross * L, balanceLanding: M.cgLand * L },
       areas: { wettedM2: M.Swet, planformM2: M.Splan }, volumes: { usableM3: M.Vavail, tanksM3: M.tankV, overrunM: M.over * L },
@@ -5302,10 +5417,12 @@ function bldDraw() {
     const a = Math.atan2(y1 - y0, x1 - x0); arrow(x1, y1, a); arrow(x0, y0, a + Math.PI); label(s, (x0 + x1) / 2, (y0 + y1) / 2, "center", ink);
   };
   const ext = (x0, y0, x1, y1) => { g.strokeStyle = mute; g.lineWidth = 0.6; g.globalAlpha = 0.7; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); g.globalAlpha = 1; };
-  const hatch = (x, y, bw, bh, col) => {
-    g.save(); g.beginPath(); g.rect(x, y, bw, bh); g.clip(); g.fillStyle = bg; g.fill();
+  // tanks are capsules: the outline rounds to the tank radius
+  const hatch = (x, y, bw, bh, col, rr = 0) => {
+    const shape = () => { g.beginPath(); if (rr > 0) g.roundRect(x, y, bw, bh, Math.min(rr, bw / 2, bh / 2)); else g.rect(x, y, bw, bh); };
+    g.save(); shape(); g.clip(); g.fillStyle = bg; g.fill();
     g.strokeStyle = col; g.lineWidth = 0.8; g.beginPath(); for (let k = -bh; k < bw; k += 5) { g.moveTo(x + k, y + bh); g.lineTo(x + k + bh, y); } g.stroke();
-    g.restore(); g.strokeStyle = col; g.lineWidth = 1; g.strokeRect(x, y, bw, bh);
+    g.restore(); g.strokeStyle = col; g.lineWidth = 1; shape(); g.stroke();
   };
   const cgMark = (x, y, col) => { const r = 5; g.fillStyle = bg; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.strokeStyle = col; g.lineWidth = 1.2; g.stroke(); g.fillStyle = col; for (const a of [0, Math.PI]) { g.beginPath(); g.moveTo(x, y); g.arc(x, y, r, a, a + Math.PI / 2); g.closePath(); g.fill(); } };
   const m_ = (v) => `${(v * Lm).toFixed(v * Lm < 10 ? 2 : 1)} m`;
@@ -5322,9 +5439,10 @@ function bldDraw() {
   const lab = [];
   for (const b of m.boxes) {
     const col = BOXCOL[b.k] || mute, x0 = Math.min(b.x0, 1.05), x1 = Math.min(b.x1, 1.05), bw = (x1 - x0) * sc;
-    hatch(X(x0), Ys(b.z1), bw, (b.z1 - b.z0) * sc, col);
-    hatch(X(x0), Yp(b.y1), bw, (b.y1 - b.y0) * sc, col);
-    if (b.pair) hatch(X(x0), Yp(-b.y0), bw, (b.y1 - b.y0) * sc, col);
+    const rr = b.shape === "cylinder" ? b.r * sc : 0;
+    hatch(X(x0), Ys(b.z1), bw, (b.z1 - b.z0) * sc, col, rr);
+    hatch(X(x0), Yp(b.y1), bw, (b.y1 - b.y0) * sc, col, rr);
+    if (b.pair) hatch(X(x0), Yp(-b.y0), bw, (b.y1 - b.y0) * sc, col, rr);
     lab.push({ x: X((x0 + x1) / 2), y: Yp((b.y0 + b.y1) / 2), s: b.name.replace(/ tank$/, "").replace(/ bay$/, ""), col });
   }
   lab.sort((a, b) => a.x - b.x);
@@ -5382,10 +5500,12 @@ function bldInfo() {
     (m.mp ? row("Propellant", `${t(m.mp)} ${BLD.int.prop} · tanks ${m.tankV.toFixed(1)} m³`) : "") +
     row("Usable volume", `${m.Vavail.toFixed(1)} m³` + (m.over > 0 ? ` · <span class="err">does not fit: ${(m.over * Lm).toFixed(2)} m too long</span>` : "")) +
     row("Balance point, full · landing", `${m.cgGross.toFixed(3)} · ${m.cgLand.toFixed(3)} L`) +
+    row("Most aft for stability on entry", `${m.xTarget.toFixed(3)} L`) +
     row("Wetted · planform area", `${m.Swet.toFixed(0)} · ${m.Splan.toFixed(0)} m²`) +
     (BLD.eng.n > 0 ? row(`Engine × ${Math.round(BLD.eng.n)}`, `${(m.E.sl.F / 1000).toFixed(0)} kN, ${m.E.sl.Isp.toFixed(0)} s sea level · ${(m.E.vac.F / 1000).toFixed(0)} kN, ${m.E.vac.Isp.toFixed(0)} s vacuum · exit ${(2 * m.E.reM).toFixed(2)} m · ${(m.E.mass / 1000).toFixed(2)} t`) : "") +
     (m.rcs ? row("RCS, 90° turn", `pitch ${m.rcs.t90.pitch.toFixed(0)} s · yaw ${m.rcs.t90.yaw.toFixed(0)} s · roll ${m.rcs.t90.roll.toFixed(0)} s`) : "") +
-    m.boxes.map((b) => row(b.name, `${(b.x0 * Lm).toFixed(1)}–${(b.x1 * Lm).toFixed(1)} m · ${((b.y1 - b.y0) * Lm).toFixed(1)} × ${((b.z1 - b.z0) * Lm).toFixed(1)} m`)).join("") +
+    m.boxes.filter((b) => b.container).map((b) => (!b.fits ? row(b.name, `<span class="err">does not fit the hull here</span>`) : "") + (BLD.int.pay * 1000 > CONTAINER[b.container].max ? row(b.name, `<span class="err">payload over its ${CONTAINER[b.container].max / 1000} t rating</span>`) : "")).join("") +
+    m.boxes.map((b) => row(b.name, `${(b.x0 * Lm).toFixed(1)}–${(b.x1 * Lm).toFixed(1)} m · ` + (b.shape === "cylinder" ? `${b.pair ? "2 × " : ""}⌀ ${(2 * b.r * Lm).toFixed(2)} m` : `${((b.y1 - b.y0) * Lm).toFixed(1)} × ${((b.z1 - b.z0) * Lm).toFixed(1)} m`))).join("") +
     (wingTip > 1.08 ? row("Wing tip", `<span class="err">${((wingTip - 1) * Lm).toFixed(1)} m behind the tail: less sweep or span</span>`) : "") +
     (BLD.src ? row("Source", BLD.src) : "");
 }
