@@ -1,4 +1,6 @@
+<meta charset="utf-8">
 <title>OSP Virtual Windtunnel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -115,7 +117,7 @@ body[data-mode="build"] .tabs, body[data-mode="build"] #coefBox, body[data-mode=
 .bldGrid > .field { min-width: 0; }
 .bldGrid > .btn, .bldGrid > .chk { grid-column: 1 / -1; white-space: nowrap; justify-self: start; }
 .chart.tall { height: 220px; }
-.bigview { display: none; position: absolute; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); height: calc(100% - 128px); cursor: pointer; }
+.bigview { display: none; position: absolute; z-index: 0; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); height: calc(100% - 128px); cursor: pointer; }
 body[data-mode="build"] .bigview { display: block; }
 body[data-mode="build"] #gpu, body[data-mode="build"] #alt, body[data-mode="build"] #spd, body[data-mode="build"] #envPlot, body[data-mode="build"] #velw, body[data-mode="build"] #probe { display: none !important; }
 .field.grow { flex: 1; }
@@ -183,7 +185,7 @@ body.pclosed .ptoggle svg { transform: rotate(180deg); }
 
 /* Panel */
 .panel {
-  position: absolute; right: 0; top: 0; bottom: 0; width: 372px; transition: transform 0.25s ease;
+  position: absolute; right: 0; top: 0; bottom: 0; width: 372px; transition: transform 0.25s ease; z-index: 3;
   display: flex; flex-direction: column; min-height: 0;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
@@ -322,7 +324,12 @@ body.noEnv #envPlot { display: none; }
 #fatal h2 { font-family: var(--f-display); font-weight: 600; font-size: 22px; margin: 0 0 8px; text-wrap: balance; }
 #fatal p { margin: 0 0 12px; color: var(--muted); white-space: pre-line; overflow-wrap: anywhere; }
 
+/* the BUILD · TEST switch drops under the title when the two would meet */
+@media (max-width: 1180px) { .modes { top: 78px; } body[data-mode="build"] .bigview { top: 118px; height: calc(100% - 150px); } }
 @media (max-width: 760px) {
+  .modes { top: 62px; gap: 18px; left: 50%; } .mode { font-size: 13px; }
+  body[data-mode="build"] .bigview { top: 96px; height: calc(100% - 170px); }
+  .bigview { left: 0; top: 64px; width: 100%; height: calc(48% - 64px); }
   .panel { top: auto; left: 0; right: 0; width: auto; max-height: 52%; }
   body.pclosed .panel { transform: none; pointer-events: auto; }
   .ptoggle { display: none; }
@@ -831,7 +838,11 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               <label class="ctl"><span class="k">C<sub>p</sub> maximum (orange)</span><output id="oCpmax"></output><input type="range" id="cpmax" min="0.2" max="2" step="0.05"></label>
             </div>
           </details>
-          <label class="ctl" title="Lower is faster on slow GPUs"><span class="k">Render resolution</span><output id="oRq"></output><input type="range" id="rq" min="0.3" max="1" step="0.05"></label>
+          <label class="ctl" title="The most the view renders at; Auto lowers it while frames are slow"><span class="k">Render resolution</span><output id="oRq"></output><input type="range" id="rq" min="0.3" max="1" step="0.05"></label>
+          <div class="checks">
+            <label class="chk" title="Lower the resolution while frames take over 40 ms, and raise it back when they are fast"><input type="checkbox" id="rqAuto">Auto resolution</label>
+            <label class="chk" title="For phones, tablets and slow PCs: coarse grid, half resolution, longer render steps, heating from the solver's cells. Reloads the page."><input type="checkbox" id="liteMode">Lite mode</label>
+          </div>
         </section>
 
         <section class="pane" data-pane="loads" hidden>
@@ -2661,6 +2672,7 @@ fn sliceColor(p: vec3f) -> vec4f {
   let showS = (C.mode & 2u) != 0u;
   let showP = (C.mode & 4u) != 0u;
   let showK = (C.mode & 8u) != 0u;
+  let lite = (C.mode & 16u) != 0u;   // Lite: surface heating from the solver's cells, not per pixel
   var tPl = -1.0;
   if (showP) {
     let ra = rd[C.sliceAxis];
@@ -2706,7 +2718,7 @@ fn sliceColor(p: vec3f) -> vec4f {
       // read surface quantities just outside the wall, where the field is smooth
       var hs = textureSampleLevel(surfT, smp, (ph + gN * 0.3) / C.dims, 0.0);
       // heating maps and glow use the per-pixel evaluation when the high-speed analysis is ready
-      if (HT.g2.y > 0.5 && (C.surfMode == 1u || C.surfMode == 2u || C.surfMode == 4u || C.glow > 0.5)) {
+      if (!lite && HT.g2.y > 0.5 && (C.surfMode == 1u || C.surfMode == 2u || C.surfMode == 4u || C.glow > 0.5)) {
         let px = pixHeat(ph, gN, textureSampleLevel(fieldT, smp, (ph + gN * 1.5) / C.dims, 0.0));
         hs.a = px.y;
         if (C.surfMode == 4u) { hs.g = px.z; hs.b = px.w; } else { hs.g = px.x; }
@@ -3050,13 +3062,24 @@ const BYTES_PER_CELL = 38 * 2 + 4 + 16 + 4 + 8 + 4 + 8 + 4 + 8; // pops×2 (or E
 
 // ─────────────────────────── State ───────────────────────────
 const MOBILE = matchMedia("(pointer: coarse)").matches;
+// Lite: for phones, tablets and slow PCs. ?lite=1 or ?lite=0 in the address forces it, then a choice
+// saved from Display, else on for touch devices and machines with 4 or fewer cores or 4 GB or less.
+// It starts on the coarse grid at half resolution with longer render steps, and reads surface heating
+// from the solver's cells instead of working it out per pixel.
+const LITE = (() => {
+  const q = new URLSearchParams(location.search).get("lite");
+  if (q === "1" || q === "0") return q === "1";
+  try { const v = localStorage.getItem("vwt.lite"); if (v === "1" || v === "0") return v === "1"; } catch (e) { /* storage blocked */ }
+  return MOBILE || (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4;
+})();
+if (LITE) document.documentElement.classList.add("lite");
 const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
-  grid: MOBILE ? "low" : "med",
-  re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: MOBILE ? 2 : 6,
+  grid: LITE ? "low" : "med",
+  re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
   lV: true, lS: true, lP: false, qthr: 0.9, vop: 0.6, vcol: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
-  rq: MOBILE ? 0.5 : 0.75, avg: false, showMean: false, refA: "plan",
+  rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
   orient: [0, 0, 0], glow: false, gexp: 0, roll: 0, flyRate: 40, manT: 12,
   regime: "lbm", sq: 0, euler: true, eM: 0, lK: true, kthr: 0.15,
@@ -3120,6 +3143,17 @@ function fatal(title, text) {
   $("#hlReg").textContent = "Stopped";
 }
 
+// Without WebGPU the Build screen still works (it is all 2D), so the message offers it, and Test brings
+// the message back.
+let NO_GPU = false;
+function noGpu(title, text) {
+  NO_GPU = true;
+  fatal(title, text);
+  const box = $("#fatalBtns"); box.textContent = "";
+  const b = document.createElement("button"); b.className = "btn primary"; b.textContent = "Open Build";
+  b.addEventListener("click", () => { $("#fatal").hidden = true; setMode("build"); });
+  box.appendChild(b);
+}
 function makeLayout(kinds, vis = GPUShaderStage.COMPUTE) {
   return dev.createBindGroupLayout({ entries: kinds.map((k, i) => {
     const e = { binding: i, visibility: vis };
@@ -3151,11 +3185,11 @@ let lostCount = 0, devGen = 0;
 async function startGPU() {
   const gen = ++devGen;
   if (!navigator.gpu) {
-    fatal("WebGPU is not available here", "Open this page in Chrome or Edge 113+, Chrome 121+ on Android, Safari 26+, or Firefox 141+ on Windows. In-app browsers often leave WebGPU switched off, so use the full browser.");
+    noGpu("Test needs WebGPU", "Building works here. To fly the design, open this page in Chrome or Edge 113+, Chrome 121+ on Android, Safari 26+, or Firefox 141+ on Windows. In-app browsers often leave WebGPU switched off, so use the full browser.");
     return;
   }
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
-  if (!adapter) { fatal("No GPU adapter", "The browser exposes WebGPU but found no usable GPU. Check that hardware acceleration is on."); return false; }
+  if (!adapter) { noGpu("No GPU adapter", "Building works here. To fly the design, the browser needs a usable GPU: check that hardware acceleration is on."); return false; }
   const L = adapter.limits;
   dev = await adapter.requestDevice({ requiredLimits: {
     maxStorageBufferBindingSize: L.maxStorageBufferBindingSize,
@@ -3529,9 +3563,9 @@ function writeCam(aspect) {
   camF[20] = st.spos * R.dims[st.sax];
   const hyp = st.regime === "hyp";
   const ef = hyp && st.euler;
-  camU[21] = hyp && !ef ? 2 : (st.lV ? 1 : 0) | (st.lS ? 2 : 0) | (st.lP ? 4 : 0) | (ef && st.lK ? 8 : 0);
+  camU[21] = (hyp && !ef ? 2 : (st.lV ? 1 : 0) | (st.lS ? 2 : 0) | (st.lP ? 4 : 0) | (ef && st.lK ? 8 : 0)) | (LITE ? 16 : 0);
   camU[22] = st.sfield; camU[23] = st.sax;
-  camF[24] = MOBILE ? 1.25 : 1.0; camF[25] = st.vop; camU[26] = st.vcol;
+  camF[24] = LITE ? 1.6 : 1.0; camF[25] = st.vop; camU[26] = st.vcol;
   const sm = surfModeNow();
   camU[27] = sm;
   const rg = surfRange(sm);
@@ -3562,11 +3596,26 @@ const ZERO16 = new Int32Array(16);
 let measureTimer = 0;
 // Loading state: status text, and while a distance field is built live, the sweep front.
 const loadSpin = { on: false, msg: "", watch: false, sweep: -1 };
+// Render resolution on Auto: the frame interval is averaged, and the resolution drops (down to 30 %)
+// when frames take over 40 ms and climbs back towards the set value when they take under 24 ms, so a
+// slow GPU keeps a usable frame rate and a fast one renders at full set resolution.
+const rqGov = { ema: 16, last: 0, t: 0 };
+function governRes(now) {
+  if (rqGov.last) rqGov.ema += 0.1 * (Math.min(now - rqGov.last, 200) - rqGov.ema);
+  rqGov.last = now;
+  if (!st.rqAuto || now - rqGov.t < 1500) return;
+  rqGov.t = now;
+  const was = st.rq;
+  if (rqGov.ema > 40) st.rq = Math.max(0.3, st.rq * 0.85);
+  else if (rqGov.ema < 24 && st.rq < st.rqMax) st.rq = Math.min(st.rqMax, st.rq * 1.08);
+  if (Math.abs(st.rq - was) > 1e-3) { const o = $("#oRq"); if (o) o.textContent = `${Math.round(st.rq * 100)}% auto`; }
+}
 function frame(now) {
   requestAnimationFrame(frame);
   if (!R) return;
   livUpload();
-  if (st.mode === "build") return;   // Build draws the design in 2D; the GPU view and solvers rest
+  if (st.mode === "build") { rqGov.last = 0; return; }   // Build draws the design in 2D; the GPU view and solvers rest
+  governRes(now);
   stepCamera();
   resize();
   if (st.regime === "hyp") { frameHyp(now); return; }
@@ -5155,6 +5204,7 @@ function bldApply(recompile = true) {
 // optimiser. Changes made in Build are analysed when Test opens.
 function setMode(m) {
   if (st.mode === m) return;
+  if (NO_GPU && $("#fatal")) $("#fatal").hidden = m === "build";
   st.mode = m;
   document.body.dataset.mode = m;
   document.querySelectorAll("#modes .mode").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
@@ -5221,7 +5271,7 @@ function bldPick(px, py) {
   const M = BLDUI.map, d = BLD;
   if (!M || !d) return null;
   const inPoly = (P, x, y) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i], [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
-  if (px > M.right) return null;   // the front view and title block
+  if (px > M.right || py > M.bottom) return null;   // the front view
   const x = (px - M.ox) / M.sc, S = bldStations(d.fus), yr = d.wing.on ? wingRootY(d, S) : 0, q = bldSecAt(d.fus, S, x);
   if (py > M.split) {
     const y = Math.abs((M.cy - py) / M.sc);
@@ -5435,7 +5485,7 @@ function bldSilhouette(key, polys, parts, circs = [], circPart = 4) {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
   for (const P of polys) for (const [x, y] of P) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   for (const [x, y, r] of circs) { x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); y0 = Math.min(y0, y - r); y1 = Math.max(y1, y + r); }
-  const pad = 0.02, cell = Math.max(x1 - x0, y1 - y0) / 320; x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  const pad = 0.02, cell = Math.max(x1 - x0, y1 - y0) / (LITE ? 200 : 320); x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
   const nx = Math.ceil((x1 - x0) / cell) + 1, ny = Math.ceil((y1 - y0) / cell) + 1, F = new Float32Array(nx * ny);
   const items = polys.map((P, i) => { let a = Infinity, b = -Infinity, c = Infinity, e = -Infinity; for (const [x, y] of P) { a = Math.min(a, x); b = Math.max(b, x); c = Math.min(c, y); e = Math.max(e, y); } return { P, k: parts[i], bb: [a, b, c, e] }; });
   const sdPoly = (P, px, py) => {
@@ -5560,13 +5610,17 @@ function bldDraw() {
   const PP = bldPolys(d), FR = bldFront(d);
   const halfW = Math.max(f.rf * f.w, d.wing.on ? d.wing.b : 0, d.canard.on ? d.canard.b : 0, ...FR.polys.flat().map(([y]) => Math.abs(y)), 0.02);
   const zs = PP.side.flat().map(([, z]) => z), zHi = Math.max(...zs), zLo = Math.min(...zs);
-  const M0 = 26, sideTop0 = M0 + 18, rw = Math.max(150, Math.min(300, w * 0.27)), lw = w - rw - 3 * M0, xLen = 1.04 + NZ.bell;
-  const sc = Math.max(1, Math.min(lw / xLen, (h - sideTop0 - 56 - 70) / (2 * halfW + (zHi - zLo))));
-  const used = 18 + (zHi - zLo + 2 * halfW) * sc + 56 + 70, ox = M0 + (lw - xLen * sc) / 2, sideTop = M0 + 18 + Math.max(0, (h - 2 * M0 - used) / 2), sideZs = sideTop + zHi * sc, sideBot = sideTop + (zHi - zLo) * sc;
+  // Wide screens: front view in a column beside the side view. Narrow (phones): it goes under the plan.
+  const narrow = w < 640, M0 = narrow ? 12 : 26, sideTop0 = M0 + 18, rw = narrow ? 0 : Math.max(150, Math.min(300, w * 0.27)), lw = w - rw - (narrow ? 2 : 3) * M0, xLen = 1.04 + NZ.bell;
+  const below = narrow ? 70 + 28 + (zHi - zLo) * Math.min(1, (w * 0.5) / (2 * halfW)) + 60 : 70;   // room under the plan
+  const sc = Math.max(1, Math.min(lw / xLen, (h - sideTop0 - 56 - below) / (2 * halfW + (zHi - zLo) * (narrow ? 2 : 1))));
+  const used = 18 + (zHi - zLo + 2 * halfW) * sc + 56 + (narrow ? 70 + 28 + (zHi - zLo) * sc + 60 : 70), ox = M0 + (lw - xLen * sc) / 2, sideTop = M0 + 18 + Math.max(0, (h - 2 * M0 - used) / 2), sideZs = sideTop + zHi * sc, sideBot = sideTop + (zHi - zLo) * sc;
   const planCy = sideBot + 56 + halfW * sc, planBot = planCy + halfW * sc;
   const X = (x) => ox + x * sc, Yp = (y) => planCy - y * sc, Ys = (z) => sideZs - z * sc;
-  const fsc = Math.min(sc, (rw - 30) / (2 * halfW)), fcx = w - M0 - rw / 2, Yf = (y) => fcx + y * fsc, Zf = (z) => sideZs - z * fsc;
-  BLDUI.map = { sc, ox, cy: planCy, zs: sideZs, split: (sideBot + planCy - halfW * sc) / 2, right: ox + xLen * sc + 10 };
+  const fsc = narrow ? Math.min(sc, (w * 0.6) / (2 * halfW)) : Math.min(sc, (rw - 30) / (2 * halfW)), fcx = narrow ? w / 2 : w - M0 - rw / 2;
+  const fZs = narrow ? planBot + 70 + 28 + zHi * fsc : sideZs;
+  const Yf = (y) => fcx + y * fsc, Zf = (z) => fZs - z * fsc;
+  BLDUI.map = { sc, ox, cy: planCy, zs: sideZs, split: (sideBot + planCy - halfW * sc) / 2, right: ox + xLen * sc + 10, bottom: narrow ? planBot + 60 : Infinity };
   const path = (P, X_, Y_) => { g.beginPath(); P.forEach(([a, b], i) => (i ? g.lineTo(X_(a), Y_(b)) : g.moveTo(X_(a), Y_(b)))); g.closePath(); };
   const key = JSON.stringify({ ...d, m: 0, paint: 0, name: 0 });
   // a closed curve through the contour: quadratic segments through the midpoints of its points
@@ -5669,11 +5723,11 @@ function bldDraw() {
   dim(xH, Zf(zLo), xH, Zf(zHi), m_(zHi - zLo));
   // view names, set like the BUILD and TEST switch
   g.font = "700 11px Archivo, system-ui, sans-serif"; if ("letterSpacing" in g) g.letterSpacing = "0.22em";
-  for (const [s, x, y] of [["SIDE", X(0), sideTop - 10], ["PLAN", X(0), Yp(halfW) - 44], ["FRONT", Yf(-halfW), sideTop - 10]]) { g.fillStyle = mute; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(s, x, y); }
+  for (const [s, x, y] of [["SIDE", X(0), sideTop - 10], ["PLAN", X(0), Yp(halfW) - 44], ["FRONT", Yf(-halfW), narrow ? Zf(zHi) - 16 : sideTop - 10]]) { g.fillStyle = mute; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(s, x, y); }
   if ("letterSpacing" in g) g.letterSpacing = "0px";
   // scale bar under the front view: a round number of metres about a sixth of its width
   g.font = "500 11px Archivo, system-ui, sans-serif";
-  const step = [0.5, 1, 2, 5, 10, 20, 50, 100].find((v) => (v / Lm) * sc > rw / 6) || 100, bpx = (step / Lm) * sc, sbX = Yf(-halfW), sbY = yS + 30;
+  const step = [0.5, 1, 2, 5, 10, 20, 50, 100].find((v) => (v / Lm) * sc > (narrow ? w / 2 : rw) / 6) || 100, bpx = (step / Lm) * sc, sbX = Yf(-halfW), sbY = yS + 30;
   for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? bg : ink; g.fillRect(sbX + (i * bpx) / 2, sbY, bpx / 2, 5); } g.strokeStyle = ink; g.lineWidth = 0.8; g.strokeRect(sbX, sbY, 2 * bpx, 5);
   g.fillStyle = mute; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(`${2 * step} m`, sbX + 2 * bpx + 8, sbY + 3);
   if (!pending) { const prev = JSON.stringify(BLDUI.pieces || {}); BLDUI.pieces = pieces; if (prev !== JSON.stringify(pieces)) buildHeadline(); }
@@ -9722,7 +9776,7 @@ function refreshOutputs() {
   $("#oSpos").textContent = (st.spos * 100).toFixed(0) + "%";
   $("#oCpmin").textContent = st.cpmin.toFixed(2);
   $("#oCpmax").textContent = st.cpmax.toFixed(2);
-  $("#oRq").textContent = Math.round(st.rq * 100) + "%";
+  $("#oRq").textContent = Math.round(st.rq * 100) + "%" + (st.rqAuto ? " auto" : "");
   $("#oSpf").textContent = st.spfAuto ? `${Math.round(spfF)} auto` : String(st.spf);
   $("#oBank").textContent = st.ent.bank + "°";
   updateLegend(); updateFlowInfo();
@@ -9775,9 +9829,19 @@ function buildUI() {
       if (k === "aoa" || k === "beta" || k === "roll") { if (fly.on) stopFlying(); if (fly.man) stopManoeuvre(); syncAtt(); }
       if (k === "aoa" || k === "beta" || k === "roll" || k === "size") geoDirty = true;
       if (k === "spf") { st.spfAuto = false; $("#spfAuto").checked = false; }
+      if (k === "rq") st.rqMax = st.rq;
       refreshOutputs();
     });
   }
+  $("#rqAuto").checked = st.rqAuto;
+  $("#rqAuto").addEventListener("change", (e) => { st.rqAuto = e.target.checked; if (!st.rqAuto) st.rq = st.rqMax; refreshOutputs(); });
+  $("#liteMode").checked = LITE;
+  $("#liteMode").addEventListener("change", (e) => {
+    try { localStorage.setItem("vwt.lite", e.target.checked ? "1" : "0"); } catch (err) { /* storage blocked: the address works instead */ }
+    const u = new URL(location.href); u.searchParams.set("lite", e.target.checked ? "1" : "0");
+    toast(e.target.checked ? "Reloading in Lite mode" : "Reloading at full quality");
+    setTimeout(() => location.replace(u.toString()), 400);
+  });
   for (const k of ["les", "spfAuto", "lV", "lS", "lP", "avg", "showMean"]) {
     const el = $("#" + k);
     el.checked = st[k];

@@ -8,6 +8,8 @@ Brought to you with 💖 & determination by [Supernova Labs](https://supernovala
 
 Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent Chrome or Edge; Safari 26+; Firefox with WebGPU enabled). To run locally, serve the folder over HTTP (for example `python3 -m http.server`) and open `http://localhost:8000` — opening `index.html` straight from disk blocks the model file from loading.
 
+**Phones, tablets and slow PCs.** Lite mode starts on the coarse grid at half resolution, takes longer render steps and reads surface heating from the solver's cells instead of per pixel. It switches on by itself for touch devices and machines with 4 or fewer cores or 4 GB or less of memory. Add `?lite=1` or `?lite=0` to the address to force it, or toggle it under Display. Auto resolution, on by default, lowers the render resolution while frames take over 40 ms and restores it when they speed up. Without WebGPU the Build screen still works; Test needs WebGPU.
+
 ## What's inside
 
 - **Solver chain, picked per regime:** lattice-Boltzmann (D3Q19, LES) at low speed; a compressible finite-volume solver (MUSCL + HLLC, ghost-cell immersed boundary) from transonic to hypersonic; modified-Newtonian / free-molecular panel methods with Knudsen-number bridging for rarefied flight.
