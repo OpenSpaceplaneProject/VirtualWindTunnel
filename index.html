@@ -1291,6 +1291,22 @@ fn sdDeltaWing(p: vec3f, sweepDeg: f32, tMax: f32) -> f32 {
   return max(d2, abs(p.z) - ht);
 }
 // Rounded extrusion of a 2D distance d2 (in xy) to half-thickness h with edge radius r.
+// Exact signed distance to a quadrilateral (any four points in order; a repeated point makes a
+// triangle). One polygon, not a union of triangles: a union's inside distance falls to zero along the
+// shared diagonal, which a rounded plate shows as a crease.
+fn sdQuad2(p: vec2f, a: vec2f, b: vec2f, c: vec2f, e: vec2f) -> f32 {
+  var v = array<vec2f, 4>(a, b, c, e);
+  var d = dot(p - a, p - a); var s = 1.0;
+  for (var i = 0u; i < 4u; i++) {
+    let j = (i + 3u) % 4u; let vi = v[i]; let vj = v[j];
+    let ed = vj - vi; let w = p - vi;
+    let bb = w - ed * clamp(dot(w, ed) / max(dot(ed, ed), 1e-12), 0.0, 1.0);
+    d = min(d, dot(bb, bb));
+    let c1 = p.y >= vi.y; let c2 = p.y < vj.y; let c3 = ed.x * w.y > ed.y * w.x;
+    if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) { s = -s; }
+  }
+  return s * sqrt(d);
+}
 fn sdPlate(d2: f32, z: f32, h: f32, r: f32) -> f32 {
   let w = vec2f(d2, abs(z) - h);
   return min(max(w.x, w.y), 0.0) + length(max(w, vec2f(0.0))) - r;
@@ -4699,8 +4715,7 @@ function bldCode(d) {
     for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${f5(x)}, ${f5(r)})`).join(", "));
     return `array<vec2f, 16>(\n${rows.join(",\n")})`; };
   const v2 = (x, y) => `vec2f(${f5(x)}, ${f5(y)})`, v3 = (x, y, z) => `vec3f(${f5(x)}, ${f5(y)}, ${f5(z)})`;
-  const tri = (v, a, b, c) => Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) < 1e-7 ? null : `sdTri2(${v}, ${v2(...a)}, ${v2(...b)}, ${v2(...c)})`;
-  const quad = (v, a, b, c, e) => [tri(v, a, b, e), tri(v, b, c, e)].filter(Boolean);
+  const quad = (v, a, b, c, e) => [`sdQuad2(${v}, ${v2(...a)}, ${v2(...b)}, ${v2(...c)}, ${v2(...e)})`];
   const mins = (xs) => xs.reduce((acc, x) => (acc ? `min(${acc}, ${x})` : x), "");
   // control surface aft of a hinge line h0 → h1 (in the surface's own (x, span) plane), between span
   // stations, rotated by deg: returns [fixed-part cut, moving part] expressions for the surface sdf F(q)
