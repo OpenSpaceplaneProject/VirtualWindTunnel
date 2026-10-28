@@ -112,7 +112,9 @@ body[data-mode="build"] .tabs, body[data-mode="build"] #coefBox, body[data-mode=
 .pane.bldGrid, .bldGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .bldGrid > .field { min-width: 0; }
 .chart.tall { height: 220px; }
-#bldChart { height: 330px; }
+.bigview { display: none; position: absolute; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); height: calc(100% - 128px); cursor: pointer; }
+body[data-mode="build"] .bigview { display: block; }
+body[data-mode="build"] #gpu, body[data-mode="build"] #alt, body[data-mode="build"] #spd, body[data-mode="build"] #envPlot, body[data-mode="build"] #velw, body[data-mode="build"] #probe { display: none !important; }
 .field.grow { flex: 1; }
 .tlRow.stRow { grid-template-columns: repeat(5, minmax(0, 1fr)) 26px; }
 .tlRow.stRow input { padding: 5px 3px; font-size: 11px; }
@@ -455,7 +457,6 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               <label class="field grow"><span class="k">Name</span><input type="text" id="bldName"></label>
               <label class="field"><span class="k">Length, m</span><input type="number" id="bldL" min="0.5" step="0.1"></label>
             </div>
-            <canvas class="chart tall" id="bldChart" aria-label="Plan and side view: hull, tanks, cabin, payload bay, engine and gear bays, balance points"></canvas>
             <div class="chips" id="bldChips" role="tablist" aria-label="Component"></div>
             <label class="field" id="bldTailL"><span class="k">Tail</span><select id="bldTail"></select></label>
             <div class="row2" id="bldEngSel">
@@ -872,6 +873,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
 
     <div class="probe" id="probe" hidden><div class="pdot"></div><div class="ptip mono" id="ptip"></div></div>
 
+    <canvas class="bigview" id="bldChart" aria-label="Plan and side view: hull, tanks, cabin, payload bay, engine and gear bays, balance points. Click a part to edit it."></canvas>
     <canvas id="envPlot" aria-hidden="true"></canvas>
     <div class="alt" id="alt">
       <span class="k altK">Alt</span>
@@ -3517,6 +3519,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   if (!R) return;
   livUpload();
+  if (st.mode === "build") return;   // Build draws the design in 2D; the GPU view and solvers rest
   stepCamera();
   resize();
   if (st.regime === "hyp") { frameHyp(now); return; }
@@ -3588,7 +3591,7 @@ function frame(now) {
   }
 }
 
-window.addEventListener("resize", () => { if (st.regime === "hyp") { drawTraj(); drawTPS(); drawAscent(); } });
+window.addEventListener("resize", () => { if (st.mode === "build") bldDraw(); if (st.regime === "hyp") { drawTraj(); drawTPS(); drawAscent(); } });
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.max(1, Math.round(canvas.clientWidth * dpr * st.rq));
@@ -7976,7 +7979,7 @@ function drawVel() {
   if (!c || !R) return;
   const dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth, h = c.clientHeight;
   if (!w) return;
-  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
   const g = c.getContext("2d");
   g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   const b = camBasis(), cx = w / 2, cy = h / 2, r = w * 0.36, k = Math.max(0.55, w / 104);
@@ -8099,7 +8102,7 @@ function buildStackUI() {
 function setupChart(c) {
   const dpr = Math.min(devicePixelRatio || 1, 2), w = c.clientWidth, h = c.clientHeight;
   if (!w) return null;
-  if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
   const g = c.getContext("2d");
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
