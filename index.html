@@ -113,6 +113,7 @@ body[data-mode="build"] .tabs, body[data-mode="build"] #coefBox, body[data-mode=
 .chart.paint { cursor: crosshair; touch-action: none; }
 .pane.bldGrid, .bldGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .bldGrid > .field { min-width: 0; }
+.bldGrid > .btn, .bldGrid > .chk { grid-column: 1 / -1; white-space: nowrap; justify-self: start; }
 .chart.tall { height: 220px; }
 .bigview { display: none; position: absolute; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); height: calc(100% - 128px); cursor: pointer; }
 body[data-mode="build"] .bigview { display: block; }
@@ -475,7 +476,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
                 <label class="field" title="Nose to tail: cab cabin, pay payload bay, fu fuel, ox oxidiser; repeat a tank to split it"><span class="k">Order</span><input type="text" data-i="order"></label>
                 <label class="field"><span class="k">Cabin, of L</span><input type="number" data-i="cab" min="0" max="0.6" step="0.01"></label>
                 <label class="field"><span class="k">Payload, t</span><input type="number" data-i="pay" min="0" step="any"></label>
-                <label class="field"><span class="k">Payload bay</span><select id="bldCont"><option value="auto">Container if it fits</option><option value="40">40 ft container</option><option value="20">20 ft container</option><option value="bay">Bay length</option></select></label>
+                <label class="field" title="An ISO container when the hull can take one (40 ft, else 20 ft), a set container size, or a bay of the set length"><span class="k">Payload bay</span><select id="bldCont"><option value="auto">Container</option><option value="40">40 ft</option><option value="20">20 ft</option><option value="bay">Set length</option></select></label>
                 <label class="field"><span class="k">Bay length, of L</span><input type="number" data-i="payLen" min="0" max="0.8" step="0.01"></label>
                 <label class="field" title="Airframe mass per m² of wetted area: about 25 for aluminium, 12–18 for composites"><span class="k">Structure, kg/m²</span><input type="number" data-i="ks" min="1" step="1"></label>
                 <label class="field" title="Systems, landing gear, crew, margin"><span class="k">Other, t</span><input type="number" data-i="other" min="0" step="any"></label>
