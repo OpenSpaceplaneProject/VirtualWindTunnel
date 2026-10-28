@@ -80,6 +80,23 @@ body {
 .hlStat { font-size: 10.5px; color: var(--muted); }
 .tlRows { display: flex; flex-direction: column; gap: 8px; }
 .tlRow { display: grid; grid-template-columns: 18px minmax(0, 1.5fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 0.8fr) 26px; gap: 4px; align-items: center; }
+.modes { position: absolute; top: 14px; left: calc((100% - var(--pw, 0px)) / 2); transform: translateX(-50%); display: flex; gap: 28px; z-index: 5; pointer-events: auto; }
+.mode { appearance: none; background: none; border: 0; color: var(--muted); font: inherit; font-size: 15px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; font-variation-settings: "wdth" 125; padding: 6px 2px; cursor: pointer; border-bottom: 2px solid transparent; }
+.mode[aria-pressed="true"] { color: var(--bone, #d6cebd); border-bottom-color: var(--bone, #d6cebd); }
+.mode:hover { color: var(--bone, #d6cebd); }
+body[data-mode="build"] .tabs, body[data-mode="build"] #coefBox, body[data-mode="build"] .legend, body[data-mode="build"] .hlNums, body[data-mode="build"] #btnRun, body[data-mode="build"] #btnReset { display: none !important; }
+.chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.chip { appearance: none; background: none; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font: inherit; font-size: 11px; padding: 6px 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip.off { opacity: 0.5; }
+.chip[aria-selected="true"] { background: var(--bone, #d6cebd); color: #0b0b0c; border-color: var(--bone, #d6cebd); }
+#bldPane details[data-g] > summary { display: none; }
+#bldPane [data-g]:not(.sel):not(.chip) { display: none; }
+.ghead { display: flex; align-items: center; gap: 10px; grid-column: 1 / -1; font-size: 12px; font-weight: 600; }
+.ghead .dice { margin-left: auto; }
+.dname { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
+.sens { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 3px 10px; font-size: 11px; }
+.sens .bar { height: 8px; align-self: center; border-radius: 2px; }
+.sens .sk { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane.bldSl, .bldSl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
 .bldSl > .field { grid-column: 1 / -1; }
 #bldFields summary { display: flex; align-items: center; gap: 6px; list-style: none; }
@@ -95,6 +112,7 @@ body {
 .pane.bldGrid, .bldGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .bldGrid > .field { min-width: 0; }
 .chart.tall { height: 220px; }
+#bldChart { height: 330px; }
 .field.grow { flex: 1; }
 .tlRow.stRow { grid-template-columns: repeat(5, minmax(0, 1fr)) 26px; }
 .tlRow.stRow input { padding: 5px 3px; font-size: 11px; }
@@ -392,6 +410,10 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
     </div>
 
     <button class="ptoggle" id="ptoggle" aria-label="Hide the control panel" aria-expanded="true" aria-controls="panel"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></button>
+    <nav class="modes" id="modes" aria-label="Mode">
+      <button class="mode" data-mode="build" aria-pressed="false">Build</button>
+      <button class="mode" data-mode="test" aria-pressed="true">Test</button>
+    </nav>
     <aside class="panel" id="panel">
       <div class="hl" id="headline" aria-live="off">
         <div class="hlTop">
@@ -423,10 +445,68 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
       </div>
       <div class="sheet" id="sheet">
 
+        <section class="pane" data-pane="build" hidden>
+          <div id="bldPane">
+            <div class="row2">
+              <label class="field grow"><span class="k">Reference</span><select id="bldRef"></select></label>
+              <button class="btn" id="btnBldRand">Randomise</button>
+            </div>
+            <div class="row2">
+              <label class="field grow"><span class="k">Name</span><input type="text" id="bldName"></label>
+              <label class="field"><span class="k">Length, m</span><input type="number" id="bldL" min="0.5" step="0.1"></label>
+            </div>
+            <canvas class="chart tall" id="bldChart" aria-label="Plan and side view: hull, tanks, cabin, payload bay, engine and gear bays, balance points"></canvas>
+            <div class="chips" id="bldChips" role="tablist" aria-label="Component"></div>
+            <label class="field" id="bldTailL"><span class="k">Tail</span><select id="bldTail"></select></label>
+            <div class="row2" id="bldEngSel">
+              <label class="field"><span class="k">Nozzle</span><select id="bldEngType"><option value="bell">Bell</option><option value="aerospike">Aerospike</option></select></label>
+              <label class="field grow"><span class="k">Chemistry</span><select id="bldEngProp"></select></label>
+            </div>
+            <div id="bldFields"></div>
+            <details class="more" id="bldInt" data-g="int">
+              <summary>Inside</summary>
+              <div class="pane bldGrid">
+                <label class="field"><span class="k">Propellant</span><select id="bldProp"></select></label>
+                <label class="field"><span class="k">Propellant, t</span><input type="number" data-i="mp" min="0" step="any"></label>
+                <label class="field" title="Nose to tail: cab cabin, pay payload bay, fu fuel, ox oxidiser; repeat a tank to split it"><span class="k">Order</span><input type="text" data-i="order"></label>
+                <label class="field"><span class="k">Cabin, of L</span><input type="number" data-i="cab" min="0" max="0.6" step="0.01"></label>
+                <label class="field"><span class="k">Payload, t</span><input type="number" data-i="pay" min="0" step="any"></label>
+                <label class="field"><span class="k">Bay length, of L</span><input type="number" data-i="payLen" min="0" max="0.8" step="0.01"></label>
+                <label class="field" title="Airframe mass per m² of wetted area: about 25 for aluminium, 12–18 for composites"><span class="k">Structure, kg/m²</span><input type="number" data-i="ks" min="1" step="1"></label>
+                <label class="field" title="Systems, landing gear, crew, margin"><span class="k">Other, t</span><input type="number" data-i="other" min="0" step="any"></label>
+                <button class="btn" id="btnBldPlace" title="Try every order of tanks and bay, with tanks split fore and aft, and keep the one whose balance point moves least between full and landing">Place for least balance shift</button>
+              </div>
+            </details>
+            <details class="more" id="livBox" data-g="liv">
+              <summary>Livery</summary>
+              <div class="pane">
+                <div class="row2"><label class="chk"><input type="checkbox" id="livOn">Show on the model</label><label class="chk"><input type="checkbox" id="livBelly">Dark underside</label></div>
+                <div class="swatches" id="livPal"></div>
+                <div class="row2">
+                  <label class="field"><span class="k">Paint view</span><select id="livView"><option value="top">Top</option><option value="bottom">Underside</option><option value="side">Side</option></select></label>
+                  <label class="field"><span class="k">Brush</span><input type="color" id="livBrush" value="#c0392b"></label>
+                  <label class="chk"><input type="checkbox" id="livErase">Erase</label>
+                  <button class="btn" id="btnLivClear">Clear</button>
+                </div>
+                <label class="ctl"><span class="k">Brush size</span><output id="oLivSize"></output><input type="range" id="livSize" min="0.004" max="0.08" step="0.002" value="0.02"></label>
+                <canvas class="chart tall paint" id="livCanvas" aria-label="Paint the livery in this view; mirrored left and right"></canvas>
+              </div>
+            </details>
+            <details class="more" id="bldSum">
+              <summary>Mass, layout and engines</summary>
+              <dl class="kv" id="bldInfo"></dl>
+            </details>
+            <div class="row2"><button class="btn primary" id="btnBldCad">Export for CAD</button><button class="btn" id="btnBldJson">Copy design as JSON</button></div>
+          </div>
+        </section>
+
         <section class="pane" data-pane="model">
+          <div class="row2" id="designCard" hidden>
+            <span class="dname" id="designName"></span>
+            <button class="btn" id="btnToBuild">Edit in Build</button>
+          </div>
           <div class="seg" role="radiogroup" aria-label="Model library">
             <button class="segb" id="libBody" role="radio" aria-checked="true">Bodies</button>
-            <button class="segb" id="libBuild" role="radio" aria-checked="false">Builder</button>
             <button class="segb" id="libEng" role="radio" aria-checked="false">Engines</button>
           </div>
           <div id="libPane">
@@ -454,61 +534,14 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             </div>
           </details>
           </div>
-          <div id="bldPane" hidden>
-            <div class="row2">
-              <label class="field grow"><span class="k">Reference</span><select id="bldRef"></select></label>
-              <button class="btn" id="btnBldRand">Randomise</button>
-            </div>
-            <div class="row2">
-              <label class="field grow"><span class="k">Name</span><input type="text" id="bldName"></label>
-              <label class="field"><span class="k">Length, m</span><input type="number" id="bldL" min="0.5" step="0.1"></label>
-            </div>
-            <canvas class="chart tall" id="bldChart" aria-label="Plan and side view: hull, tanks, cabin, payload bay, engine and gear bays, balance points"></canvas>
-            <label class="field" id="bldTailL"><span class="k">Tail</span><select id="bldTail"></select></label>
-            <div class="row2" id="bldEngSel">
-              <label class="field"><span class="k">Nozzle</span><select id="bldEngType"><option value="bell">Bell</option><option value="aerospike">Aerospike</option></select></label>
-              <label class="field grow"><span class="k">Chemistry</span><select id="bldEngProp"></select></label>
-            </div>
-            <div id="bldFields"></div>
-            <details class="more" id="bldInt">
-              <summary>Inside: tanks, cabin, payload, engines, mass</summary>
-              <div class="pane bldGrid">
-                <label class="field"><span class="k">Propellant</span><select id="bldProp"></select></label>
-                <label class="field"><span class="k">Propellant, t</span><input type="number" data-i="mp" min="0" step="any"></label>
-                <label class="field" title="Nose to tail: cab cabin, pay payload bay, fu fuel, ox oxidiser; repeat a tank to split it"><span class="k">Order</span><input type="text" data-i="order"></label>
-                <label class="field"><span class="k">Cabin, of L</span><input type="number" data-i="cab" min="0" max="0.6" step="0.01"></label>
-                <label class="field"><span class="k">Payload, t</span><input type="number" data-i="pay" min="0" step="any"></label>
-                <label class="field"><span class="k">Bay length, of L</span><input type="number" data-i="payLen" min="0" max="0.8" step="0.01"></label>
-                <label class="field" title="Airframe mass per m² of wetted area: about 25 for aluminium, 12–18 for composites"><span class="k">Structure, kg/m²</span><input type="number" data-i="ks" min="1" step="1"></label>
-                <label class="field" title="Systems, landing gear, crew, margin"><span class="k">Other, t</span><input type="number" data-i="other" min="0" step="any"></label>
-                <button class="btn" id="btnBldPlace" title="Try every order of tanks and bay, with tanks split fore and aft, and keep the one whose balance point moves least between full and landing">Place for least balance shift</button>
-              </div>
-            </details>
-            <details class="more" id="livBox">
-              <summary>Livery</summary>
-              <div class="pane">
-                <div class="row2"><label class="chk"><input type="checkbox" id="livOn">Show on the model</label><label class="chk"><input type="checkbox" id="livBelly">Dark underside</label></div>
-                <div class="swatches" id="livPal"></div>
-                <div class="row2">
-                  <label class="field"><span class="k">Paint view</span><select id="livView"><option value="top">Top</option><option value="bottom">Underside</option><option value="side">Side</option></select></label>
-                  <label class="field"><span class="k">Brush</span><input type="color" id="livBrush" value="#c0392b"></label>
-                  <label class="chk"><input type="checkbox" id="livErase">Erase</label>
-                  <button class="btn" id="btnLivClear">Clear</button>
-                </div>
-                <label class="ctl"><span class="k">Brush size</span><output id="oLivSize"></output><input type="range" id="livSize" min="0.004" max="0.08" step="0.002" value="0.02"></label>
-                <canvas class="chart tall paint" id="livCanvas" aria-label="Paint the livery in this view; mirrored left and right"></canvas>
-              </div>
-            </details>
-            <dl class="kv" id="bldInfo"></dl>
-            <div class="row2"><button class="btn primary" id="btnBldCad">Export for CAD</button><button class="btn" id="btnBldJson">Copy design as JSON</button></div>
-          </div>
           <details id="optBox">
             <summary>Optimise shape</summary>
             <div class="pane">
               <div class="row2">
                 <label class="field"><span class="k">Problem</span><select id="optProb"><option value="sp">Spaceplane, whole mission</option><option value="sh">Least wave drag body (benchmark)</option></select></label>
-                <button class="btn primary" id="btnOpt">Optimise shape</button>
+                <label class="field"><span class="k">Method</span><select id="optMeth"><option value="gd">Gradient descent</option><option value="nm">Simplex</option></select></label>
               </div>
+              <div class="row2"><button class="btn primary" id="btnOpt">Optimise shape</button><button class="btn" id="btnSens" title="Nudge each free parameter up and down and measure how every result moves: which sliders matter, and which way">Sensitivity</button></div>
               <div id="optSpWrap">
               <div class="row2 chips" id="optVary">
                 <label class="chk"><input type="checkbox" value="fus" checked>Fuselage</label>
@@ -524,7 +557,9 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               </div>
               <div class="row2" id="optSh" hidden><label class="field"><span class="k">Mach</span><input type="number" id="optMach" value="1.8" min="1.2" max="4" step="0.1"></label></div>
               <p class="msg" id="optMsg"></p>
-              <canvas class="chart" id="optChart" aria-label="Optimiser: best shape found against the start"></canvas>
+              <canvas class="chart tall" id="optChart" aria-label="Optimiser: best shape found against the start, plan and side"></canvas>
+              <canvas class="chart" id="optHist" aria-label="Score of every candidate, and the best so far"></canvas>
+              <div class="sens" id="optSens"></div>
               <dl class="kv" id="optInfo"></dl>
             </div>
           </details>
@@ -4554,15 +4589,31 @@ function hingeMat(a, deg) {
 }
 // Fins as root position (y0, z0), cant, trailing-edge station and root chord; rud: carries a rudder.
 // One list drives the SDF, the drawing and the CAD package.
+// Height of the vehicle's upper surface at (x, |y|): the fuselage's superelliptic top where the body
+// is, the wing's upper skin (aerofoil half-thickness at that chord station) where the wing is.
+function surfaceZ(d, S, yr, x, y) {
+  const f = d.fus, w = d.wing, q = bldSecAt(f, S, x), ay = Math.abs(y);
+  let z = -Infinity;
+  if (ay < q.b) z = q.zc + q.aT * Math.pow(Math.max(0, 1 - Math.pow(ay / q.b, f.sq)), 1 / f.sq);
+  if (w.on && ay <= w.b) {
+    const P = wingPts(w, yr), s = Math.min(1, Math.max(0, (ay - yr) / Math.max(w.b - yr, 1e-6))), le = P[0][0] + (P[1][0] - P[0][0]) * s, te = P[3][0] + (P[2][0] - P[3][0]) * s, c = te - le;
+    if (x >= le && x <= te) {
+      const u = (x - le) / c, yt = 5 * w.tc * c * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1036 * u ** 4);
+      z = Math.max(z, w.z * f.rf + Math.max(0, ay - yr) * Math.tan(w.dih * D) + yt);
+    }
+  }
+  return Number.isFinite(z) ? z : q.zc;
+}
 function finSpecs(d, S, yr) {
   const f = d.fus, w = d.wing, t = d.tail, out = [];
   if (t.type === "none") return out;
-  const q0 = bldSecAt(f, S, t.x - t.cr / 2), top = q0.zc + q0.aT * 0.85, span = w.on ? w.b : f.rf * f.w;
+  const xm = t.x - t.cr / 2, q0 = bldSecAt(f, S, xm), top = surfaceZ(d, S, yr, xm, 0) - 0.004, span = w.on ? w.b : f.rf * f.w;
   const push = (y0, z0, cant, tag, xr = t.x, cr = t.cr, rud = false) => out.push({ y0, z0, cant, tag, xr, cr, rud, h: t.h, sweep: t.sweep, taper: t.taper });
   if (["single", "triple", "conv", "cruci"].includes(t.type)) push(0, top, 0, "fc", t.x, t.cr, true);
   if (t.type === "cruci") push(0, q0.zc - q0.aB * 0.85, 180, "fd");
-  if (t.type === "twin" || (t.type === "triple" && t.y < 0.95)) { const y0 = Math.max(q0.b * 0.5, t.y * span); push(y0, t.type === "triple" && w.on ? w.z * f.rf + Math.max(0, y0 - yr) * Math.tan(w.dih * D) : top * 0.75, t.cant, "ft", t.x, t.cr, t.type === "twin"); }
-  if (t.type === "v") push(Math.max(0.01, t.y * q0.b), top * 0.9, Math.max(t.cant, 20), "fv", t.x, t.cr, true);
+  // twin and V fins stand on the body or the wing, whichever is under their root
+  if (t.type === "twin" || (t.type === "triple" && t.y < 0.95)) { const y0 = Math.max(q0.b * 0.5, t.y * span); push(y0, surfaceZ(d, S, yr, xm, y0) - 0.004, t.cant, "ft", t.x, t.cr, t.type === "twin"); }
+  if (t.type === "v") { const y0 = Math.max(0.01, t.y * q0.b); push(y0, surfaceZ(d, S, yr, xm, y0) - 0.004, Math.max(t.cant, 20), "fv", t.x, t.cr, true); }
   if (w.on && (t.type === "tips" || (t.type === "triple" && t.y >= 0.95))) { const P = wingPts(w, yr), ct = Math.max(P[2][0] - P[1][0], 0.03); push(w.b - 0.003, w.z * f.rf + (w.b - yr) * Math.tan(w.dih * D), t.cant, "fw", P[1][0] + ct, ct); }
   return out;
 }
@@ -4842,7 +4893,7 @@ function livPalette() {
   g.clearRect(0, 1023, 16, 1);
   cols.forEach((c, i) => { g.fillStyle = c; g.fillRect(i, 1023, 1, 1); });
   if (BLD && !BLD.paint.belly) { g.clearRect(8, 1023, 1, 1); }
-  if (LIV.on) { g.fillStyle = "#fff"; g.fillRect(9, 1023, 1, 1); }
+  if (LIV.on || st.mode === "build") { g.fillStyle = "#fff"; g.fillRect(9, 1023, 1, 1); }
   LIV.dirty = true;
 }
 // body (x, a) in a band to atlas pixels, where a is y (top, underside) or z (side)
@@ -4868,12 +4919,37 @@ function bldApply(recompile = true) {
     clearTimeout(bldApply.t);
     bldApply.t = setTimeout(() => {
       const code = bldCode(BLD);
-      PRESETS.builder = { ...(PRESETS.spaceplane || {}), cat: "build", name: BLD.name, code, entry: { ...(PRESETS.spaceplane || {}).entry, mass: st.ent.mass, L: BLD.L, cg: st.ent.cg } };
+      PRESETS.builder = { ...(PRESETS.spaceplane || {}), cat: "body", name: "Built: " + BLD.name, code, entry: { ...(PRESETS.spaceplane || {}).entry, mass: st.ent.mass, L: BLD.L, cg: st.ent.cg } };
       if (st.preset !== "builder") applyPreset("builder");
       else { $("#code").value = code; const go = () => (compiling ? setTimeout(go, 60) : compileSDF(code)); go(); }
       computeAscent();
     }, 250);
   }
+}
+// Two screens. Build: the design alone, drawn in its part colours, nothing simulated, so every slider is
+// instant. Test: the design (or any library body) in the tunnel, every analysis available, and the
+// optimiser. Changes made in Build are analysed when Test opens.
+function setMode(m) {
+  if (st.mode === m) return;
+  st.mode = m;
+  document.body.dataset.mode = m;
+  document.querySelectorAll("#modes .mode").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+  const tabsPane = (t) => document.querySelectorAll(".pane[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== t; });
+  if (m === "build") {
+    if (OPT.on) optStop("Stopped: back to Build.");
+    st.wasRunning = running; running = false; syncRun();
+    tabsPane("build");
+    bldChips();
+    if (st.preset !== "builder") bldApply(); else { bldApply(false); }
+    requestAnimationFrame(() => { bldDraw(); bldInfo(); });
+  } else {
+    tabsPane("model");
+    document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.tab === "model")));
+    if (st.wasRunning !== undefined) { running = st.wasRunning; st.wasRunning = undefined; syncRun(); }
+    geoDirty = true;   // analyse what was built
+    fillPresetList();
+  }
+  livPalette();
 }
 // The builder owns the rocket engines while it is the model: the Engines tab shows and simulates
 // them (plumes in the flow solver, thrust and Isp in the ascent), and edits there come back here.
@@ -4896,6 +4972,54 @@ function bldFromEngines() {
   if (Math.abs(F - d.eng.F) / Math.max(d.eng.F, 1) > 0.01) d.eng.F = +F.toFixed(1);
   bldFields(); bldEdited();
 }
+// Build screen: pick a component (chip or the drawing), edit only its sliders
+const OPTIONAL = ["strake", "canard", "flap", "nac", "ctrl", "rcs"];
+const BLDUI = { sel: "fus" };
+const BLD_GROUPS = () => [...BLD_SCHEMA.map(([g, key]) => [key, g]), ["int", "Inside"], ["liv", "Livery"]];
+function bldChips() {
+  const box = $("#bldChips");
+  if (!box || !BLD) return;
+  if (!box.childElementCount) for (const [key, g] of BLD_GROUPS()) {
+    const b = document.createElement("button"); b.className = "chip"; b.type = "button"; b.role = "tab"; b.dataset.g = key; b.textContent = g;
+    b.addEventListener("click", () => bldSelect(key));
+    box.appendChild(b);
+  }
+  box.querySelectorAll(".chip").forEach((b) => {
+    const k = b.dataset.g; b.setAttribute("aria-selected", String(k === BLDUI.sel));
+    b.classList.toggle("off", OPTIONAL.includes(k) && !BLD[k].on);
+  });
+  document.querySelectorAll("#bldPane [data-g]:not(.chip)").forEach((el) => { el.classList.toggle("sel", el.dataset.g === BLDUI.sel); if (el.tagName === "DETAILS") el.open = true; });
+  if (BLDUI.sel === "liv") requestAnimationFrame(livDraw);
+}
+function bldSelect(key) { BLDUI.sel = key; bldChips(); }
+// which component is under a click on the layout drawing
+function bldPick(px, py) {
+  const M = BLDUI.map, d = BLD;
+  if (!M || !d) return null;
+  const inPoly = (P, x, y) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i], [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+  const x = (px - M.ox) / M.sc, S = bldStations(d.fus), yr = d.wing.on ? wingRootY(d, S) : 0, q = bldSecAt(d.fus, S, x);
+  if (py < M.ph) {
+    const y = Math.abs((M.ph * 0.5 - py) / M.sc);
+    if (x > 0.995 && d.eng.n > 0) return "eng";
+    if (d.canard.on && inPoly(wingPts({ ...d.canard, taper: 0.3 }), x, y)) return "canard";
+    if (d.nac.on) { const n = d.nac, y0 = d.wing.on ? q.b + n.r + n.pos * Math.max(0, d.wing.b - q.b - n.r) : q.b; if (x > n.x && x < n.x + n.len && Math.abs(y - y0) < n.r * 1.5) return "nac"; }
+    if (d.wing.on && inPoly(wingPts(d.wing, yr), x, y)) {
+      const P = wingPts(d.wing, yr), s = Math.min(1, Math.max(0, (y - yr) / Math.max(d.wing.b - yr, 1e-6))), te = P[3][0] + (P[2][0] - P[3][0]) * s, c = te - (P[0][0] + (P[1][0] - P[0][0]) * s);
+      return d.ctrl.on && x > te - d.ctrl.ce * c ? "ctrl" : "wing";
+    }
+    if (d.strake.on && d.wing.on && inPoly(strakePts(d, S, yr), x, y)) return "strake";
+    for (const b of d.m.boxes) if (x >= b.x0 && x <= b.x1 && y <= Math.max(Math.abs(b.y0), Math.abs(b.y1))) return "int";
+    if (y <= q.b) return "fus";
+  } else {
+    const z = (M.zs - py) / M.sc, top = q.zc + q.aT, bot = Math.max(q.zc - q.aB, q.zb);
+    if (x > 0.98 && d.flap.on && z < bot + 0.01) return "flap";
+    if (x > 0.995 && d.eng.n > 0) return "eng";
+    if (z > top && d.tail.type !== "none") return "tail";
+    for (const b of d.m.boxes) if (x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1) return "int";
+    if (z <= top && z >= bot) return "fus";
+  }
+  return null;
+}
 function buildBuilderUI() {
   const opt = (sel, entries) => { for (const [k, v] of entries) { const o = document.createElement("option"); o.value = k; o.textContent = v; sel.appendChild(o); } };
   const sel = $("#bldRef");
@@ -4905,19 +5029,18 @@ function buildBuilderUI() {
   opt($("#bldProp"), Object.keys(PROPS).map((k) => [k, k]));
   const box = $("#bldFields");
   for (const [g, key, fields] of BLD_SCHEMA) {
-    const det = document.createElement("details"); det.className = "more"; det.dataset.g = key;
-    const sum = document.createElement("summary");
-    if (["strake", "canard", "flap", "nac", "ctrl", "rcs"].includes(key)) {
-      const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.on = key; cb.setAttribute("aria-label", `${g} on`);
-      cb.addEventListener("click", (e) => e.stopPropagation());
-      cb.addEventListener("change", () => { BLD[key].on = cb.checked ? 1 : 0; bldEdited(); });
-      sum.append(cb, " ");
-    }
-    sum.append(g);
-    const dice = document.createElement("button"); dice.className = "dice"; dice.type = "button"; dice.textContent = "Randomise"; dice.setAttribute("aria-label", `Randomise ${g.toLowerCase()}`);
-    dice.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); bldRandom(BLD, [key]); bldFields(); bldEdited(); });
-    sum.append(dice); det.appendChild(sum);
+    const det = document.createElement("div"); det.dataset.g = key;
     const pane = document.createElement("div"); pane.className = "pane bldSl";
+    const head = document.createElement("div"); head.className = "ghead";
+    if (OPTIONAL.includes(key)) {
+      const l = document.createElement("label"); l.className = "chk";
+      const cb = document.createElement("input"); cb.type = "checkbox"; cb.dataset.on = key;
+      cb.addEventListener("change", () => { BLD[key].on = cb.checked ? 1 : 0; bldEdited(); bldChips(); });
+      l.append(cb, `Fit ${g.toLowerCase()}`); head.appendChild(l);
+    } else head.append(g);
+    const dice = document.createElement("button"); dice.className = "dice"; dice.type = "button"; dice.textContent = "Randomise"; dice.setAttribute("aria-label", `Randomise ${g.toLowerCase()}`);
+    dice.addEventListener("click", (e) => { e.preventDefault(); bldRandom(BLD, [key]); bldFields(); bldEdited(); });
+    head.appendChild(dice); pane.appendChild(head);
     if (key === "tail") pane.appendChild($("#bldTailL"));
     if (key === "eng") pane.appendChild($("#bldEngSel"));
     for (const [k, lab, lo, hi, step] of fields) {
@@ -4969,8 +5092,9 @@ function buildBuilderUI() {
   $("#livSize").addEventListener("input", (e) => { LIV.size = +e.target.value; });
   $("#btnLivClear").addEventListener("click", () => { livInit(); LIV.ctx.clearRect(0, 0, 1024, 1023); livPalette(); livDraw(); });
   livPaintEvents($("#livCanvas"));
+  $("#bldChart").addEventListener("click", (e) => { const r = e.currentTarget.getBoundingClientRect(), k = bldPick(e.clientX - r.left, e.clientY - r.top); if (k) bldSelect(k); });
   BLD = bldFill(JSON.parse(JSON.stringify(BLD_LIB.shuttle)));
-  bldFields();
+  bldFields(); bldChips();
 }
 function bldEdited() { $("#bldRef").value = "custom"; if (BLD.name && !/\(edited\)$/.test(BLD.name)) BLD.name += " (edited)"; $("#bldName").value = BLD.name; bldApply(); }
 function bldFields() {
@@ -5026,6 +5150,27 @@ function cadPackage(d) {
     },
   };
 }
+// Silhouettes of a design as polygons, plan (x, y) and side (x, z), for comparing designs at a glance.
+function bldPolys(d) {
+  const f = d.fus, S = bldStations(f), at = (x) => bldSecAt(f, S, x), w = d.wing, yr = w.on ? wingRootY(d, S) : 0, xs = Array.from({ length: 61 }, (_, i) => i / 60);
+  const plan = [], side = [], mir = (P) => P.map(([x, y]) => [x, -y]);
+  plan.push([...xs.map((x) => [x, at(x).b]), ...[...xs].reverse().map((x) => [x, -at(x).b])]);
+  side.push([...xs.map((x) => { const q = at(x); return [x, q.zc + q.aT]; }), ...[...xs].reverse().map((x) => { const q = at(x); return [x, Math.max(q.zc - q.aB, q.zb)]; })]);
+  if (w.on) { const P = wingPts(w, yr); plan.push(P, mir(P)); if (d.strake.on) { const T = strakePts(d, S, yr); plan.push(T, mir(T)); } }
+  if (d.canard.on) { const P = wingPts({ ...d.canard, taper: 0.3 }); plan.push(P, mir(P)); }
+  const tp = tailplaneSpec(d, S); if (tp) plan.push(tp.P, mir(tp.P));
+  for (const F of finSpecs(d, S, yr)) {
+    const x0 = F.xr - F.cr, xt = F.h * Math.tan(F.sweep * D), ca = Math.cos(F.cant * D), sa = Math.sin(F.cant * D);
+    const prof = [[x0, 0], [x0 + xt, F.h], [x0 + xt + F.taper * F.cr, F.h], [F.xr, 0]];
+    side.push(prof.map(([x, s]) => [x, F.z0 + s * ca]));
+    if (Math.abs(sa) > 0.05) for (const sg of F.y0 > 1e-6 ? [1, -1] : [1]) plan.push(prof.map(([x, s]) => [x, sg * (F.y0 + s * sa)]));
+  }
+  if (d.flap.on) { const H = flapHinge(d, S), a = d.flap.df * D; side.push([[H.x, H.z], [H.x + d.flap.len * Math.cos(a), H.z - d.flap.len * Math.sin(a)], [H.x + d.flap.len * Math.cos(a), H.z - d.flap.len * Math.sin(a) + 0.006], [H.x, H.z + 0.006]]); }
+  const NZ = nozzleLayout(d, S);
+  for (const [y, z] of NZ.pts) { const x0 = 1 - 0.15 * NZ.bell, x1 = 1 + 0.85 * NZ.bell; plan.push([[x0, y - NZ.rt], [x1, y - NZ.re], [x1, y + NZ.re], [x0, y + NZ.rt]]); side.push([[x0, z - NZ.rt], [x1, z - NZ.re], [x1, z + NZ.re], [x0, z + NZ.rt]]); }
+  if (d.nac.on) { const n = d.nac, q = at(n.x + n.len / 2), y = w.on ? q.b + n.r + n.pos * Math.max(0, w.b - q.b - n.r) : q.b + n.r * 0.8, R = [[n.x, y - n.r], [n.x + n.len, y - n.r], [n.x + n.len, y + n.r], [n.x, y + n.r]]; plan.push(R, mir(R)); }
+  return { plan, side };
+}
 // outline helpers shared by the layout drawing and the livery canvas
 function bldOutline(d) {
   const f = d.fus, S = bldStations(f), at = (x) => bldSecAt(f, S, x), w = d.wing, yr = w.on ? wingRootY(d, S) : 0;
@@ -5042,8 +5187,9 @@ function bldDraw() {
   // plan view (top half) and side view (bottom half), nose left, one scale that fits both
   const halfW = Math.max(f.rf * f.w, d.wing.on ? d.wing.b : 0, d.canard.on ? d.canard.b : 0, 0.02);
   const zHi = Math.max(...O.xs.map(O.topZ)) + (t.type === "none" ? 0 : t.h), zLo = Math.min(...O.xs.map(O.botZ)) - 0.01, ph = h / 2;
-  const sc = Math.min((w - 20) / (1.1 + NZ.bell), (ph - 10) / (2 * halfW), (ph - 14) / (zHi - zLo));
-  const X = (x) => 10 + x * sc, Yp = (y) => ph * 0.5 - y * sc, Ys = (z) => ph + 7 + (ph - 14 + (zHi + zLo) * sc) / 2 - z * sc;
+  const sc = Math.min((w - 20) / (1.1 + NZ.bell), (ph - 10) / (2 * halfW), (ph - 14) / (zHi - zLo)), ox = (w - (1.06 + NZ.bell) * sc) / 2;
+  const X = (x) => ox + x * sc, Yp = (y) => ph * 0.5 - y * sc, Ys = (z) => ph + 7 + (ph - 14 + (zHi + zLo) * sc) / 2 - z * sc;
+  BLDUI.map = { sc, ox, ph, zs: ph + 7 + (ph - 14 + (zHi + zLo) * sc) / 2 };
   g.lineWidth = 1;
   for (const b of m.boxes) {
     g.fillStyle = BOXCOL[b.k] || "rgba(200,200,200,0.4)";
@@ -5052,23 +5198,10 @@ function bldDraw() {
     g.fillRect(X(x0), Yp(b.y1), (x1 - x0) * sc, (b.y1 - b.y0) * sc);
     if (b.pair) g.fillRect(X(x0), Yp(-b.y0), (x1 - x0) * sc, (b.y1 - b.y0) * sc);
   }
+  // outlines from the same silhouettes the optimiser compares
+  const PP = bldPolys(d);
   g.strokeStyle = "#d6cebd";
-  const line = (F, Y) => { g.beginPath(); O.xs.forEach((x, i) => (i ? g.lineTo(X(x), Y(F(x))) : g.moveTo(X(x), Y(F(x))))); g.stroke(); };
-  line((x) => O.at(x).b, Yp); line((x) => -O.at(x).b, Yp); line(O.topZ, Ys); line(O.botZ, Ys);
-  const poly = (P, Y, close) => { g.beginPath(); P.forEach(([x, y], i) => (i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y)))); if (close) g.closePath(); g.stroke(); };
-  if (d.wing.on) {
-    const P = wingPts(d.wing, O.yr);
-    for (const sgn of [1, -1]) { poly(P.map(([x, y]) => [x, sgn * y]), Yp); if (d.strake.on) poly(strakePts(d, O.S, O.yr).slice(0, 2).map(([x, y]) => [x, sgn * y]), Yp); }
-    const zw = d.wing.z * f.rf; poly([[d.wing.x, zw], [d.wing.x + d.wing.cr, zw]], Ys);
-  }
-  if (d.canard.on) for (const sgn of [1, -1]) poly(wingPts({ ...d.canard, taper: 0.3 }).map(([x, y]) => [x, sgn * y]), Yp);
-  if (d.nac.on) {
-    const n = d.nac, q = O.at(n.x + n.len / 2), y = d.wing.on ? q.b + n.r + n.pos * Math.max(0, d.wing.b - q.b - n.r) : q.b + n.r * 0.8;
-    for (const sgn of [1, -1]) g.strokeRect(X(n.x), Yp(sgn * y + n.r), n.len * sc, 2 * n.r * sc);
-  }
-  for (const [y, z] of NZ.pts) { g.strokeRect(X(1 - 0.2 * NZ.bell), Ys(z + NZ.re), NZ.bell * sc, 2 * NZ.re * sc); g.strokeRect(X(1 - 0.2 * NZ.bell), Yp(y + NZ.re), NZ.bell * sc, 2 * NZ.re * sc); }
-  if (t.type !== "none") { const q = O.at(t.x - t.cr / 2), x0 = t.x - t.cr, xt = t.h * Math.tan(t.sweep * D), z0 = q.zc + q.aT * 0.85, hz = t.h * Math.cos(Math.min(t.cant, 80) * D);
-    poly([[x0, z0], [x0 + xt, z0 + hz], [x0 + xt + t.taper * t.cr, z0 + hz], [t.x, z0]], Ys); }
+  for (const [k, Y] of [["plan", Yp], ["side", Ys]]) for (const P of PP[k]) { g.beginPath(); P.forEach(([x, y], i) => (i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y)))); g.closePath(); g.stroke(); }
   if (m.rcs) { g.fillStyle = "#e8d36a"; for (const [x, y, z] of m.rcs.pts) { g.fillRect(X(x) - 2.5, Yp(y) - 2.5, 5, 5); g.fillRect(X(x) - 2.5, Ys(z) - 2.5, 5, 5); } }
   for (const [x, col] of [[m.cgGross, "#f0743c"], [m.cgLand, "#9fb3d8"]]) { g.fillStyle = col; g.beginPath(); g.arc(X(x), Ys((O.topZ(x) + O.botZ(x)) / 2), 3.5, 0, 7); g.fill(); }
   if (m.over > 0) { g.strokeStyle = "#ff5a4f"; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(X(m.xEnd), Ys(zHi)); g.lineTo(X(m.xEnd), Ys(zLo)); g.stroke(); g.setLineDash([]); }
@@ -5189,9 +5322,11 @@ function syncOptUI() {
   const sp = $("#optProb").value === "sp";
   $("#optSpWrap").hidden = !sp; $("#optSh").hidden = sp;
 }
-function optStart() {
+function optStart(mode = "opt") {
   if (OPT.on) { optStop("Stopped."); return; }
   OPT.prob = $("#optProb").value;
+  OPT.method = OPT.prob !== "sp" ? "nm" : mode === "sens" ? "sens" : $("#optMeth").value;
+  $("#optSens").innerHTML = "";
   OPT.hist = []; OPT.evals = 0; OPT.best = null; OPT.norm = null;
   let x0, step;
   if (OPT.prob === "sp") {
@@ -5201,7 +5336,7 @@ function optStart() {
     x0 = spX0(); step = 0.6;
     OPT.pri = $("#optPri").value; OPT.vLand = +$("#optVl").value || 110;
     bldApply(false);
-    PRESETS.builder = { ...(PRESETS.spaceplane || {}), cat: "body", name: BLD.name, code: bldCode(BLD), entry: { ...(PRESETS.spaceplane || {}).entry, mass: st.ent.mass, L: BLD.L, cg: st.ent.cg } };
+    PRESETS.builder = { ...(PRESETS.spaceplane || {}), cat: "body", name: "Built: " + BLD.name, code: bldCode(BLD), entry: { ...(PRESETS.spaceplane || {}).entry, mass: st.ent.mass, L: BLD.L, cg: st.ent.cg } };
     applyPreset("builder");
     OPT.wasRunning = running; running = false; syncRun();   // the scores come from the surface models, not the flowfield
   } else {
@@ -5216,15 +5351,73 @@ function optStart() {
     setTimeout(() => { const A = atmos(15); setSpeed(M * A.a, 15); setAltitude(15); }, 0);
     if (!running) { running = true; syncRun(); }
   }
-  const simplex = [x0];
-  for (let i = 0; i < x0.length; i++) { const v = x0.slice(); v[i] += step; simplex.push(v); }
-  OPT.simplex = simplex.map((x) => ({ x, f: null }));
-  OPT.queue = OPT.simplex.slice(); OPT.on = true; OPT.phase = "init";
-  $("#btnOpt").textContent = "Stop optimiser";
+  OPT.on = true;
+  if (OPT.method === "gd") {
+    // SPSA: two evaluations per step whatever the number of parameters, Adam on the estimates
+    const n = x0.length;
+    OPT.gd = { x: x0.slice(), k: 0, m: Array(n).fill(0), v: Array(n).fill(0), a: 0.12, c: 0.25, small: 0, batch: [] };
+    OPT.queue = [{ x: x0.slice(), f: null, role: "0" }];
+  } else if (OPT.method === "sens") {
+    // central differences on every free parameter, h in the slider's logistic coordinate
+    const h = 0.35;
+    OPT.sens = { h, x0: x0.slice(), batch: [] };
+    OPT.queue = [{ x: x0.slice(), f: null, role: "0" }];
+    x0.forEach((_, i) => { for (const sg of [1, -1]) { const x = x0.slice(); x[i] += sg * h; OPT.queue.push({ x, f: null, role: sg > 0 ? "+" : "-", i }); } });
+  } else {
+    const simplex = [x0];
+    for (let i = 0; i < x0.length; i++) { const v = x0.slice(); v[i] += step; simplex.push(v); }
+    OPT.simplex = simplex.map((x) => ({ x, f: null }));
+    OPT.queue = OPT.simplex.slice(); OPT.phase = "init";
+  }
+  $("#btnOpt").textContent = OPT.method === "sens" ? "Optimise shape" : "Stop optimiser";
+  $("#btnSens").textContent = OPT.method === "sens" ? "Stop" : "Sensitivity";
   optNext();
+}
+// one SPSA step from the ± pair just scored, then queue the next pair
+function gdStep() {
+  const G = OPT.gd, n = G.x.length, cap = 300;
+  const p = G.batch.find((c) => c.role === "+"), q = G.batch.find((c) => c.role === "-");
+  if (p && q) {
+    const ck = G.c / Math.pow(G.k + 1, 0.101), b1 = 0.9, b2 = 0.999;
+    G.k++;
+    let step = 0;
+    for (let i = 0; i < n; i++) {
+      const g = (p.f - q.f) / (2 * ck * G.delta[i]);
+      G.m[i] = b1 * G.m[i] + (1 - b1) * g; G.v[i] = b2 * G.v[i] + (1 - b2) * g * g;
+      const mh = G.m[i] / (1 - b1 ** G.k), vh = G.v[i] / (1 - b2 ** G.k), d = (G.a * mh) / (Math.sqrt(vh) + 1e-8);
+      G.x[i] -= d; step += d * d;
+    }
+    G.small = Math.sqrt(step / n) < 0.01 ? G.small + 1 : 0;
+  }
+  G.batch = [];
+  if (OPT.evals >= cap || G.small >= 4) { optStop(G.small >= 4 ? `Converged after ${OPT.evals} candidates.` : `Stopped at ${OPT.evals} candidates.`); optApplyBest(); return; }
+  const ck = G.c / Math.pow(G.k + 1, 0.101);
+  G.delta = G.x.map(() => (Math.random() < 0.5 ? -1 : 1));
+  OPT.queue = [{ x: G.x.map((v, i) => v + ck * G.delta[i]), f: null, role: "+" }, { x: G.x.map((v, i) => v - ck * G.delta[i]), f: null, role: "-" }];
+  if (G.k % 4 === 3) OPT.queue.push({ x: G.x.slice(), f: null, role: "0" });   // the current point itself, now and then
+  optNext();
+}
+// sensitivity: how the score and each result move per 10 % of every slider's range, and which way helps
+function sensFinish() {
+  const S = OPT.sens, base = S.batch.find((c) => c.role === "0"), keys = ["q", "LD", "ld", "vLand", "land"];
+  const rows = OPT.free.map(([g, k, lo, hi], i) => {
+    const p = S.batch.find((c) => c.role === "+" && c.i === i), q = S.batch.find((c) => c.role === "-" && c.i === i);
+    if (!p || !q) return null;
+    const u = Math.min(0.97, Math.max(0.03, (OPT.base[g][k] - lo) / (hi - lo))), per10 = 0.1 / (u * (1 - u)) / (2 * S.h);   // logistic → 10 % of range
+    const lab = (BLD_SCHEMA.find(([, key]) => key === g) || [g])[0] + " · " + ((BLD_SCHEMA.find(([, key]) => key === g) || [, , []])[2].find(([kk]) => kk === k) || [k, k])[1];
+    return { lab, d: (p.f - q.f) * per10, dm: Object.fromEntries(keys.map((m) => [m, (p.m[m] - q.m[m]) * per10])) };
+  }).filter(Boolean).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+  const top = Math.max(...rows.map((r) => Math.abs(r.d)), 1e-9);
+  $("#optSens").innerHTML = rows.slice(0, 14).map((r) => {
+    const wPct = (50 * Math.abs(r.d)) / top, good = r.d < 0;   // score falls (better) when the slider rises
+    const tip = `score ${r.d >= 0 ? "+" : ""}${r.d.toFixed(3)} · heating ${(r.dm.q / 1e4).toFixed(1)} W/cm² · L/D ${r.dm.LD.toFixed(3)} · ascent ${r.dm.ld.toFixed(1)} m/s · landing ${r.dm.vLand.toFixed(1)} m/s, ${(r.dm.land / 1000).toFixed(2)} t, per +10 % of range`;
+    return `<span class="sk" title="${tip}">${r.lab}</span><span class="bar" title="${tip}" style="margin-left:${good ? 50 : 50 - wPct}%;width:${wPct}%;background:${good ? "#8fc28a" : "#f0743c"}"></span>`;
+  }).join("");
+  optStop(`Sensitivity of ${rows.length} parameters from ${OPT.evals} candidates. Green: raising it helps. Orange: lowering it helps.`);
 }
 function optStop(msg) {
   OPT.on = false; OPT.pending = null;
+  if ($("#btnSens")) $("#btnSens").textContent = "Sensitivity";
   if (OPT.prob === "sp" && OPT.wasRunning !== undefined) { running = OPT.wasRunning; OPT.wasRunning = undefined; syncRun(); }
   $("#btnOpt").textContent = "Optimise shape"; $("#optMsg").textContent = msg || ""; optDraw();
 }
@@ -5248,6 +5441,8 @@ function optSubmit(c) {
 function optNext() {
   if (!OPT.on) return;
   if (OPT.queue && OPT.queue.length) { optSubmit(OPT.queue.shift()); return; }
+  if (OPT.method === "gd") { gdStep(); return; }
+  if (OPT.method === "sens") { sensFinish(); return; }
   const S = OPT.simplex; S.sort((a, b) => a.f - b.f);
   const n = S.length - 1, worst = S[n];
   const spread = Math.abs(S[n].f - S[0].f) / Math.max(Math.abs(S[0].f), 1e-9), cap = OPT.prob === "sp" ? 300 : 100;
@@ -5256,8 +5451,9 @@ function optNext() {
   OPT.phase = "reflect"; OPT.trial = { x: cen.map((c, j) => c - (worst.x[j] - c)), f: null }; optSubmit(OPT.trial);
 }
 function optScored(c) {
-  OPT.hist.push({ f: c.f, prof: c.prof, P: c.P, m: c.m });
+  OPT.hist.push({ f: c.f, prof: c.prof, P: c.P, m: c.m, role: c.role });
   if (!OPT.best || c.f < OPT.best.f) OPT.best = c;
+  if (OPT.method === "gd" || OPT.method === "sens") { (OPT.method === "gd" ? OPT.gd : OPT.sens).batch.push(c); optDraw(); optNext(); return; }
   const S = OPT.simplex, n = S.length - 1;
   if (OPT.phase === "init") { if (!OPT.queue.length) OPT.phase = "reflect"; optDraw(); optNext(); return; }
   S.sort((a, b) => a.f - b.f);
@@ -5325,7 +5521,7 @@ function spMetrics() {
   const CLl = Kp * Math.sin(al) * Math.cos(al) ** 2 + Math.PI * Math.cos(al) * Math.sin(al) ** 2;
   const vLand = Math.sqrt((2 * m * G0) / (1.225 * G.plan * CLl));
   const bm = OPT.pending && OPT.pending.P ? OPT.pending.P.m : null;
-  return { q, LD, aLD, cma, trim, vLand, V: G.V, ld: A.ld, asc: A.phase, AR, span: G.span, plan: G.plan, over: bm ? bm.over : 0, gross: bm ? bm.gross : 0, land: m };
+  return { q, LD, aLD, cma, trim, vLand, V: G.V, ld: A.ld, asc: A.phase, AR, span: G.span, plan: G.plan, skip: /Skipped/.test(T.end || ""), end: T.end, over: bm ? bm.over : 0, gross: bm ? bm.gross : 0, land: m };
 }
 function spScore(m) {
   if (!OPT.norm) OPT.norm = { q: m.q, LD: m.LD, ld: Math.max(m.ld, 1) };
@@ -5334,6 +5530,7 @@ function spScore(m) {
   if (m.over > 0) f += 5 + 100 * m.over;   // tanks and bay do not fit inside
   if (m.vLand > OPT.vLand) { const d = m.vLand / OPT.vLand - 1; f += 10 * d + 100 * d * d; }
   if (m.cma > 0) f += 1 + 500 * m.cma;
+  if (m.skip) f += 5;   // skipping back out is not a cool entry: its low heating does not count
   return f;
 }
 function optApplyBest() {
@@ -5345,6 +5542,22 @@ function optApplyBest() {
   go();
   optDraw();
 }
+// score of every candidate (dots) and the best so far (line)
+function optHist() {
+  const c = $("#optHist"), H = OPT.hist;
+  if (!c || c.offsetParent === null || H.length < 2) return;
+  const s_ = setupChart(c);
+  if (!s_) return;
+  const { g, w, h } = s_, fs = H.map((e) => e.f).filter(Number.isFinite), lo = Math.min(...fs), hi = Math.min(Math.max(...fs), lo + 3 * (H[0].f - lo + 0.1));
+  const X = (i) => CH.l + (i / Math.max(H.length - 1, 1)) * (w - CH.l - 10), Y = (f) => CH.t + (1 - (Math.min(f, hi) - lo) / Math.max(hi - lo, 1e-9)) * (h - CH.t - CH.b);
+  g.fillStyle = "rgba(134,160,255,0.6)";
+  H.forEach((e, i) => { if (Number.isFinite(e.f)) g.fillRect(X(i) - 1.5, Y(e.f) - 1.5, 3, 3); });
+  g.strokeStyle = "#f29c4f"; g.lineWidth = 1.5; g.beginPath();
+  let b = Infinity; H.forEach((e, i) => { b = Math.min(b, e.f); i ? g.lineTo(X(i), Y(b)) : g.moveTo(X(i), Y(b)); }); g.stroke();
+  g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace"; g.textAlign = "right";
+  g.fillText(hi.toFixed(2), CH.l - 4, CH.t + 8); g.fillText(lo.toFixed(2), CH.l - 4, h - CH.b);
+  g.textAlign = "center"; g.fillText("score per candidate · best so far", CH.l + (w - CH.l) / 2, h - 4);
+}
 function optDraw() {
   const c = $("#optChart");
   if (!c || c.offsetParent === null || !OPT.hist.length && !OPT.on) return;
@@ -5353,17 +5566,17 @@ function optDraw() {
   const { g, w, h } = s_, pw = w - CH.l - 10, ph = h - CH.t - CH.b, H = OPT.hist, row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`, info = $("#optInfo");
   g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
   if (OPT.prob === "sp") {
-    // plan view, nose left: fuselage outline and wing triangle, start faint and best bright
-    const X = (x) => CH.l + x * pw, Y = (y) => CH.t + ph / 2 - (y / 0.6) * (ph / 2);
-    const plan = (P, col, lw) => {
-      g.strokeStyle = col; g.lineWidth = lw;
-      const prof = bldProfile(P.fus);
-      for (const sgn of [1, -1]) { g.beginPath(); prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(sgn * r * P.fus.w)) : g.moveTo(X(x), Y(0)))); g.stroke(); }
-      if (P.wing.on) for (const sgn of [1, -1]) { g.beginPath(); wingPts(P.wing).forEach(([x, y], i) => (i ? g.lineTo(X(x), Y(sgn * y)) : g.moveTo(X(x), Y(sgn * y)))); g.stroke(); }
-    };
-    if (H.length && H[0].P) plan(H[0].P, "rgba(134,160,255,0.45)", 1);
-    if (OPT.best && OPT.best.P) plan(OPT.best.P, "#f29c4f", 2);
-    g.fillStyle = "#8b93a8"; g.textAlign = "left"; g.fillText("plan view · faint: start · orange: best", CH.l + 4, CH.t + 10);
+    // plan (top) and side (bottom), nose left: start in blue outline, best filled orange, one scale
+    const A = H.length && H[0].P ? bldPolys(H[0].P) : null, B = OPT.best && OPT.best.P ? bldPolys(OPT.best.P) : null, all = [A, B].filter(Boolean);
+    const ext = (k, i) => all.flatMap((Q) => Q[k].flat().filter((_, j) => j % 2 === i));
+    const yM = Math.max(0.05, ...ext("plan", 1).map(Math.abs)), zs = ext("side", 1), zHi = Math.max(...zs, 0.05), zLo = Math.min(...zs, -0.05), xHi = Math.max(1.05, ...ext("plan", 0));
+    const hp = h / 2 - 8, sc = Math.min((w - 20) / xHi, hp / (2 * yM), hp / (zHi - zLo));
+    const X = (x) => 10 + x * sc, Yp = (y) => 4 + hp / 2 - y * sc, Ys = (z) => h / 2 + 4 + hp / 2 + ((zHi + zLo) / 2) * sc - z * sc;
+    const draw = (Q, fill, stroke, lw) => { for (const [k, Y] of [["plan", Yp], ["side", Ys]]) for (const P of Q[k]) { g.beginPath(); P.forEach(([x, y], i) => (i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y)))); g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } g.strokeStyle = stroke; g.lineWidth = lw; g.stroke(); } };
+    if (B) draw(B, "rgba(242,156,79,0.28)", "#f29c4f", 1.4);
+    if (A) draw(A, null, "rgba(134,160,255,0.75)", 1);
+    optHist();
+    g.fillStyle = "#8b93a8"; g.textAlign = "left"; g.fillText("blue: start · orange: best", 10, 12);
     if (info && OPT.best && OPT.best.m && H[0].m) {
       const a = H[0].m, b = OPT.best.m, P = OPT.best.P;
       const two = (f) => `${f(b)} · start ${f(a)}`;
@@ -5373,6 +5586,7 @@ function optDraw() {
         row("Ascent drag loss", two((m) => `${m.ld.toFixed(0)} m/s`)) +
         row("Landing mass", two((m) => `${(m.land / 1000).toFixed(1)} t`) + (b.over > 0 ? ` · <span class="err">tanks do not fit</span>` : "")) +
         row("Landing speed", two((m) => `${m.vLand.toFixed(0)} m/s`) + ` · limit ${OPT.vLand}`) +
+        row("Entry", two((m) => m.end || "—")) +
         row("Pitch stiffness dCm/dα", two((m) => `${(m.cma * 1e3).toFixed(2)}×10⁻³/°`)) +
         row("Trim", two((m) => (m.trim === null ? "none" : `${m.trim.toFixed(0)}°`))) +
         row("Best shape", `wing sweep ${P.wing.sweep.toFixed(1)}° · root chord ${P.wing.cr.toFixed(2)} L · span ${b.span.toFixed(1)} m · fuselage radius ${P.fus.rf.toFixed(3)} L · nose ${P.fus.ln.toFixed(2)} L`);
@@ -7176,6 +7390,7 @@ function h2f(h) {
 const sn8 = (b) => Math.max(-1, ((b << 24) >> 24) / 127);
 
 function scheduleHyp() {
+  if (st.mode === "build") { geoDirty = true; return; }   // nothing is analysed while building
   if (hy.busy) { hy.pending = true; return; }
   runHyp();
 }
@@ -7612,7 +7827,7 @@ function frameHyp(now) {
     const nx0 = noseXFor(eulerMach());
     if (nx0 !== noseX && !(st.zoom && st.zoom.on)) { noseX = nx0; geoDirty = true; eu.reset = true; hy.probe = -1; }
   }
-  if (geoDirty && !flying) { geoDirty = false; scheduleHyp(); }
+  if (geoDirty && !flying && st.mode !== "build") { geoDirty = false; scheduleHyp(); }
   if (!flying && fly.needAnalysis) { fly.needAnalysis = false; scheduleHyp(); }
   const enc = dev.createCommandEncoder();
   let readF = false, spf = 0, readG = null;
@@ -8868,13 +9083,13 @@ function fillPresetList() {
   $("#presetK").textContent = lib === "engine" ? "Engine or intake" : "Body";
   $("#libBody").setAttribute("aria-checked", String(lib === "body"));
   $("#libEng").setAttribute("aria-checked", String(lib === "engine"));
-  $("#libBuild").setAttribute("aria-checked", String(lib === "build"));
-  $("#bldPane").hidden = lib !== "build"; $("#libPane").hidden = lib === "build"; $("#vehPane").hidden = lib === "build";
+  const isB = st.preset === "builder";
+  $("#designCard").hidden = !isB; $("#vehPane").hidden = isB;
+  if (isB && BLD) $("#designName").textContent = BLD.name;
 }
 function setLibrary(lib) {
   if (st.lib === lib) return;
   st.lib = lib; fillPresetList();
-  if (lib === "build") { requestAnimationFrame(() => { bldApply(); }); return; }
   const cur = PRESETS[st.preset];
   if ((cur && (cur.cat || "body")) !== lib) applyPreset(lib === "engine" ? "spike2" : "spaceplane");
 }
@@ -8997,13 +9212,16 @@ function buildUI() {
   fillPresetList();
   $("#libBody").addEventListener("click", () => setLibrary("body"));
   $("#libEng").addEventListener("click", () => setLibrary("engine"));
-  $("#libBuild").addEventListener("click", () => setLibrary("build"));
+  st.mode = "test"; document.body.dataset.mode = "test";
+  document.querySelectorAll("#modes .mode").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  $("#btnToBuild").addEventListener("click", () => setMode("build"));
   wireDuct();
   $("#btnGridChk").addEventListener("click", () => { if (dev && R) startGridCheck(); });
   $("#btnVal").addEventListener("click", () => { if (dev && R) startValidation(); });
   { const ms = $("#feaMat"); for (const [k, m] of Object.entries(MATERIALS)) { const o = document.createElement("option"); o.value = k; o.textContent = m.name; ms.appendChild(o); } }
   $("#btnFEA").addEventListener("click", () => runFEA());
-  $("#btnOpt").addEventListener("click", () => { if (dev && R) optStart(); });
+  $("#btnOpt").addEventListener("click", () => { if (dev && R) optStart("opt"); });
+  $("#btnSens").addEventListener("click", () => { if (dev && R) optStart("sens"); });
   $("#optProb").addEventListener("change", syncOptUI); syncOptUI();
   $("#optBox").addEventListener("toggle", () => requestAnimationFrame(optDraw));
   initAscentUI();

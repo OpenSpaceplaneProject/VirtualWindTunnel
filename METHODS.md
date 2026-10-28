@@ -8,9 +8,18 @@ How each part of the Virtual Windtunnel works, what it assumes and how to read i
 
 For imported models that arrive pointing the wrong way. The nose should face into the flow, the wings run sideways and the belly face down. Yaw 180° turns a model that arrives tail-first. Use the Flight tab for angle of attack.
 
+### Build and Test
+
+Two screens, switched at the top centre.
+
+- **Build:** the design alone, in its part colours, with nothing simulated, so every slider responds immediately. Pick a component from the chips, or click it in the plan or side drawing, and only its sliders show.
+- **Test:** the design (or any library body) in the tunnel, with every analysis and the optimiser. What changed in Build is analysed when Test opens.
+
+Parts are linked by relations rather than placed independently. Wing roots sit on the fuselage side. Fins stand on whatever surface is under their root: the fuselage's top, or the wing's upper skin at that chord station, or the wing-tip chord. Elevons hinge on the wing's trailing edge and the body flap on the underside's.
+
 ### Spaceplane builder
 
-The Builder tab of the Model panel. A spaceplane as components, each with sliders:
+A spaceplane as components, each with sliders:
 
 - **Fuselage:** elliptic nose with droop, width-to-height ratio, section squareness, planform from round to triangular, upper surface falling aft as on lifting bodies, flat underside, tail closure, blunt base.
 - **Wing:** apex, root chord, semi-span (from the centreline, like a published span), sweep, taper, height, NACA 4-digit thickness ratio, dihedral. The root sits on the fuselage side.
@@ -50,15 +59,22 @@ The reference library holds the Shuttle orbiter, Buran, X-37B, Dream Chaser, HL-
 
 ### Optimise shape
 
-**Spaceplane, whole mission.** Starts from the builder's design and varies the numeric fields of the chosen groups (fuselage, wing, strakes, tail, canards) within their ranges. Mass and balance point follow the shape. Every candidate is flown through the whole mission:
+**Spaceplane, whole mission.** Starts from the built design and varies the numeric fields of the chosen groups within their ranges. Mass and balance point follow the shape. Every candidate is flown through the whole mission:
 
-- ascent drag loss, from the ascent simulator with the candidate's drag curve;
-- peak nose heating, from the entry simulator with the candidate's own α table;
-- hypersonic L/D (cross-range), best between 15° and 45°;
-- landing speed at α 15° (Helmbold lift slope plus Polhamus vortex lift on the planform);
-- whether the tanks and bay still fit, and pitch stability (dCm/dα over 30–45°, about the landing balance point).
+- ascent drag loss;
+- peak nose heating on an entry that has to reach the ground (an entry that skips back out is penalised, not rewarded for its low heating);
+- hypersonic L/D;
+- landing speed;
+- whether the tanks and bay fit;
+- pitch stability.
 
-The score is the sum of the first three relative to the starting shape, weighted by the priority. Tanks that don't fit, landing above the limit and pitch instability are penalties. Surface models only (Newtonian), so a candidate takes seconds and the flowfield is paused. Up to 300 candidates; with many groups free the simplex moves slowly, so free one or two groups at a time.
+The score is the sum of the first three relative to the start, weighted by priority, plus penalties.
+
+The problem is a descent in many dimensions, with each slider a coordinate:
+
+- **Gradient descent:** SPSA. Each step perturbs every free parameter at once by ± a random sign and scores the two candidates, so a step costs two evaluations however many parameters are free. Adam takes the steps, in the sliders' logistic coordinates, so bounds are never crossed.
+- **Simplex:** Nelder–Mead, kept for comparison.
+- **Sensitivity:** nudges each free parameter up and down (2n evaluations) and shows, per 10 % of each slider's range, how the score moves and which way improves it. Hovering a row shows the effect on heating, L/D, ascent drag, landing speed and mass.
 
 **Least wave drag body (benchmark).** Five radii of a body of revolution at fixed length and volume, each candidate scored by the flow solver's pressure drag. Linear theory's answer is the Sears–Haack body, so this checks the optimiser and solver find a known optimum before you trust them on your own problems.
 
