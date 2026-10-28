@@ -469,6 +469,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               <div class="pane bldGrid">
                 <label class="field"><span class="k">Propellant</span><select id="bldProp"></select></label>
                 <label class="field"><span class="k">Propellant, t</span><input type="number" data-i="mp" min="0" step="any"></label>
+                <label class="chk"><input type="checkbox" id="bldFill">Fill the hull with propellant</label>
                 <label class="field" title="Nose to tail: cab cabin, pay payload bay, fu fuel, ox oxidiser; repeat a tank to split it"><span class="k">Order</span><input type="text" data-i="order"></label>
                 <label class="field"><span class="k">Cabin, of L</span><input type="number" data-i="cab" min="0" max="0.6" step="0.01"></label>
                 <label class="field"><span class="k">Payload, t</span><input type="number" data-i="pay" min="0" step="any"></label>
@@ -4397,7 +4398,7 @@ const bldDef = () => ({
   flap: { on: 0, len: 0.05, w: 0.6, df: 0 },
   eng: { type: "bell", prop: "tanks", n: 0, F: 1000, eps: 35, tw: 70 },
   rcs: { on: 0, F: 400, n: 12 },
-  int: { prop: "LOX/LH2", mp: 0, pay: 0, payLen: 0, cab: 0, order: "cab,fu,ox,pay", ks: 18, other: 0, tank: "auto", cont: "auto" },
+  int: { prop: "LOX/LH2", mp: 0, pay: 0, payLen: 0, cab: 0, order: "cab,fu,ox,pay", ks: 18, other: 0, tank: "auto", cont: "auto", fill: 0 },
   // part colours in PARTS order: fuselage, wing, tail, canards, nacelles, body flap, nozzles, control surfaces, underside
   paint: { colors: ["#e6e3dc", "#e6e3dc", "#e6e3dc", "#e6e3dc", "#b9b6ae", "#2a2a2c", "#5b5a58", "#a8a59d", "#1c1c1e"], belly: 0 },
 });
@@ -4786,7 +4787,10 @@ function bldCode(d) {
 function bldMass(d) {
   const f = d.fus, L = d.L, S = bldStations(f), I = d.int, P = PROPS[I.prop] || PROPS["LOX/LH2"], N = 400;
   const at = (x) => bldSecAt(f, S, Math.min(1, Math.max(0, x))), sec = (x) => bldSec(f, at(x)) * L * L;   // m²
-  const mFu = (I.mp * 1000) / (1 + P.of), mOx = (I.mp * 1000 * P.of) / (1 + P.of), order = I.order.split(",").map((k) => k.trim()).filter(Boolean);
+  const order = I.order.split(",").map((k) => k.trim()).filter(Boolean);
+  let mpKg = I.mp * 1000, mFu = 0, mOx = 0;
+  const setMp = (kg) => { mpKg = kg; mFu = kg / (1 + P.of); mOx = (kg * P.of) / (1 + P.of); };
+  setMp(mpKg);
   const nF = order.filter((k) => k === "fu").length || 1, nO = order.filter((k) => k === "ox").length || 1;
   const E = engineDims(d), nE = Math.round(d.eng.n), engBay = nE > 0 && !d.nac.on ? Math.max(0.8 * E.len, 0.03) : 0;
   const x0 = Math.min(f.ln * 0.55, 0.3), xEnd = 1 - Math.max(engBay, 0.5 * f.boat, 0.02);
@@ -4926,7 +4930,7 @@ function bldMass(d) {
     // which is wherever balances the vehicle: their centre is solved for the landing balance point to sit
     // the static margin ahead of the planform centre, within the usable length. What that cannot reach
     // is ballast, at the nose or the tail.
-    const pay = items.find((i) => i.k === "pay"), mp = I.mp * 1000, mPay = I.pay * 1000, xPay = pay ? pay.xc : 0.5;
+    const pay = items.find((i) => i.k === "pay"), mp = mpKg, mPay = I.pay * 1000, xPay = pay ? pay.xc : 0.5;
     const propX = items.filter((i) => i.V).reduce((a, i) => a + i.m * i.xc, 0) / Math.max(mp, 1e-9) || 0.5, resid = 0.01 * mp;
     const mSys = I.other * 1000 - mGear, fixed = [...M0, ["Landing gear", mGear, xG]];
     const mFix = fixed.reduce((a, m) => a + m[1], 0) + mPay + resid, momFix = fixed.reduce((a, m) => a + m[1] * m[2], 0) + mPay * xPay + resid * propX;
@@ -4940,9 +4944,23 @@ function bldMass(d) {
     const land = dry + mPay + resid, gross = dry + mPay + mp;
     return { M, dry, land, gross, mp, tankV, ballast, xBal, cgLand: (dry * xDry + mPay * xPay + resid * propX) / land, cgGross: (dry * xDry + mPay * xPay + mp * propX) / gross };
   };
+  // Fill: the most propellant the tanks can take in the length left by everything else, found by
+  // bisection on the stack (in the listed mixture ratio). It is written back to the design as its
+  // propellant, so ascent, entry and the optimiser all fly it.
+  const canFill = I.fill && order.includes("fu") && order.includes("ox");
+  const fill = (gears) => {
+    const rhoB = (1 + P.of) / (1 / P.fu + P.of / P.ox);
+    let lo = 0, hi = (Vavail * rhoB) / 1.03;
+    for (let i = 0; i < 16 && hi - lo > 0.004 * hi; i++) { const mid = (lo + hi) / 2; setMp(mid); if (stack(gears).over > 0) hi = mid; else lo = mid; }
+    setMp(Math.floor(lo / 100) * 100);
+  };
   let st0 = stack([]), ms = massOf(st0.items, gearFor(0.6, 0)), gears = gearFor(ms.cgLand, ms.land);
+  if (canFill) fill(gears);
   for (let k = 0; k < 2; k++) { st0 = stack(gears); ms = massOf(st0.items, gears); gears = gearFor(ms.cgLand, ms.land); }
-  st0 = stack(gears); ms = massOf(st0.items, gears);
+  st0 = stack(gears);
+  if (canFill && st0.over > 0) { fill(gears); st0 = stack(gears); }
+  ms = massOf(st0.items, gears);
+  if (canFill) I.mp = mpKg / 1000;
   const { items, over } = st0;
   const boxes = items.map((it) => {
     if (it.shape === "capsule" || it.shape === "twin") {
@@ -4975,7 +4993,10 @@ function bldMass(d) {
     const t90 = (a) => 2 * Math.sqrt((Math.PI / 2) / Math.max(a, 1e-9));   // bang-bang quarter turn
     rcs = { pts: [[xf, 0, qf.zc], [xa, ya, qa.zc], [xa, -ya, qa.zc]], acc, t90: { pitch: t90(acc.pitch), yaw: t90(acc.yaw), roll: t90(acc.roll) } };
   }
-  return { M, items, boxes, dry, gross, land, mp, Swet, Splan, over, Vavail, tankV, xEnd, x0, cgLand, cgGross, P, engBay, E, rcs, xPlan, xTarget, ballast };
+  // how much of the usable volume the layout takes (tanks, cabin, payload, gear and engine bays)
+  const L3 = L * L * L, Vused = boxes.reduce((a, b) => a + (b.pair ? 2 : 1) * L3 * (b.shape === "cylinder" ? Math.PI * b.r * b.r * Math.max(b.x1 - b.x0 - 2 * b.r, 0) + (4 / 3) * Math.PI * b.r ** 3 : (b.x1 - b.x0) * (b.y1 - b.y0) * (b.z1 - b.z0)), 0);
+  const dv = nE > 0 && mp > 0 ? E.vac.Isp * G0 * Math.log(gross / (gross - mp)) : 0;
+  return { M, items, boxes, dry, gross, land, mp, Swet, Splan, over, Vavail, Vused, dv, tankV, xEnd, x0, cgLand, cgGross, P, engBay, E, rcs, xPlan, xTarget, ballast };
 }
 
 // Tank and bay placement: try every order of the items (the cabin stays at the front) and with each
@@ -5062,6 +5083,8 @@ function livUpload() {
 function bldApply(recompile = true) {
   const m = bldMass(BLD);
   BLD.m = m;
+  const mpIn = $('#bldInt input[data-i="mp"]');
+  if (mpIn) { mpIn.disabled = !!BLD.int.fill; if (BLD.int.fill) mpIn.value = (+BLD.int.mp).toFixed(1); }
   st.ent.L = BLD.L; st.ent.mass = Math.round(m.land); st.ent.cg = +m.cgLand.toFixed(3);
   $("#eL").value = st.ent.L; $("#eMass").value = st.ent.mass; $("#eCg").value = st.ent.cg;
   bldToEngines();
@@ -5218,6 +5241,7 @@ function buildBuilderUI() {
   $("#btnBldCad").addEventListener("click", () => saveFile(`${(BLD.name || "spaceplane").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.design.json`, JSON.stringify(cadPackage(BLD), null, 1)));
   $("#bldProp").addEventListener("change", (e) => { BLD.int.prop = e.target.value; bldEdited(); });
   $("#bldCont").addEventListener("change", (e) => { BLD.int.cont = e.target.value; bldEdited(); });
+  $("#bldFill").addEventListener("change", (e) => { BLD.int.fill = e.target.checked ? 1 : 0; bldEdited(); });
   document.querySelectorAll("#bldInt input[data-i]").forEach((x) => x.addEventListener("change", () => {
     BLD.int[x.dataset.i] = x.type === "text" ? x.value.replace(/\s/g, "") : Math.max(0, +x.value || 0); bldEdited();
   }));
@@ -5260,7 +5284,7 @@ function bldFields() {
   document.querySelectorAll("#livPal input[data-m]").forEach((x) => { x.value = BLD.paint.colors[+x.dataset.m]; });
   $("#livBelly").checked = !!BLD.paint.belly;
   $("#bldEngType").value = BLD.eng.type; $("#bldEngProp").value = BLD.eng.prop;
-  $("#bldTail").value = BLD.tail.type; $("#bldProp").value = BLD.int.prop; $("#bldCont").value = BLD.int.cont || "auto"; $("#bldL").value = BLD.L; $("#bldName").value = BLD.name;
+  $("#bldTail").value = BLD.tail.type; $("#bldProp").value = BLD.int.prop; $("#bldCont").value = BLD.int.cont || "auto"; $("#bldFill").checked = !!BLD.int.fill; $('#bldInt input[data-i="mp"]').disabled = !!BLD.int.fill; $("#bldL").value = BLD.L; $("#bldName").value = BLD.name;
 }
 // The hand-off to the CAD stage: the design record (the source of truth), what the tunnel derived from
 // it (stations, planform corners, boxes, engines, mass), and what the analysis found, in one file the
@@ -5498,7 +5522,8 @@ function bldInfo() {
   el.innerHTML = row("Gross · dry · landing", `${t(m.gross)} · ${t(m.dry)} · ${t(m.land)}`) +
     m.M.map(([k, v]) => row(k, t(v))).join("") +
     (m.mp ? row("Propellant", `${t(m.mp)} ${BLD.int.prop} · tanks ${m.tankV.toFixed(1)} m³`) : "") +
-    row("Usable volume", `${m.Vavail.toFixed(1)} m³` + (m.over > 0 ? ` · <span class="err">does not fit: ${(m.over * Lm).toFixed(2)} m too long</span>` : "")) +
+    (m.dv ? row("Δv, vacuum, ideal", `${(m.dv / 1000).toFixed(2)} km/s`) : "") +
+    row("Usable volume · used", `${m.Vavail.toFixed(1)} m³ · ${((100 * m.Vused) / Math.max(m.Vavail, 1e-9)).toFixed(0)} %` + (m.over > 0 ? ` · <span class="err">does not fit: ${(m.over * Lm).toFixed(2)} m too long</span>` : "")) +
     row("Balance point, full · landing", `${m.cgGross.toFixed(3)} · ${m.cgLand.toFixed(3)} L`) +
     row("Most aft for stability on entry", `${m.xTarget.toFixed(3)} L`) +
     row("Wetted · planform area", `${m.Swet.toFixed(0)} · ${m.Splan.toFixed(0)} m²`) +
