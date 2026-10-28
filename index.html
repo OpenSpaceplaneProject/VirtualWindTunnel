@@ -4882,12 +4882,12 @@ function bldMass(d) {
       else {
         const dx = 0.002, opts = [];
         for (const n of [1, 2]) {   // capsules: grow the length until the volume fits at the narrowest radius
-          let l = 0, r = Infinity;
-          while (l < 1.5) { l += dx; r = Math.min(r, rAt(x + l, n, gears)); if (r > 0 && n * capV(r * L, Math.max(l, 2 * r) * L) >= it.V) break; }
+          let l = 0, r = Infinity, ok = false;
+          while (l < 1.5) { l += dx; r = Math.min(r, rAt(x + l, n, gears)); if (r > 0 && n * capV(r * L, Math.max(l, 2 * r) * L) >= it.V) { ok = true; break; } }
           const rs = Math.cbrt((3 * it.V) / (4 * Math.PI * n)) / L;   // a sphere is enough: shrink to it
           if (rs <= r && l <= 2 * r + dx) { r = rs; l = 2 * rs; }
           r = Math.min(r, l / 2);
-          opts.push({ shape: n === 2 ? "twin" : "capsule", l: Math.max(l, 2 * r), r, cost: Math.max(l, 2 * r) });
+          opts.push({ shape: n === 2 ? "twin" : "capsule", l: Math.max(l, 2 * r), r, cost: ok ? Math.max(l, 2 * r) : Infinity });
         }
         let l = 0, v = 0;   // integral: 80 % of the (gear-free) section
         while (v < it.V && l < 1.5) { const h = hullAt(x + l, gears); v += 0.8 * (sec(x + l) * (h.top - h.bot) / Math.max(h.q.aT + h.q.zc - Math.max(h.q.zc - h.q.aB, h.q.zb), 1e-9)) * dx * L; l += dx; }
@@ -4895,7 +4895,8 @@ function bldMass(d) {
         // does not become a sliver across the whole section
         const hgt = hullAt(x, gears).top - hullAt(x, gears).bot, li = Math.max(l, 0.6 * hgt);
         opts.push({ shape: "integral", l: li, cost: li * 1.2 });
-        const pick = I.tank && I.tank !== "auto" ? opts.find((o) => o.shape === I.tank) || opts[0] : opts.reduce((a, o) => (o.cost < a.cost ? o : a));
+        // a capsule that never holds the volume (the hull narrows to nothing first) is not an option
+        const pick = I.tank && I.tank !== "auto" ? opts.find((o) => o.shape === I.tank) || opts[0] : opts.reduce((a, o) => (o.cost < a.cost ? o : a), opts[2]);
         Object.assign(it, { shape: pick.shape, r: pick.r }); x += pick.l; it.x1 = x;
       }
       it.xc = (it.x0 + it.x1) / 2; x += 0.005;
@@ -5411,6 +5412,11 @@ function hull2(pts) {
 // The joined outline of a view: a 2D distance field of the parts, joined with the 3D model's fillet
 // radii (smooth union), contoured by marching squares. The drawing shows the same fillets and junctions
 // the solvers see, as smooth closed curves. Cached per design and view.
+// separate pieces of a contoured view: loops not inside another loop (holes are inside)
+function outerLoops(L) {
+  const inP = (P, x, y) => { let c = false; for (let i = 0, j = P.length - 1; i < P.length; j = i++) { const [xi, yi] = P[i], [xj, yj] = P[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+  return L.filter((A, i) => !L.some((B, j) => j !== i && inP(B, A[0][0], A[0][1]))).length;
+}
 const SIL_K = [0, 0.025, 0.012, 0.015, 0.01, 0.004, 0];
 const SIL = new Map();
 function bldSilhouette(key, polys, parts, circs = [], circPart = 4) {
@@ -5566,8 +5572,10 @@ function bldDraw() {
   // out once the design rests, and the drawing redrawn with it.
   const ccw = (P) => { let a = 0; for (let i = 0; i < P.length; i++) { const [x0, y0] = P[i], [x1, y1] = P[(i + 1) % P.length]; a += x0 * y1 - x1 * y0; } return a < 0 ? [...P].reverse() : P; };
   let pending = false;
+  const pieces = {};
   const union = (view, polys, parts, circs, X_, Y_, tone) => {
     let loops = SIL.get(key + view);
+    if (loops) pieces[view] = outerLoops(loops);
     if (!loops) {
       pending = true;
       loops = polys.map(ccw).map((P) => P);
@@ -5657,6 +5665,7 @@ function bldDraw() {
   const step = [0.5, 1, 2, 5, 10, 20, 50, 100].find((v) => (v / Lm) * sc > rw / 6) || 100, bpx = (step / Lm) * sc, sbX = Yf(-halfW), sbY = yS + 30;
   for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? bg : ink; g.fillRect(sbX + (i * bpx) / 2, sbY, bpx / 2, 5); } g.strokeStyle = ink; g.lineWidth = 0.8; g.strokeRect(sbX, sbY, 2 * bpx, 5);
   g.fillStyle = mute; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(`${2 * step} m`, sbX + 2 * bpx + 8, sbY + 3);
+  if (!pending) { const prev = JSON.stringify(BLDUI.pieces || {}); BLDUI.pieces = pieces; if (prev !== JSON.stringify(pieces)) buildHeadline(); }
   if (pending) {
     clearTimeout(bldDraw.t);
     bldDraw.t = setTimeout(() => {
@@ -6361,7 +6370,11 @@ function buildHeadline() {
   const m = BLD.m, Lm = BLD.L, t = (kg) => `${(kg / 1000).toFixed(kg < 1e4 ? 2 : 1)} t`, span = Math.max(BLD.wing.on ? BLD.wing.b : 0, BLD.canard.on ? BLD.canard.b : 0, BLD.fus.rf * BLD.fus.w) * 2 * Lm;
   $("#hlReg").textContent = BLD.name || "Custom";
   $("#hlSub").textContent = `${Lm.toFixed(1)} m long · ${span.toFixed(1)} m span · ${t(m.gross)} gross · ${t(m.land)} landing` + (m.dv ? ` · Δv ${(m.dv / 1000).toFixed(2)} km/s` : "");
-  $("#hlStat").innerHTML = `<span class="cgk" style="--c:#f0743c"></span>full ${m.cgGross.toFixed(3)} L · <span class="cgk" style="--c:#9fb3d8"></span>landing ${m.cgLand.toFixed(3)} L`;
+  const P2 = BLDUI.pieces, bad2 = P2 ? Object.entries(P2).filter(([, n]) => n > 1) : [];
+  const warn = bad2.length ? `<br><span class="err">Not one piece: ${bad2.map(([v, n]) => `${n} parts in ${v} view`).join(", ")}</span>`
+    : PIECES.preset === "builder" && PIECES.n > 1 ? `<br><span class="err">Not one piece in the last test: ${PIECES.n} separate solids</span>` : "";
+  const over = m.over > 0 ? `<br><span class="err">Does not fit: the stack is ${(m.over * Lm).toFixed(1)} m too long</span>` : "";
+  $("#hlStat").innerHTML = `<span class="cgk" style="--c:#f0743c"></span>full ${m.cgGross.toFixed(3)} L · <span class="cgk" style="--c:#9fb3d8"></span>landing ${m.cgLand.toFixed(3)} L` + warn + over;
 }
 // Headline card at the top of the panel: flight condition, regime and solver state.
 function updateHeadline() {
@@ -7882,6 +7895,7 @@ async function runHyp() {
       const surf = await voxAnalyse(ATT, 0);
       if (!surf) break;
       hy.surf = surf;
+      piecesCheck(surf, gk);
       hy.probe = -1;
       if (hy.probeB) {
         let best = -1, bd = 1e9;
@@ -7914,6 +7928,38 @@ async function voxAnalyse(aoa, beta) {
   return analyseSurface(new Uint32Array(fab), new Uint32Array(nab), aoa, beta);
 }
 
+// The solid as connected pieces (face-connected voxels), largest first, in voxels. A vehicle should be
+// one: a second piece is a part that does not touch the rest at this grid (a wing below the body, a
+// floating fin), and the solvers would fly it as a separate body.
+function solidPieces(f, nx, ny, nz) {
+  const N = nx * ny * nz, lab = new Int32Array(N), q = new Int32Array(N), out = [], sxy = nx * ny;
+  for (let s0 = 0; s0 < N; s0++) {
+    if (f[s0] !== 1 || lab[s0]) continue;
+    const id = out.length + 1; let h = 0, t = 0; q[t++] = s0; lab[s0] = id;
+    while (h < t) {
+      const n = q[h++], x = n % nx, y = ((n / nx) | 0) % ny, z = (n / sxy) | 0;
+      if (x > 0 && f[n - 1] === 1 && !lab[n - 1]) { lab[n - 1] = id; q[t++] = n - 1; }
+      if (x < nx - 1 && f[n + 1] === 1 && !lab[n + 1]) { lab[n + 1] = id; q[t++] = n + 1; }
+      if (y > 0 && f[n - nx] === 1 && !lab[n - nx]) { lab[n - nx] = id; q[t++] = n - nx; }
+      if (y < ny - 1 && f[n + nx] === 1 && !lab[n + nx]) { lab[n + nx] = id; q[t++] = n + nx; }
+      if (z > 0 && f[n - sxy] === 1 && !lab[n - sxy]) { lab[n - sxy] = id; q[t++] = n - sxy; }
+      if (z < nz - 1 && f[n + sxy] === 1 && !lab[n + sxy]) { lab[n + sxy] = id; q[t++] = n + sxy; }
+    }
+    out.push(t);
+  }
+  return out.sort((a, b) => b - a);
+}
+// Pieces that matter: at least 20 voxels and 0.05 % of the solid (smaller ones are grid noise on parts
+// thinner than a voxel). Said once per geometry, and kept for the Build header.
+const PIECES = { key: "", n: 1, frac: 0, preset: "" };
+function piecesCheck(S, key) {
+  const tot = S.pieces.reduce((a, b) => a + b, 0), real = S.pieces.filter((v) => v >= 20 && v >= 5e-4 * tot);
+  const n = Math.max(1, real.length), frac = tot ? 1 - real[0] / tot : 0;
+  if (PIECES.key === key) return;
+  Object.assign(PIECES, { key, n, frac, preset: st.preset });
+  if (n > 1) toast(`Not one piece: ${n} separate solids at this grid, the smaller ones ${(100 * frac).toFixed(1)} % of the volume. Parts that do not touch are flown as separate bodies.`);
+  if (st.mode === "build") buildHeadline();
+}
 function analyseSurface(f, nr, aoa, beta) {
   const [nx, ny, nz] = R.dims, sx = nx, sxy = nx * ny;
   const idx = [];
@@ -7926,8 +7972,9 @@ function analyseSurface(f, nr, aoa, beta) {
     }
   }
   const cnt = idx.length;
+  const pieces = solidPieces(f, nx, ny, nz);
   const S = {
-    cnt, idx: Uint32Array.from(idx), n: new Float32Array(3 * cnt), lap: new Float32Array(cnt), inc: new Float32Array(cnt),
+    pieces, cnt, idx: Uint32Array.from(idx), n: new Float32Array(3 * cnt), lap: new Float32Array(cnt), inc: new Float32Array(cnt),
     lit: new Uint8Array(cnt), s: new Float32Array(cnt), faces: new Uint8Array(cnt), pos: new Float32Array(3 * cnt), area: new Float32Array(cnt),
     flags: f, aoa, beta, map: new Map(),
   };
