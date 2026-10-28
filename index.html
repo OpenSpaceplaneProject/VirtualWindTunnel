@@ -85,6 +85,8 @@ body {
 .mode[aria-pressed="true"] { color: var(--bone, #d6cebd); border-bottom-color: var(--bone, #d6cebd); }
 .mode:hover { color: var(--bone, #d6cebd); }
 body[data-mode="build"] .tabs, body[data-mode="build"] #coefBox, body[data-mode="build"] .legend, body[data-mode="build"] .hlNums, body[data-mode="build"] #btnRun, body[data-mode="build"] #btnReset { display: none !important; }
+/* the balance-point symbol of the drawing, as a key in the header */
+.cgk { display: inline-block; width: 9px; height: 9px; margin: 0 4px -1px 0; border-radius: 50%; border: 1.2px solid var(--c); background: conic-gradient(transparent 0 25%, var(--c) 0 50%, transparent 0 75%, var(--c) 0); }
 .chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .chip { appearance: none; background: none; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font: inherit; font-size: 11px; padding: 6px 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip.off { opacity: 0.5; }
@@ -4335,7 +4337,7 @@ function drawAscent() {
   for (let k = 0; k <= 4; k++) { const y = CH.t + (ph * k) / 4; g.beginPath(); g.moveTo(CH.l, y); g.lineTo(CH.l + pw, y); g.stroke(); }
   const line = (arr, Y, col) => { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); for (let i = 0; i < n; i++) { const x = X(T.t[i]), y = Y(arr[i]); i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); };
   line(T.h, Yh, "#9fb3d8"); line(T.V, Yv, "#f0743c");
-  g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
+  g.font = "10px Archivo, system-ui, sans-serif";
   let ns = 0;
   const evs = hy.asc.out.ev.filter((e) => /separation|insertion|exhausted|kick/.test(e.name)).map((e) => ({ t: e.t, name: /kick/.test(e.name) ? "kick" : /separation/.test(e.name) ? `stage ${++ns}` : /insertion/.test(e.name) ? "orbit" : "burn-out" }));
   const mq = hy.asc.maxQ;
@@ -4346,12 +4348,12 @@ function drawAscent() {
     g.strokeStyle = "rgba(180,140,255,0.45)"; g.setLineDash([2, 2]); g.beginPath(); g.moveTo(x, CH.t); g.lineTo(x, CH.t + ph); g.stroke(); g.setLineDash([]);
     g.fillStyle = "rgba(180,140,255,0.9)"; g.textAlign = x > CH.l + pw - 30 ? "right" : "left"; g.fillText(e.name, x + (g.textAlign === "left" ? 3 : -3), CH.t + 10 + (k % 2) * 11);
   });
-  g.fillStyle = "#8b93a8"; g.textAlign = "right";
+  g.fillStyle = "#8e897d"; g.textAlign = "right";
   g.fillText(Math.round(hMax), CH.l - 4, CH.t + 8); g.fillText("0", CH.l - 4, CH.t + ph);
   g.fillStyle = "#9fb3d8"; g.fillText("km", CH.l - 4, CH.t + ph / 2);
   g.textAlign = "left"; g.fillStyle = "#f0743c";
   g.fillText((vMax / 1000).toFixed(1), CH.l + pw + 4, CH.t + 8); g.fillText("km/s", CH.l + pw + 2, CH.t + ph / 2);
-  g.fillStyle = "#8b93a8"; g.textAlign = "center";
+  g.fillStyle = "#8e897d"; g.textAlign = "center";
   g.fillText("0", CH.l, h - 4); g.fillText(Math.round(tMax) + " s", CH.l + pw, h - 4); g.fillText("altitude · speed", CH.l + pw / 2, h - 4);
 }
 function updateAscentInfo() {
@@ -4601,6 +4603,23 @@ function engineDims(d) {
     sl: rocketNozzle(pr, E.eps, Ae, 101325), vac: rocketNozzle(pr, E.eps, Ae, 0), mass: (E.F * 1000) / (G0 * Math.max(E.tw, 1)) };
 }
 // the flap's hinge on the underside at the trailing edge, and how far it hangs
+// the wing's mid-plane height: as set, but never so far below or above the body that the root (which
+// runs in to the centreline) would miss it, so wing and body always join
+function wingZ(d, S) {
+  const w = d.wing, f = d.fus, tr = 0.5 * w.tc * w.cr;
+  let bot = -Infinity, top = Infinity;
+  for (let i = 0; i <= 6; i++) { const q = bldSecAt(f, S, w.x + w.cr * (0.15 + (0.6 * i) / 6)); bot = Math.max(bot, Math.max(q.zc - q.aB, q.zb)); top = Math.min(top, q.zc + q.aT); }
+  return Math.min(Math.max(w.z * f.rf, bot - 0.3 * tr), top + 0.3 * tr);
+}
+// nacelle position: outboard of the body by its pos fraction of the free span; with a wing, slid fore
+// or aft as needed so at least 30 % of its length sits on the wing's local chord (never in mid-air)
+function nacPos(d, S, yr) {
+  const n = d.nac, w = d.wing, f = d.fus, q = bldSecAt(f, S, n.x + n.len / 2);
+  if (!w.on) return { x: n.x, y: q.b + n.r * 0.8, z: 0 };
+  const y = Math.min(q.b + n.r + n.pos * Math.max(0, w.b - q.b - n.r), w.b), P = wingPts(w, yr), s = Math.min(1, Math.max(0, (y - yr) / Math.max(w.b - yr, 1e-6)));
+  const le = P[0][0] + (P[1][0] - P[0][0]) * s, te = P[3][0] + (P[2][0] - P[3][0]) * s;
+  return { x: Math.min(Math.max(n.x, le - 0.7 * n.len), te - 0.3 * n.len), y, z: wingZ(d, S) + Math.max(0, y - yr) * Math.tan(w.dih * D) };
+}
 function flapHinge(d, S) { const q = bldSecAt(d.fus, S, 0.985); return { x: 0.985, z: Math.max(q.zc - q.aB, q.zb) }; }
 // engine positions on the base (y, z), above the body flap: one centred; two side by side; three as
 // a triangle with one on top; more on a ring. Scaled down to fit the base if they would not.
@@ -4638,7 +4657,7 @@ function surfaceZ(d, S, yr, x, y, strict = false) {
     const P = wingPts(w, yr), s = Math.min(1, Math.max(0, (ay - yr) / Math.max(w.b - yr, 1e-6))), le = P[0][0] + (P[1][0] - P[0][0]) * s, te = P[3][0] + (P[2][0] - P[3][0]) * s, c = te - le;
     if (x >= le && x <= te) {
       const u = (x - le) / c, yt = 5 * w.tc * c * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1036 * u ** 4);
-      z = Math.max(z, w.z * f.rf + Math.max(0, ay - yr) * Math.tan(w.dih * D) + yt);
+      z = Math.max(z, wingZ(d, S) + Math.max(0, ay - yr) * Math.tan(w.dih * D) + yt);
     }
   }
   return Number.isFinite(z) ? z : strict ? NaN : q.zc;
@@ -4649,13 +4668,19 @@ function finSpecs(d, S, yr) {
   const xm = t.x - t.cr / 2, q0 = bldSecAt(f, S, xm), top = surfaceZ(d, S, yr, xm, 0) - 0.004, span = w.on ? w.b : f.rf * f.w;
   const push = (y0, z0, cant, tag, xr = t.x, cr = t.cr, rud = false) => out.push({ y0, z0, cant, tag, xr, cr, rud, h: t.h, sweep: t.sweep, taper: t.taper });
   if (["single", "triple", "conv", "cruci"].includes(t.type)) push(0, top, 0, "fc", t.x, t.cr, true);
-  if (t.type === "cruci") push(0, q0.zc - q0.aB * 0.85, 180, "fd");
+  if (t.type === "cruci") push(0, Math.max(q0.zc - q0.aB * 0.85, q0.zb + 0.004), 180, "fd");   // on the flat underside, if any
   // twin and V fins stand on the body or the wing, whichever is under their root
   // a root with nothing under it (behind the wing's trailing edge, beside the body) moves inboard onto the body
   const seat = (y) => { const xs = [t.x - t.cr * 0.9, xm, t.x - t.cr * 0.1]; return xs.every((x) => Number.isFinite(surfaceZ(d, S, yr, x, y, true))) ? y : Math.min(y, q0.b * 0.6); };
   if (t.type === "twin" || (t.type === "triple" && t.y < 0.95)) { const y0 = seat(Math.max(q0.b * 0.5, t.y * span)); push(y0, surfaceZ(d, S, yr, xm, y0) - 0.004, t.cant, "ft", t.x, t.cr, t.type === "twin"); }
   if (t.type === "v") { const y0 = seat(Math.max(0.01, t.y * q0.b)); push(y0, surfaceZ(d, S, yr, xm, y0) - 0.004, Math.max(t.cant, 20), "fv", t.x, t.cr, true); }
-  if (w.on && (t.type === "tips" || (t.type === "triple" && t.y >= 0.95))) { const P = wingPts(w, yr), ct = Math.max(P[2][0] - P[1][0], 0.03); push(w.b - 0.003, w.z * f.rf + (w.b - yr) * Math.tan(w.dih * D), t.cant, "fw", P[1][0] + ct, ct); }
+  // tip fins stand where the wing's chord is at least their root chord: at the tip, or inboard of a
+  // pointed tip, so they always sit on the wing
+  if (w.on && (t.type === "tips" || (t.type === "triple" && t.y >= 0.95))) {
+    const P = wingPts(w, yr), ct = P[2][0] - P[1][0], cf = Math.max(ct, 0.6 * t.cr, 0.03), sF = Math.max(0, Math.min(1, (w.cr - cf) / Math.max(w.cr - ct, 1e-6)));
+    const y0 = yr + sF * (w.b - yr) - 0.003, le = P[0][0] + (P[1][0] - P[0][0]) * sF;
+    push(y0, wingZ(d, S) + Math.max(0, y0 - yr) * Math.tan(w.dih * D), t.cant, "fw", le + Math.min(cf, w.cr), Math.min(cf, w.cr));
+  }
   return out;
 }
 function tailplaneSpec(d, S) {
@@ -4691,7 +4716,7 @@ function bldCode(d) {
   if (f.flat > 0) L.push(`  c[0] = max(c[0], ${f5(-f.rf * (1 - f.flat))} - p.z);   // flat underside`);
   const ctrl = [];
   if (w.on) {
-    const P = wingPts(w, yr), zw = w.z * f.rf, kx = Math.cos(Math.max(w.sweep, 0) * D);
+    const P = wingPts(w, yr), zw = wingZ(d, S), kx = Math.cos(Math.max(w.sweep, 0) * D);
     L.push(`  let wq = vec3f(p.x, abs(p.y), p.z - ${f5(zw)} - max(abs(p.y) - ${f5(yr)}, 0.0) * ${f5(Math.tan(w.dih * D))});`);
     const foil = (q) => `sdFoilWing(${q}, ${v2(...P[0])}, ${v2(...P[1])}, ${v2(...P[2])}, ${v2(...P[3])}, ${f5(w.tc)}, ${f5(kx)})`;
     let wingE = foil("wq");
@@ -4740,10 +4765,8 @@ function bldCode(d) {
     L.push(`  let cq = vec3f(p.x, abs(p.y), p.z);`, `  c[3] = sdPlate(${mins(quad("cq.xy", [P[0][0], -0.05], P[1], P[2], [P[3][0], -0.05]))} + 0.004, cq.z, 0.002, 0.004);`);
   }
   if (d.nac.on) {
-    const n = d.nac, q = bldSecAt(f, S, n.x + n.len / 2);
-    const y = w.on ? q.b + n.r + n.pos * Math.max(0, w.b - q.b - n.r) : q.b + n.r * 0.8;
-    const z = w.on ? w.z * f.rf + Math.max(0, y - yr) * Math.tan(w.dih * D) : 0, A = v3(n.x, y, z), B = v3(n.x + n.len * 0.25, y, z);
-    L.push(`  let nq = vec3f(p.x, abs(p.y), p.z);`, `  c[4] = min(sdRoundCone(nq, ${A}, ${B}, ${f5(n.r * 0.35)}, ${f5(n.r)}), sdCapsule(nq, ${B}, ${v3(n.x + n.len - n.r, y, z)}, ${f5(n.r)}));`);
+    const n = d.nac, { x: nx, y, z } = nacPos(d, S, yr), A = v3(nx, y, z), B = v3(nx + n.len * 0.25, y, z);
+    L.push(`  let nq = vec3f(p.x, abs(p.y), p.z);`, `  c[4] = min(sdRoundCone(nq, ${A}, ${B}, ${f5(n.r * 0.35)}, ${f5(n.r)}), sdCapsule(nq, ${B}, ${v3(nx + n.len - n.r, y, z)}, ${f5(n.r)}));`);
   }
   if (d.flap.on) {
     // body flap: a plate continuing the underside aft of its hinge, deflected about the hinge line
@@ -4898,7 +4921,7 @@ function bldMass(d) {
     // wing root: deep enough over the bay, and the bay under the wing there
     if (w.on && xa >= wp[0][0] && xb <= wp[3][0]) {
       const c = wp[3][0] - wp[0][0], u = (xq - wp[0][0]) / c, th = 2 * 5 * w.tc * c * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1036 * u ** 4);
-      if (th >= 0.9 * D_) { const zw = w.z * f.rf, y0 = Math.max(yr, bldHalfW(f, at(xq), zw)) + 0.003; const zg = zw + Math.max(0, y0 + 0.4 * D_ - yr) * Math.tan(w.dih * D); out.push({ k: "gear", name: "Main gear bays", x0: xa, x1: xb, y0, y1: y0 + 0.8 * D_, z0: zg - th * 0.38, z1: zg + th * 0.38, pair: true, inBody: false }); }
+      if (th >= 0.9 * D_) { const zw = wingZ(d, S), y0 = Math.max(yr, bldHalfW(f, at(xq), zw)) + 0.003; const zg = zw + Math.max(0, y0 + 0.4 * D_ - yr) * Math.tan(w.dih * D); out.push({ k: "gear", name: "Main gear bays", x0: xa, x1: xb, y0, y1: y0 + 0.8 * D_, z0: zg - th * 0.38, z1: zg + th * 0.38, pair: true, inBody: false }); }
     }
     if (!out.length) {
       let low = -Infinity, hw = Infinity; for (let i = 0; i <= 4; i++) { const q = at(xa + ((xb - xa) * i) / 4); low = Math.max(low, Math.max(q.zc - q.aB, q.zb)); }
@@ -4920,7 +4943,7 @@ function bldMass(d) {
       ["Structure", I.ks * Swet, xA],
       ["Heat shield", Swet * (0.5 * 10 + 0.5 * 4), xA],
       ["Tanks", tankV * P.tank, items.filter((i) => i.V).reduce((a, i) => a + i.V * i.xc, 0) / Math.max(tankV, 1e-9) || 0.5],
-      ["Engines", nE * E.mass, d.nac.on ? d.nac.x + 0.6 * d.nac.len : 1 - engBay / 2],
+      ["Engines", nE * E.mass, d.nac.on ? nacPos(d, S, yr).x + 0.6 * d.nac.len : 1 - engBay / 2],
       ["RCS", d.rcs.on ? 3 * d.rcs.n * (2 + d.rcs.F / 500) : 0, 0.5],
     ];
     const dry0 = M0.reduce((a, m) => a + m[1], 0) + I.other * 1000, mGear = Math.min(I.other * 1000, 0.035 * (dry0 + I.pay * 1000));
@@ -5088,7 +5111,7 @@ function bldApply(recompile = true) {
   st.ent.L = BLD.L; st.ent.mass = Math.round(m.land); st.ent.cg = +m.cgLand.toFixed(3);
   $("#eL").value = st.ent.L; $("#eMass").value = st.ent.mass; $("#eCg").value = st.ent.cg;
   bldToEngines();
-  bldDraw(); bldInfo(); livPalette(); livDraw();
+  bldDraw(); bldInfo(); livPalette(); livDraw(); buildHeadline();
   if (recompile) {
     clearTimeout(bldApply.t);
     bldApply.t = setTimeout(() => {
@@ -5117,7 +5140,7 @@ function setMode(m) {
     if (st.preset !== "builder") bldApply(); else { bldApply(false); }
     requestAnimationFrame(() => { bldDraw(); bldInfo(); });
   } else {
-    tabsPane("model");
+    tabsPane("model"); $("#hlStat").textContent = ""; try { updateHeadline(); } catch (e) { /* before the GPU is up */ }
     document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.tab === "model")));
     if (st.wasRunning !== undefined) { running = st.wasRunning; st.wasRunning = undefined; syncRun(); }
     geoDirty = true;   // analyse what was built
@@ -5177,7 +5200,7 @@ function bldPick(px, py) {
     const y = Math.abs((M.cy - py) / M.sc);
     if (x > 0.995 && d.eng.n > 0) return "eng";
     if (d.canard.on && inPoly(wingPts({ ...d.canard, taper: 0.3 }), x, y)) return "canard";
-    if (d.nac.on) { const n = d.nac, y0 = d.wing.on ? q.b + n.r + n.pos * Math.max(0, d.wing.b - q.b - n.r) : q.b; if (x > n.x && x < n.x + n.len && Math.abs(y - y0) < n.r * 1.5) return "nac"; }
+    if (d.nac.on) { const n = d.nac, N = nacPos(d, S, yr); if (x > N.x && x < N.x + n.len && Math.abs(y - N.y) < n.r * 1.5) return "nac"; }
     if (d.wing.on && inPoly(wingPts(d.wing, yr), x, y)) {
       const P = wingPts(d.wing, yr), s = Math.min(1, Math.max(0, (y - yr) / Math.max(d.wing.b - yr, 1e-6))), te = P[3][0] + (P[2][0] - P[3][0]) * s, c = te - (P[0][0] + (P[1][0] - P[0][0]) * s);
       return d.ctrl.on && x > te - d.ctrl.ce * c ? "ctrl" : "wing";
@@ -5300,7 +5323,7 @@ function cadPackage(d) {
     design: rec,
     derived: {
       length: L, fuselageSections: sections,
-      wing: d.wing.on ? { planformHalf: sc(wingPts(d.wing, yr)), rootAtY: yr * L, zMid: d.wing.z * d.fus.rf * L, thicknessRatio: d.wing.tc, aerofoil: "NACA 4-digit symmetric, closed trailing edge", dihedralDeg: d.wing.dih } : null,
+      wing: d.wing.on ? { planformHalf: sc(wingPts(d.wing, yr)), rootAtY: yr * L, zMid: wingZ(d, S) * L, thicknessRatio: d.wing.tc, aerofoil: "NACA 4-digit symmetric, closed trailing edge", dihedralDeg: d.wing.dih } : null,
       strake: d.strake.on && d.wing.on ? sc(strakePts(d, S, yr)) : null,
       fins: finSpecs(d, S, yr).map((F) => { const x0 = F.xr - F.cr, xt = F.h * Math.tan(F.sweep * D);
         return { root: [0, F.y0 * L, F.z0 * L], cantDeg: F.cant, mirrored: F.y0 > 1e-6, rudder: F.rud && d.tail.rud > 0 ? { chordFraction: d.tail.rud, splitDeg: d.tail.dr } : null,
@@ -5309,9 +5332,8 @@ function cadPackage(d) {
       canards: d.canard.on ? { planformHalf: sc(wingPts({ x: d.canard.x, b: d.canard.b, sweep: d.canard.sweep, taper: 0.3, cr: d.canard.cr })), thickness: 0.008 * L } : null,
       elevons: d.wing.on && d.ctrl.on ? { chordFraction: d.ctrl.ce, spanFrom: d.ctrl.y0, spanTo: d.ctrl.y1, deflectionDeg: d.ctrl.de, note: "fractions of the exposed span, from the wing root" } : null,
       bodyFlap: d.flap.on ? (() => { const H = flapHinge(d, S), q = bldSecAt(d.fus, S, 0.99); return { hinge: [H.x * L, 0, H.z * L], length: d.flap.len * L, halfWidth: d.flap.w * q.b * L, thickness: 0.006 * L, deflectionDeg: d.flap.df }; })() : null,
-      nacelles: d.nac.on ? (() => { const n = d.nac, q = bldSecAt(d.fus, S, n.x + n.len / 2), w = d.wing;
-        const y = w.on ? q.b + n.r + n.pos * Math.max(0, w.b - q.b - n.r) : q.b + n.r * 0.8, z = w.on ? w.z * d.fus.rf + Math.max(0, y - yr) * Math.tan(w.dih * D) : 0;
-        return { x: n.x * L, y: y * L, z: z * L, length: n.len * L, radius: n.r * L, mirrored: true }; })() : null,
+      nacelles: d.nac.on ? (() => { const n = d.nac, N = nacPos(d, S, yr);
+        return { x: N.x * L, y: N.y * L, z: N.z * L, length: n.len * L, radius: n.r * L, mirrored: true }; })() : null,
       engines: NZ.pts.map(([y, z]) => ({ y: y * L, z: z * L, exitRadius: NZ.re * L, throatRadius: NZ.rt * L, bellLength: NZ.bell * L, type: d.eng.type })),
       enginePerformance: d.eng.n > 0 ? { chemistry: engChem(d).name, seaLevel: { thrustN: M.E.sl.F, isp: M.E.sl.Isp }, vacuum: { thrustN: M.E.vac.F, isp: M.E.vac.Isp }, massKg: M.E.mass } : null,
       boxes: M.boxes.map((b) => ({ name: b.name, kind: b.k, shape: b.shape || "box", ...(b.shape === "cylinder" ? { radius: b.r * L, axis: "x", ends: "hemispherical" } : {}), x: [b.x0 * L, b.x1 * L], y: [b.y0 * L, b.y1 * L], z: [b.z0 * L, b.z1 * L], mirrored: !!b.pair })),
@@ -5327,26 +5349,121 @@ function cadPackage(d) {
     },
   };
 }
-// Silhouettes of a design as polygons, plan (x, y) and side (x, z), for comparing designs at a glance.
+// Silhouettes of a design as polygons, plan (x, y) and side (x, z), each tagged with its part (0 body,
+// 1 wing and strakes, 2 tail, 3 canards, 4 nacelles, 5 body flap, 6 nozzles) so they can be joined
+// with the same fillets as the SDF. Wings, strakes and tailplanes run in to the centreline, as their
+// SDFs do, so they always meet the body.
 function bldPolys(d) {
-  const f = d.fus, S = bldStations(f), at = (x) => bldSecAt(f, S, x), w = d.wing, yr = w.on ? wingRootY(d, S) : 0, xs = Array.from({ length: 61 }, (_, i) => i / 60);
-  const plan = [], side = [], mir = (P) => P.map(([x, y]) => [x, -y]);
-  plan.push([...xs.map((x) => [x, at(x).b]), ...[...xs].reverse().map((x) => [x, -at(x).b])]);
-  side.push([...xs.map((x) => { const q = at(x); return [x, q.zc + q.aT]; }), ...[...xs].reverse().map((x) => { const q = at(x); return [x, Math.max(q.zc - q.aB, q.zb)]; })]);
-  if (w.on) { const P = wingPts(w, yr); plan.push(P, mir(P)); if (d.strake.on) { const T = strakePts(d, S, yr); plan.push(T, mir(T)); } }
-  if (d.canard.on) { const P = wingPts({ ...d.canard, taper: 0.3 }); plan.push(P, mir(P)); }
-  const tp = tailplaneSpec(d, S); if (tp) plan.push(tp.P, mir(tp.P));
+  const f = d.fus, S = bldStations(f), at = (x) => bldSecAt(f, S, x), w = d.wing, yr = w.on ? wingRootY(d, S) : 0, xs = Array.from({ length: 81 }, (_, i) => i / 80);
+  const plan = [], side = [], planPart = [], sidePart = [], mir = (P) => P.map(([x, y]) => [x, -y]);
+  const P_ = (P, k) => { plan.push(P); planPart.push(k); }, S_ = (P, k) => { side.push(P); sidePart.push(k); };
+  P_([...xs.map((x) => [x, at(x).b]), ...[...xs].reverse().map((x) => [x, -at(x).b])], 0);
+  S_([...xs.map((x) => { const q = at(x); return [x, q.zc + q.aT]; }), ...[...xs].reverse().map((x) => { const q = at(x); return [x, Math.max(q.zc - q.aB, q.zb)]; })], 0);
+  if (w.on) {
+    const P = wingPts(w, yr), half = [[P[0][0], 0], ...P, [P[3][0], 0]];
+    P_([...half, ...mir(half).reverse()], 1);
+    // side: the wing seen edge on, root and tip sections lifted by dihedral
+    const zw = wingZ(d, S), zt = zw + (w.b - yr) * Math.tan(w.dih * D), tr = w.tc * w.cr / 2, ct = P[2][0] - P[1][0], tt = w.tc * ct / 2;
+    S_(hull2([[P[0][0], zw], [P[0][0] + 0.3 * w.cr, zw + tr], [P[0][0] + 0.3 * w.cr, zw - tr], [P[3][0], zw], [P[1][0], zt], [P[1][0] + 0.3 * ct, zt + tt], [P[1][0] + 0.3 * ct, zt - tt], [P[2][0], zt]]), 1);
+    if (d.strake.on) { const T = strakePts(d, S, yr), half = [[T[0][0], 0], ...T]; P_([...half, ...mir(half).reverse()], 1); }
+  }
+  if (d.canard.on) { const P = wingPts({ ...d.canard, taper: 0.3 }), half = [[P[0][0], 0], ...P, [P[3][0], 0]]; P_([...half, ...mir(half).reverse()], 3); }
+  const tp = tailplaneSpec(d, S);
+  if (tp) { const half = [[tp.P[0][0], 0], ...tp.P, [tp.P[3][0], 0]]; P_([...half, ...mir(half).reverse()], 2); S_([[tp.P[0][0], tp.z - 0.005], [tp.P[3][0], tp.z - 0.005], [tp.P[3][0], tp.z + 0.005], [tp.P[0][0], tp.z + 0.005]], 2); }
   for (const F of finSpecs(d, S, yr)) {
     const x0 = F.xr - F.cr, xt = F.h * Math.tan(F.sweep * D), ca = Math.cos(F.cant * D), sa = Math.sin(F.cant * D);
-    const prof = [[x0, 0], [x0 + xt, F.h], [x0 + xt + F.taper * F.cr, F.h], [F.xr, 0]];
-    side.push(prof.map(([x, s]) => [x, F.z0 + s * ca]));
-    if (Math.abs(sa) > 0.05) for (const sg of F.y0 > 1e-6 ? [1, -1] : [1]) plan.push(prof.map(([x, s]) => [x, sg * (F.y0 + s * sa)]));
+    const prof = [[x0, -0.004], [x0 + xt, F.h], [x0 + xt + F.taper * F.cr, F.h], [F.xr, -0.004]];
+    S_(prof.map(([x, s]) => [x, F.z0 + s * ca]), 2);
+    if (Math.abs(sa) > 0.05) for (const sg of F.y0 > 1e-6 ? [1, -1] : [1]) P_(prof.map(([x, s]) => [x, sg * (F.y0 + s * sa)]), 2);
   }
-  if (d.flap.on) { const H = flapHinge(d, S), a = d.flap.df * D; side.push([[H.x, H.z], [H.x + d.flap.len * Math.cos(a), H.z - d.flap.len * Math.sin(a)], [H.x + d.flap.len * Math.cos(a), H.z - d.flap.len * Math.sin(a) + 0.006], [H.x, H.z + 0.006]]); }
+  if (d.flap.on) { const H = flapHinge(d, S), a = d.flap.df * D, c = Math.cos(a), s = Math.sin(a), q = at(0.99), hw = d.flap.w * q.b;
+    S_([[H.x, H.z], [H.x + d.flap.len * c, H.z - d.flap.len * s], [H.x + d.flap.len * c + 0.006 * s, H.z - d.flap.len * s + 0.006 * c], [H.x, H.z + 0.006]], 5);
+    P_([[H.x, -hw], [H.x + d.flap.len * c, -hw], [H.x + d.flap.len * c, hw], [H.x, hw]], 5); }
   const NZ = nozzleLayout(d, S);
-  for (const [y, z] of NZ.pts) { const x0 = 1 - 0.15 * NZ.bell, x1 = 1 + 0.85 * NZ.bell; plan.push([[x0, y - NZ.rt], [x1, y - NZ.re], [x1, y + NZ.re], [x0, y + NZ.rt]]); side.push([[x0, z - NZ.rt], [x1, z - NZ.re], [x1, z + NZ.re], [x0, z + NZ.rt]]); }
-  if (d.nac.on) { const n = d.nac, q = at(n.x + n.len / 2), y = w.on ? q.b + n.r + n.pos * Math.max(0, w.b - q.b - n.r) : q.b + n.r * 0.8, R = [[n.x, y - n.r], [n.x + n.len, y - n.r], [n.x + n.len, y + n.r], [n.x, y + n.r]]; plan.push(R, mir(R)); }
-  return { plan, side };
+  for (const [y, z] of NZ.pts) { const x0 = 1 - 0.15 * NZ.bell, x1 = 1 + 0.85 * NZ.bell; P_([[x0, y - NZ.rt], [x1, y - NZ.re], [x1, y + NZ.re], [x0, y + NZ.rt]], 6); S_([[x0, z - NZ.rt], [x1, z - NZ.re], [x1, z + NZ.re], [x0, z + NZ.rt]], 6); }
+  if (d.nac.on) { const n = d.nac, { x: nx, y, z } = nacPos(d, S, yr);
+    const R = [[nx, y - n.r * 0.35], [nx + n.len * 0.25, y - n.r], [nx + n.len, y - n.r], [nx + n.len, y + n.r], [nx + n.len * 0.25, y + n.r], [nx, y + n.r * 0.35]];
+    P_(R, 4); P_(mir(R), 4); S_(R.map(([x, v]) => [x, z + v - y]), 4); }
+  return { plan, side, planPart, sidePart };
+}
+// convex hull of points (monotone chain)
+function hull2(pts) {
+  const P = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]), cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], up = [];
+  for (const p of P) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (const p of P.reverse()) { while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+// The joined outline of a view: a 2D distance field of the parts, joined with the 3D model's fillet
+// radii (smooth union), contoured by marching squares. The drawing shows the same fillets and junctions
+// the solvers see, as smooth closed curves. Cached per design and view.
+const SIL_K = [0, 0.025, 0.012, 0.015, 0.01, 0.004, 0];
+const SIL = new Map();
+function bldSilhouette(key, polys, parts, circs = [], circPart = 4) {
+  if (SIL.has(key)) return SIL.get(key);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const P of polys) for (const [x, y] of P) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  for (const [x, y, r] of circs) { x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); y0 = Math.min(y0, y - r); y1 = Math.max(y1, y + r); }
+  const pad = 0.02, cell = Math.max(x1 - x0, y1 - y0) / 320; x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  const nx = Math.ceil((x1 - x0) / cell) + 1, ny = Math.ceil((y1 - y0) / cell) + 1, F = new Float32Array(nx * ny);
+  const items = polys.map((P, i) => { let a = Infinity, b = -Infinity, c = Infinity, e = -Infinity; for (const [x, y] of P) { a = Math.min(a, x); b = Math.max(b, x); c = Math.min(c, y); e = Math.max(e, y); } return { P, k: parts[i], bb: [a, b, c, e] }; });
+  const sdPoly = (P, px, py) => {
+    let d = Infinity, s = 1;
+    for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+      const ex = P[j][0] - P[i][0], ey = P[j][1] - P[i][1], wx = px - P[i][0], wy = py - P[i][1], ee = ex * ex + ey * ey;
+      const t = ee > 0 ? Math.max(0, Math.min(1, (wx * ex + wy * ey) / ee)) : 0, bx = wx - ex * t, by = wy - ey * t;
+      d = Math.min(d, bx * bx + by * by);
+      const c1 = py >= P[i][1], c2 = py < P[j][1], c3 = ex * wy > ey * wx;
+      if ((c1 && c2 && c3) || (!c1 && !c2 && !c3)) s = -s;
+    }
+    return s * Math.sqrt(d);
+  };
+  const smin = (a, b, k) => { if (k <= 0) return Math.min(a, b); const h = Math.max(0, Math.min(1, 0.5 + (0.5 * (b - a)) / k)); return b + (a - b) * h - k * h * (1 - h); };
+  const reach = 0.06;   // beyond this from a part's box, its exact distance cannot matter to the contour
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const px = x0 + i * cell, py = y0 + j * cell, c = [10, 10, 10, 10, 10, 10, 10];
+    for (const it of items) {
+      const [a, b, cc, e] = it.bb, dx = Math.max(a - px, 0, px - b), dy = Math.max(cc - py, 0, py - e), lb = Math.hypot(dx, dy);
+      if (lb > reach || lb >= c[it.k]) { c[it.k] = Math.min(c[it.k], Math.max(lb, reach)); continue; }
+      c[it.k] = Math.min(c[it.k], sdPoly(it.P, px, py));
+    }
+    for (const [cx, cy, r, k = circPart] of circs) c[k] = Math.min(c[k], Math.hypot(px - cx, py - cy) - r);
+    let v = c[0]; for (let k = 1; k < 6; k++) v = smin(v, c[k], SIL_K[k]); v = Math.min(v, c[6]);
+    F[j * nx + i] = v;
+  }
+  // marching squares → segments, chained into closed loops through their shared end points
+  const pt = (i, j, i2, j2) => { const a = F[j * nx + i], b = F[j2 * nx + i2], t = a / (a - b); return [x0 + (i + (i2 - i) * t) * cell, y0 + (j + (j2 - j) * t) * cell]; };
+  const eid = (i, j, h) => (h ? `h${i},${j}` : `v${i},${j}`);   // edge ids: horizontal from (i,j) to (i+1,j), vertical to (i,j+1)
+  const at_ = new Map(), P = new Map(), segs = [];
+  const link = (a, b) => { const n = segs.length; segs.push([a, b]); for (const e of [a, b]) { if (!at_.has(e)) at_.set(e, []); at_.get(e).push(n); } };
+  for (let j = 0; j + 1 < ny; j++) for (let i = 0; i + 1 < nx; i++) {
+    const v0 = F[j * nx + i] < 0, v1 = F[j * nx + i + 1] < 0, v2 = F[(j + 1) * nx + i + 1] < 0, v3 = F[(j + 1) * nx + i] < 0, idx = v0 | (v1 << 1) | (v2 << 2) | (v3 << 3);
+    if (idx === 0 || idx === 15) continue;
+    const E = [eid(i, j, 1), eid(i + 1, j, 0), eid(i, j + 1, 1), eid(i, j, 0)];   // bottom, right, top, left
+    if (!P.has(E[0]) && v0 !== v1) P.set(E[0], pt(i, j, i + 1, j));
+    if (!P.has(E[1]) && v1 !== v2) P.set(E[1], pt(i + 1, j, i + 1, j + 1));
+    if (!P.has(E[2]) && v3 !== v2) P.set(E[2], pt(i, j + 1, i + 1, j + 1));
+    if (!P.has(E[3]) && v0 !== v3) P.set(E[3], pt(i, j, i, j + 1));
+    const T = { 1: [[3, 0]], 2: [[0, 1]], 3: [[3, 1]], 4: [[1, 2]], 5: [[3, 2], [1, 0]], 6: [[0, 2]], 7: [[3, 2]], 8: [[2, 3]], 9: [[2, 0]], 10: [[0, 3], [2, 1]], 11: [[2, 1]], 12: [[1, 3]], 13: [[1, 0]], 14: [[0, 3]] }[idx];
+    for (const [a, b] of T) link(E[a], E[b]);
+  }
+  const done = new Uint8Array(segs.length), loops = [];
+  for (let s0 = 0; s0 < segs.length; s0++) {
+    if (done[s0]) continue;
+    const loop = []; let sI = s0, from = segs[s0][0];
+    while (sI !== undefined && !done[sI]) {
+      done[sI] = 1; loop.push(P.get(from));
+      const to = segs[sI][0] === from ? segs[sI][1] : segs[sI][0];
+      from = to; sI = (at_.get(to) || []).find((n) => !done[n]);
+    }
+    // specks under three cells across come from features thinner than the grid (a sharp wing tip seen
+    // end on); they are not parts of the outline
+    let a = Infinity, b = -Infinity, c = Infinity, e = -Infinity;
+    for (const [x, y] of loop) { a = Math.min(a, x); b = Math.max(b, x); c = Math.min(c, y); e = Math.max(e, y); }
+    if (loop.length > 2 && Math.hypot(b - a, e - c) > 3 * cell) loops.push(loop);
+  }
+  if (SIL.size > 24) SIL.delete(SIL.keys().next().value);
+  SIL.set(key, loops);
+  return loops;
 }
 // outline helpers shared by the layout drawing and the livery canvas
 function bldOutline(d) {
@@ -5372,37 +5489,35 @@ function ditherPattern(g, col, level) {
 // Front-view silhouettes (y, z): body sections, wings with dihedral, fins at their cant, tailplane,
 // canards, nacelles and nozzle exits
 function bldFront(d) {
-  const f = d.fus, S = bldStations(f), at = (x) => bldSecAt(f, S, x), w = d.wing, yr = w.on ? wingRootY(d, S) : 0, out = [], circ = [];
-  for (let i = 1; i < 20; i++) {
-    const q = at(i / 20), P = [];
-    for (let k = 0; k <= 48; k++) {
-      const th = (k / 48) * 2 * Math.PI, c = Math.cos(th), s = Math.sin(th), e = 2 / f.sq;
-      P.push([q.b * Math.sign(c) * Math.abs(c) ** e, Math.max(q.zc + (s > 0 ? q.aT : q.aB) * Math.sign(s) * Math.abs(s) ** e, q.zb)]);
-    }
-    out.push(P);
-  }
-  const both = (P) => { out.push(P, P.map(([y, z]) => [-y, z])); };
+  const f = d.fus, S = bldStations(f), at = (x) => bldSecAt(f, S, x), w = d.wing, yr = w.on ? wingRootY(d, S) : 0, out = [], parts = [], circ = [];
+  // the body seen end on: the widest section at each height
+  const Q = Array.from({ length: 39 }, (_, i) => at((i + 1) / 40));
+  const zTop = Math.max(...Q.map((q) => q.zc + q.aT)), zBot = Math.min(...Q.map((q) => Math.max(q.zc - q.aB, q.zb))), env = [];
+  for (let i = 0; i <= 60; i++) { const z = zBot + ((zTop - zBot) * i) / 60, z_ = Math.min(Math.max(z, zBot + 1e-6), zTop - 1e-6); env.push([Math.max(...Q.map((q) => bldHalfW(f, q, z_))), z]); }
+  out.push([...env, ...env.reverse().map(([y, z]) => [-y, z])]); parts.push(0);
+  const add = (P, k) => { out.push(P); parts.push(k); }, both = (P, k) => { add(P, k); add(P.map(([y, z]) => [-y, z]), k); };
   if (w.on) {
-    const zw = w.z * f.rf, zt = zw + (w.b - yr) * Math.tan(w.dih * D), tr = w.tc * w.cr / 2, tt = w.tc * w.taper * w.cr / 2;
-    both([[0, zw - tr], [yr, zw - tr], [w.b, zt - tt], [w.b, zt + tt], [yr, zw + tr], [0, zw + tr]]);
+    const zw = wingZ(d, S), zt = zw + (w.b - yr) * Math.tan(w.dih * D), tr = w.tc * w.cr / 2, tt = Math.max(w.tc * w.taper * w.cr / 2, 0.003);
+    both([[0, zw - tr], [yr, zw - tr], [w.b, zt - tt], [w.b, zt + tt], [yr, zw + tr], [0, zw + tr]], 1);
   }
   for (const F of finSpecs(d, S, yr)) {
     const ca = Math.cos(F.cant * D), sa = Math.sin(F.cant * D), t = 0.006, tip = [F.y0 + F.h * sa, F.z0 + F.h * ca];
     const P = [[F.y0 - t * ca, F.z0 + t * sa], [tip[0] - t * ca, tip[1] + t * sa], [tip[0] + t * ca, tip[1] - t * sa], [F.y0 + t * ca, F.z0 - t * sa]];
-    if (F.y0 > 1e-6) both(P); else out.push(P);
+    if (F.y0 > 1e-6) both(P, 2); else add(P, 2);
   }
   const tp = tailplaneSpec(d, S);
-  if (tp) both([[0, tp.z - 0.005], [tp.P[1][1], tp.z - 0.005], [tp.P[1][1], tp.z + 0.005], [0, tp.z + 0.005]]);
-  if (d.canard.on) both([[0, -0.004], [d.canard.b, -0.004], [d.canard.b, 0.004], [0, 0.004]]);
-  if (d.nac.on) { const n = d.nac, q = at(n.x + n.len / 2), y = w.on ? q.b + n.r + n.pos * Math.max(0, w.b - q.b - n.r) : q.b + n.r * 0.8, z = w.on ? w.z * f.rf + Math.max(0, y - yr) * Math.tan(w.dih * D) : 0; circ.push([y, z, n.r], [-y, z, n.r]); }
+  if (tp) both([[0, tp.z - 0.005], [tp.P[1][1], tp.z - 0.005], [tp.P[1][1], tp.z + 0.005], [0, tp.z + 0.005]], 2);
+  if (d.canard.on) both([[0, -0.004], [d.canard.b, -0.004], [d.canard.b, 0.004], [0, 0.004]], 3);
+  if (d.nac.on) { const n = d.nac, { y, z } = nacPos(d, S, yr); circ.push([y, z, n.r, 4], [-y, z, n.r, 4]); }
   const NZ = nozzleLayout(d, S);
-  for (const [y, z] of NZ.pts) circ.push([y, z, NZ.re]);
-  return { polys: out, circ };
+  for (const [y, z] of NZ.pts) circ.push([y, z, NZ.re, 6]);
+  return { polys: out, parts, circ };
 }
 // The Build drawing: a third-angle general arrangement. Side view over plan view (sharing the length
-// axis), front view beside the side view (sharing height), title block under it. Silhouettes are filled
-// as one union with a heavy outline and a dithered tone; internal boxes are knocked out and hatched,
-// labelled on leaders outside the plan; dimensions in metres.
+// axis), front view beside the side view (sharing height). Each view's outline is the parts joined with
+// the model's own fillets (bldSilhouette), drawn as a smooth curve with a heavy line and a dithered
+// tone; internal boxes are knocked out and hatched, labelled on leaders outside the plan; dimensions in
+// metres. Name and masses live in the panel header.
 function bldDraw() {
   const c = $("#bldChart");
   if (!c || c.offsetParent === null || !BLD || !BLD.m) return;
@@ -5421,17 +5536,38 @@ function bldDraw() {
   const fsc = Math.min(sc, (rw - 30) / (2 * halfW)), fcx = w - M0 - rw / 2, Yf = (y) => fcx + y * fsc, Zf = (z) => sideZs - z * fsc;
   BLDUI.map = { sc, ox, cy: planCy, zs: sideZs, split: (sideBot + planCy - halfW * sc) / 2, right: ox + xLen * sc + 10 };
   const path = (P, X_, Y_) => { g.beginPath(); P.forEach(([a, b], i) => (i ? g.lineTo(X_(a), Y_(b)) : g.moveTo(X_(a), Y_(b)))); g.closePath(); };
-  // one winding for every polygon, so a non-zero fill of all of them together is their union (mirrored
-  // halves come out reversed and would cancel where they overlap the body)
+  const key = JSON.stringify({ ...d, m: 0, paint: 0, name: 0 });
+  // a closed curve through the contour: quadratic segments through the midpoints of its points
+  const curve = (loops, X_, Y_) => {
+    g.beginPath();
+    for (const Lp of loops) {
+      const n = Lp.length, mid = (i) => [(X_(Lp[i % n][0]) + X_(Lp[(i + 1) % n][0])) / 2, (Y_(Lp[i % n][1]) + Y_(Lp[(i + 1) % n][1])) / 2];
+      const m0 = mid(0); g.moveTo(m0[0], m0[1]);
+      for (let i = 1; i <= n; i++) { const m1 = mid(i); g.quadraticCurveTo(X_(Lp[i % n][0]), Y_(Lp[i % n][1]), m1[0], m1[1]); }
+      g.closePath();
+    }
+  };
+  // While a slider moves, the parts are drawn as their plain union (fast); the joined outline is worked
+  // out once the design rests, and the drawing redrawn with it.
   const ccw = (P) => { let a = 0; for (let i = 0; i < P.length; i++) { const [x0, y0] = P[i], [x1, y1] = P[(i + 1) % P.length]; a += x0 * y1 - x1 * y0; } return a < 0 ? [...P].reverse() : P; };
-  const union = (polys0, circs, X_, Y_, tone) => {
-    const polys = polys0.map(ccw);
-    const all = () => { g.beginPath(); for (const P of polys) P.forEach(([a, b], i) => (i ? g.lineTo(X_(a), Y_(b)) : g.moveTo(X_(a), Y_(b)))); for (const [a, b, r] of circs) { g.moveTo(X_(a) + r * Math.abs(X_(1) - X_(0)), Y_(b)); g.arc(X_(a), Y_(b), r * Math.abs(X_(1) - X_(0)), 0, 2 * Math.PI); } };
-    g.lineJoin = "round"; g.strokeStyle = ink; g.lineWidth = 2.6; for (const P of polys) { path(P, X_, Y_); g.stroke(); }
+  let pending = false;
+  const union = (view, polys, parts, circs, X_, Y_, tone) => {
+    let loops = SIL.get(key + view);
+    if (!loops) {
+      pending = true;
+      loops = polys.map(ccw).map((P) => P);
+      for (const [a, b, r] of circs) loops.push(Array.from({ length: 24 }, (_, i) => [a + r * Math.cos((i / 24) * 2 * Math.PI), b + r * Math.sin((i / 24) * 2 * Math.PI)]));
+    }
+    const rule = pending && !SIL.get(key + view) ? "nonzero" : "evenodd";
+    curve(loops, X_, Y_); g.fillStyle = bg; g.fill(rule);
+    g.fillStyle = ditherPattern(g, ink, tone); g.globalAlpha = 0.55; g.fill(rule); g.globalAlpha = 1;
+    // where the parts meet, as thin lines inside the outline
+    g.save(); curve(loops, X_, Y_); g.clip(rule);
+    g.lineWidth = 0.7; g.strokeStyle = ink; g.globalAlpha = 0.35; for (const P of polys) { path(P, X_, Y_); g.stroke(); }
     for (const [a, b, r] of circs) { g.beginPath(); g.arc(X_(a), Y_(b), r * Math.abs(X_(1) - X_(0)), 0, 2 * Math.PI); g.stroke(); }
-    all(); g.fillStyle = bg; g.fill("nonzero");
-    all(); g.fillStyle = ditherPattern(g, ink, tone); g.globalAlpha = 0.55; g.fill("nonzero"); g.globalAlpha = 1;
-    g.lineWidth = 0.7; g.strokeStyle = ink; g.globalAlpha = 0.5; for (const P of polys) { path(P, X_, Y_); g.stroke(); } g.globalAlpha = 1;
+    g.restore();
+    if (rule === "evenodd") { g.lineJoin = "round"; g.strokeStyle = ink; g.lineWidth = 2.2; curve(loops, X_, Y_); g.stroke(); }
+    else { g.lineJoin = "round"; g.strokeStyle = ink; g.lineWidth = 1.2; for (const Lp of loops) { path(Lp, X_, Y_); g.stroke(); } }
   };
   const centre = (x0, y0, x1, y1) => { g.save(); g.strokeStyle = mute; g.lineWidth = 0.7; g.setLineDash([14, 3, 2, 3]); g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); g.restore(); };
   const label = (s, x, y, al = "center", col = mute) => { g.textAlign = al; g.textBaseline = "middle"; const tw = g.measureText(s).width, x0 = al === "center" ? x - tw / 2 : al === "right" ? x - tw : x; g.fillStyle = bg; g.fillRect(x0 - 3, y - 7, tw + 6, 14); g.fillStyle = col; g.fillText(s, x, y); };
@@ -5451,13 +5587,14 @@ function bldDraw() {
   const cgMark = (x, y, col) => { const r = 5; g.fillStyle = bg; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); g.strokeStyle = col; g.lineWidth = 1.2; g.stroke(); g.fillStyle = col; for (const a of [0, Math.PI]) { g.beginPath(); g.moveTo(x, y); g.arc(x, y, r, a, a + Math.PI / 2); g.closePath(); g.fill(); } };
   const m_ = (v) => `${(v * Lm).toFixed(v * Lm < 10 ? 2 : 1)} m`;
   // side view
-  union(PP.side, [], X, Ys, 5);
+  g.font = "500 11px Archivo, system-ui, sans-serif";
+  union("side", PP.side, PP.sidePart, [], X, Ys, 5);
   centre(X(-0.02), Ys(0), X(xLen), Ys(0));
   // plan view
-  union(PP.plan, [], X, Yp, 7);
+  union("plan", PP.plan, PP.planPart, [], X, Yp, 7);
   centre(X(-0.02), Yp(0), X(xLen), Yp(0));
   // front view
-  union(FR.polys, FR.circ, Yf, Zf, 6);
+  union("front", FR.polys, FR.parts, FR.circ, Yf, Zf, 6);
   centre(Yf(0), Zf(zHi) - 8, Yf(0), Zf(zLo) + 8);
   // internal layout, knocked out of the tone and hatched, labelled in plan on leaders above and below
   const lab = [];
@@ -5496,25 +5633,23 @@ function bldDraw() {
   dim(Yf(-halfW), yS, Yf(halfW), yS, m_(2 * halfW));
   const xH = Yf(halfW) + 16;
   dim(xH, Zf(zLo), xH, Zf(zHi), m_(zHi - zLo));
-  // view names
-  g.font = "600 10px 'IBM Plex Mono', ui-monospace, monospace";
+  // view names, set like the BUILD and TEST switch
+  g.font = "700 11px Archivo, system-ui, sans-serif"; if ("letterSpacing" in g) g.letterSpacing = "0.22em";
   for (const [s, x, y] of [["SIDE", X(0), sideTop - 10], ["PLAN", X(0), Yp(halfW) - 44], ["FRONT", Yf(-halfW), sideTop - 10]]) { g.fillStyle = mute; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(s, x, y); }
-  // title block under the front view
-  const tbW = rw, tbX = w - M0 - tbW, tbH = 92, tbY = Math.max(yS + 24, planBot + 46 - tbH + 8), t_ = (kg) => `${(kg / 1000).toFixed(kg < 1e4 ? 2 : 1)} t`;
-  g.strokeStyle = ink; g.lineWidth = 1.2; g.strokeRect(tbX, tbY, tbW, tbH); g.lineWidth = 0.6;
-  for (const yy of [26, 48, 70]) { g.beginPath(); g.moveTo(tbX, tbY + yy); g.lineTo(tbX + tbW, tbY + yy); g.stroke(); }
-  g.textAlign = "left"; g.textBaseline = "middle"; g.fillStyle = ink; g.font = "600 12px 'IBM Plex Mono', ui-monospace, monospace";
-  let nm = d.name || "Custom"; while (g.measureText(nm).width > tbW - 16 && nm.length > 4) nm = nm.slice(0, -2); if (nm !== (d.name || "Custom")) nm += "…";
-  g.fillText(nm, tbX + 8, tbY + 13);
-  g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
-  const rowT = (y, k, v) => { g.fillStyle = mute; g.fillText(k, tbX + 8, tbY + y); g.fillStyle = ink; g.textAlign = "right"; g.fillText(v, tbX + tbW - 8, tbY + y); g.textAlign = "left"; };
-  rowT(37, "Gross · landing", `${t_(m.gross)} · ${t_(m.land)}`);
-  rowT(59, "Balance", ""); cgMark(tbX + tbW - 118, tbY + 59, cgCols[0][1]); g.fillStyle = ink; g.textAlign = "left"; g.fillText(`${(m.cgGross).toFixed(3)}`, tbX + tbW - 110, tbY + 59);
-  cgMark(tbX + tbW - 58, tbY + 59, cgCols[1][1]); g.fillStyle = ink; g.fillText(`${(m.cgLand).toFixed(3)}`, tbX + tbW - 50, tbY + 59);
-  // scale bar: a round number of metres about a fifth of the block
-  const step = [0.5, 1, 2, 5, 10, 20, 50, 100].find((v) => (v / Lm) * sc > tbW / 6) || 100, bpx = (step / Lm) * sc;
-  for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? bg : ink; g.fillRect(tbX + 8 + i * bpx / 2, tbY + 78, bpx / 2, 5); } g.strokeStyle = ink; g.strokeRect(tbX + 8, tbY + 78, 2 * bpx, 5);
-  g.fillStyle = mute; g.fillText(`${2 * step} m`, tbX + 14 + 2 * bpx, tbY + 81);
+  if ("letterSpacing" in g) g.letterSpacing = "0px";
+  // scale bar under the front view: a round number of metres about a sixth of its width
+  g.font = "500 11px Archivo, system-ui, sans-serif";
+  const step = [0.5, 1, 2, 5, 10, 20, 50, 100].find((v) => (v / Lm) * sc > rw / 6) || 100, bpx = (step / Lm) * sc, sbX = Yf(-halfW), sbY = yS + 30;
+  for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? bg : ink; g.fillRect(sbX + (i * bpx) / 2, sbY, bpx / 2, 5); } g.strokeStyle = ink; g.lineWidth = 0.8; g.strokeRect(sbX, sbY, 2 * bpx, 5);
+  g.fillStyle = mute; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(`${2 * step} m`, sbX + 2 * bpx + 8, sbY + 3);
+  if (pending) {
+    clearTimeout(bldDraw.t);
+    bldDraw.t = setTimeout(() => {
+      if (key !== JSON.stringify({ ...BLD, m: 0, paint: 0, name: 0 })) return;
+      bldSilhouette(key + "side", PP.side, PP.sidePart); bldSilhouette(key + "plan", PP.plan, PP.planPart); bldSilhouette(key + "front", FR.polys, FR.parts, FR.circ);
+      bldDraw();
+    }, 150);
+  }
 }
 function bldInfo() {
   const el = $("#bldInfo"), m = BLD.m, row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`, t = (kg) => `${(kg / 1000).toFixed(kg < 1e4 ? 2 : 1)} t`, Lm = BLD.L;
@@ -5867,7 +6002,7 @@ function optHist() {
   H.forEach((e, i) => { if (Number.isFinite(e.f)) g.fillRect(X(i) - 1.5, Y(e.f) - 1.5, 3, 3); });
   g.strokeStyle = "#f29c4f"; g.lineWidth = 1.5; g.beginPath();
   let b = Infinity; H.forEach((e, i) => { b = Math.min(b, e.f); i ? g.lineTo(X(i), Y(b)) : g.moveTo(X(i), Y(b)); }); g.stroke();
-  g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace"; g.textAlign = "right";
+  g.fillStyle = "#8e897d"; g.font = "10px Archivo, system-ui, sans-serif"; g.textAlign = "right";
   g.fillText(hi.toFixed(2), CH.l - 4, CH.t + 8); g.fillText(lo.toFixed(2), CH.l - 4, h - CH.b);
   g.textAlign = "center"; g.fillText("score per candidate · best so far", CH.l + (w - CH.l) / 2, h - 4);
 }
@@ -5877,7 +6012,7 @@ function optDraw() {
   const s_ = setupChart(c);
   if (!s_) return;
   const { g, w, h } = s_, pw = w - CH.l - 10, ph = h - CH.t - CH.b, H = OPT.hist, row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`, info = $("#optInfo");
-  g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
+  g.font = "10px Archivo, system-ui, sans-serif";
   if (OPT.prob === "sp") {
     // plan (top) and side (bottom), nose left: start in blue outline, best filled orange, one scale
     const A = H.length && H[0].P ? bldPolys(H[0].P) : null, B = OPT.best && OPT.best.P ? bldPolys(OPT.best.P) : null, all = [A, B].filter(Boolean);
@@ -5889,7 +6024,7 @@ function optDraw() {
     if (B) draw(B, "rgba(242,156,79,0.28)", "#f29c4f", 1.4);
     if (A) draw(A, null, "rgba(134,160,255,0.75)", 1);
     optHist();
-    g.fillStyle = "#8b93a8"; g.textAlign = "left"; g.fillText("blue: start · orange: best", 10, 12);
+    g.fillStyle = "#8e897d"; g.textAlign = "left"; g.fillText("blue: start · orange: best", 10, 12);
     if (info && OPT.best && OPT.best.m && H[0].m) {
       const a = H[0].m, b = OPT.best.m, P = OPT.best.P;
       const two = (f) => `${f(b)} · start ${f(a)}`;
@@ -5913,7 +6048,7 @@ function optDraw() {
   for (let k = 0; k <= 60; k++) { const x = k / 60; k ? g.lineTo(X(x), Y(shRadius(x, Rsh))) : g.moveTo(X(x), Y(0)); } g.stroke(); g.setLineDash([]);
   if (H.length && H[0].prof) { g.strokeStyle = "rgba(134,160,255,0.35)"; g.lineWidth = 1; g.beginPath(); H[0].prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(r)) : g.moveTo(X(x), Y(r)))); g.stroke(); }
   if (OPT.best && OPT.best.prof) { g.strokeStyle = "#f29c4f"; g.lineWidth = 2; g.beginPath(); OPT.best.prof.forEach(([x, r], i) => (i ? g.lineTo(X(x), Y(r)) : g.moveTo(X(x), Y(r)))); g.stroke(); }
-  g.fillStyle = "#8b93a8"; g.textAlign = "left";
+  g.fillStyle = "#8e897d"; g.textAlign = "left";
   g.fillText("dashed: Sears–Haack · faint: start · orange: best", CH.l + 4, CH.t + 10);
   g.textAlign = "center"; g.fillText("x / L", CH.l + pw / 2, h - 4);
   if (info && OPT.best && OPT.best.prof) {
@@ -6205,10 +6340,19 @@ function updateConvUI() {
   el.title = "Band: twice the scatter plus the drift over the last half flow-through" + (conv.grid && conv.grid.key === caseKey(false) ? ", combined with the grid-check estimate." : ". Run a grid check (Solver tab) to add discretisation error.");
 }
 
+// In Build the header names the design and carries its title-block figures: size, masses, balance.
+function buildHeadline() {
+  if (!BLD || !BLD.m) return;
+  const m = BLD.m, Lm = BLD.L, t = (kg) => `${(kg / 1000).toFixed(kg < 1e4 ? 2 : 1)} t`, span = Math.max(BLD.wing.on ? BLD.wing.b : 0, BLD.canard.on ? BLD.canard.b : 0, BLD.fus.rf * BLD.fus.w) * 2 * Lm;
+  $("#hlReg").textContent = BLD.name || "Custom";
+  $("#hlSub").textContent = `${Lm.toFixed(1)} m long · ${span.toFixed(1)} m span · ${t(m.gross)} gross · ${t(m.land)} landing` + (m.dv ? ` · Δv ${(m.dv / 1000).toFixed(2)} km/s` : "");
+  $("#hlStat").innerHTML = `<span class="cgk" style="--c:#f0743c"></span>full ${m.cgGross.toFixed(3)} L · <span class="cgk" style="--c:#9fb3d8"></span>landing ${m.cgLand.toFixed(3)} L`;
+}
 // Headline card at the top of the panel: flight condition, regime and solver state.
 function updateHeadline() {
   const set = (id, t) => { const e = $(id); if (e && e.textContent !== t) e.textContent = t; };
   if (loadSpin.on) { set("#hlReg", "Loading the default model"); set("#hlStat", loadSpin.msg); return; }
+  if (st.mode === "build") { buildHeadline(); return; }
   const fmtV = (v) => (v >= 1000 ? (v / 1000).toFixed(2) + " km/s" : v.toFixed(v < 10 ? 1 : 0) + " m/s");
   const en = st.spd.set || st.regime === "hyp" ? envNow() : null;
   const solver = st.regime === "lbm" ? "lattice Boltzmann" : st.euler ? "Euler flowfield" : "engineering estimates";
@@ -8300,7 +8444,7 @@ function drawVel() {
   g.beginPath(); g.arc(cx, cy, r + 6, 0, Math.PI * 2); g.stroke();
   const axes = [[[1, 0, 0], "x", "#d1d3de"], [[0, 1, 0], "y", "#5fd39a"], [[0, 0, 1], "z", "#86a0ff"]].map((a) => ({ p: proj(a[0]), l: a[1], c: a[2] }));
   axes.sort((p, q) => q.p[2] - p.p[2]);
-  g.font = `${Math.round(10 * Math.max(k, 0.85))}px 'IBM Plex Mono', ui-monospace, monospace`; g.textAlign = "center"; g.textBaseline = "middle";
+  g.font = `${Math.round(10 * Math.max(k, 0.85))}px Archivo, system-ui, sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
   for (const a of axes) {
     g.globalAlpha = a.p[2] > 0 ? 0.45 : 1;
     g.strokeStyle = a.c; g.lineWidth = 1.2;
@@ -8418,7 +8562,7 @@ function setupChart(c) {
   const g = c.getContext("2d");
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
-  g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
+  g.font = "10px Archivo, system-ui, sans-serif";
   return { g, w, h };
 }
 const CH = { l: 34, r: 34, t: 10, b: 18 };
@@ -8455,19 +8599,19 @@ function drawTraj() {
   }
   const xs = X(T.t[hy.sel]);
   g.strokeStyle = "rgba(223,227,238,0.8)"; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(xs, CH.t); g.lineTo(xs, CH.t + ph); g.stroke(); g.setLineDash([]);
-  g.fillStyle = "#8b93a8"; g.textAlign = "right";
+  g.fillStyle = "#8e897d"; g.textAlign = "right";
   g.fillText(Math.round(hMax), CH.l - 4, CH.t + 8); g.fillText("0", CH.l - 4, CH.t + ph);
   g.fillStyle = "#9fb3d8"; g.fillText("km", CH.l - 4, CH.t + ph / 2);
   g.textAlign = "left"; g.fillStyle = "#f0743c";
   g.fillText(Math.round(qMax), CH.l + pw + 4, CH.t + 8); g.fillText("W/cm²", CH.l + pw + 2, CH.t + ph / 2);
-  g.fillStyle = "#8b93a8"; g.textAlign = "center";
+  g.fillStyle = "#8e897d"; g.textAlign = "center";
   g.fillText("0", CH.l, h - 4); g.fillText(Math.round(tMax) + " s", CH.l + pw, h - 4); g.fillText(T.bank ? "nose heating · altitude · bank" : "nose heating · altitude", CH.l + pw / 2, h - 4);
 }
 function drawTPS() {
   const c = $("#tpsChart"), s = setupChart(c), Rt = hy.tps;
   if (!s) return;
   const { g, w, h } = s;
-  if (!Rt) { g.fillStyle = "#8b93a8"; g.fillText("Add a layer to size the stack", 10, 20); return; }
+  if (!Rt) { g.fillStyle = "#8e897d"; g.fillText("Add a layer to size the stack", 10, 20); return; }
   const pw = w - CH.l - 10, ph = h - CH.t - CH.b, rec = Rt.rec;
   const tMax = rec.t[rec.t.length - 1] || 1;
   const all = rec.surf.concat(...rec.ifc), Tmax = Math.max(...all, ...Rt.layers.map((l) => l.mat.Tmax)) * 1.05;
@@ -8484,7 +8628,7 @@ function drawTPS() {
   const yl = Y(last.mat.Tmax);
   g.strokeStyle = "#ff7a6b"; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(CH.l, yl); g.lineTo(CH.l + pw, yl); g.stroke(); g.setLineDash([]);
   g.fillStyle = "#ff7a6b"; g.textAlign = "right"; g.fillText("structure limit", CH.l + pw, yl - 3);
-  g.fillStyle = "#8b93a8"; g.fillText(Math.round(Tmax) + " K", CH.l - 4, CH.t + 8); g.fillText("200", CH.l - 4, CH.t + ph);
+  g.fillStyle = "#8e897d"; g.fillText(Math.round(Tmax) + " K", CH.l - 4, CH.t + 8); g.fillText("200", CH.l - 4, CH.t + ph);
   g.textAlign = "center"; g.fillText("0", CH.l, h - 4); g.fillText(Math.round(tMax) + " s", CH.l + pw - 10, h - 4);
   g.fillText("surface · bondlines · soak after entry", CH.l + pw / 2, h - 4);
 }
@@ -9242,7 +9386,7 @@ function drawFly() {
     g.beginPath(); g.moveTo(X(T[i - 1][0]), Y(T[i - 1][1])); g.lineTo(X(T[i][0]), Y(T[i][1])); g.stroke();
   }
   if (T.length) { const p = T[T.length - 1]; g.fillStyle = "#f29c4f"; g.beginPath(); g.arc(X(p[0]), Y(p[1]), 3.5, 0, TAU2); g.fill(); }
-  g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
+  g.fillStyle = "#8e897d"; g.font = "10px Archivo, system-ui, sans-serif";
   g.textAlign = "right"; g.fillText(c1.toFixed(1), CH.l - 4, CH.t + 8); g.fillText(c0.toFixed(1), CH.l - 4, CH.t + ph); g.fillText("CL", CH.l - 4, CH.t + ph / 2);
   g.textAlign = "center"; g.fillText(Math.round(a0) + "°", CH.l, h - 4); g.fillText(Math.round(a1) + "°", CH.l + pw, h - 4); g.fillText("angle of attack", CH.l + pw / 2, h - 4);
 }
@@ -9366,7 +9510,7 @@ function drawDuctChart() {
     const F = ductFree(), r0 = nsRecovery(F.M, F.g);
     g.setLineDash([4, 4]); g.strokeStyle = "rgba(148,163,204,0.45)";
     g.beginPath(); g.moveTo(CH.l, Y(r0)); g.lineTo(CH.l + pw, Y(r0)); g.stroke(); g.setLineDash([]);
-    g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace"; g.textAlign = "left";
+    g.fillStyle = "#8e897d"; g.font = "10px Archivo, system-ui, sans-serif"; g.textAlign = "left";
     g.fillText("normal shock", CH.l + 4, Y(r0) - 4);
   }
   for (const dir of [1, -1]) {
@@ -9379,7 +9523,7 @@ function drawDuctChart() {
   const cr = ductCritical();
   if (cr) { g.strokeStyle = "#e8ecf4"; g.lineWidth = 1.2; g.beginPath(); g.arc(X(cr.mfr), Y(cr.rec), 5, 0, TAU2); g.stroke(); }
   if (m) { g.fillStyle = "#f29c4f"; g.beginPath(); g.arc(X(m.mfr), Y(m.rec), 3.5, 0, TAU2); g.fill(); }
-  g.fillStyle = "#8b93a8"; g.font = "10px 'IBM Plex Mono', ui-monospace, monospace";
+  g.fillStyle = "#8e897d"; g.font = "10px Archivo, system-ui, sans-serif";
   g.textAlign = "right"; g.fillText(y1.toFixed(2), CH.l - 4, CH.t + 8); g.fillText(y0.toFixed(2), CH.l - 4, CH.t + ph); g.fillText("recov.", CH.l - 4, CH.t + ph / 2);
   g.textAlign = "center"; g.fillText(x0.toFixed(2), CH.l, h - 4); g.fillText(x1.toFixed(2), CH.l + pw, h - 4); g.fillText("capture", CH.l + pw / 2, h - 4);
 }
