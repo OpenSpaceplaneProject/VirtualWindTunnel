@@ -1355,6 +1355,7 @@ fn prof16(v: array<vec2f, 16>, n: u32, x: f32) -> f32 {
         let t2 = t * t; let t3 = t2 * t;
         r = (2.0 * t3 - 3.0 * t2 + 1.0) * a.y + (t3 - 2.0 * t2 + t) * h * m0 + (-2.0 * t3 + 3.0 * t2) * b.y + (t3 - t2) * h * m1;
       }
+      break;
     }
   }
   if (x > w[n - 1u].x) { r = w[n - 1u].y; }
@@ -2671,6 +2672,12 @@ fn sliceColor(p: vec3f) -> vec4f {
   let dt = 0.8 * C.stepMul;
   var t = tn + dt * hash12(v.pos.xy);
   var prevT = tn;
+  // The distance field is a lower bound on the true distance and changes by at most one cell per cell
+  // moved, so after one evaluation the march can trust "dLast − distance travelled" without evaluating
+  // the shape again until that bound falls under 1.5 cells. Far from the body (most of the volume) the
+  // shape is evaluated every few dozen steps instead of every step; at the surface it is exact as before.
+  var dLast = -1.0;
+  var tLast = 0.0;
   for (var s = 0; s < 1400; s++) {
     if (A > 0.985) { break; }
     if (tPl > 0.0 && t >= tPl) {
@@ -2681,7 +2688,8 @@ fn sliceColor(p: vec3f) -> vec4f {
     }
     if (t > tf) { break; }
     let p = ro + rd * t;
-    let dW = sdR(p);
+    var dW = dLast - (t - tLast);
+    if (dLast < 0.0 || dW < 1.5) { dW = sdR(p); dLast = dW; tLast = t; }
     // sphere-trace towards the surface so thin parts are never stepped over
     let h = clamp(abs(dW) * 0.9, 0.15, dt);
     if (showS && dW < 0.0) {
