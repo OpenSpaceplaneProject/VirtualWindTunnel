@@ -289,6 +289,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
 .altIn input { width: 50px; padding: 3px 4px; font-size: 10.5px; text-align: center; -moz-appearance: textfield; }
 .altIn input::-webkit-inner-spin-button, .spdAlt input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .altIn .k { font-size: 9.5px; }
+body.noEnv #envPlot { display: none; }
 #envPlot { position: absolute; left: 64px; right: calc(var(--pw) + 36px); top: 96px; bottom: 94px; width: calc(100% - 100px - var(--pw)); height: calc(100% - 190px); pointer-events: none; }
 .spd { position: absolute; left: 64px; right: calc(var(--pw) + 36px); transition: right 0.25s ease; bottom: 0; height: 88px; box-sizing: border-box; pointer-events: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px 4px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .spdHead { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -796,6 +797,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="chk hyp-only"><input type="checkbox" id="lK" checked>Shocks</label>
             <label class="chk hyp-only"><input type="checkbox" id="lG">Glow</label>
             <label class="chk"><input type="checkbox" id="lP">Slice</label>
+            <label class="chk" title="The flight path and the chosen point, drawn across the altitude and airspeed bars"><input type="checkbox" id="lE" checked>Flight path</label>
           </div>
           <details>
             <summary>Vortices</summary>
@@ -9874,6 +9876,8 @@ function buildUI() {
   num("#hEM", (v) => { st.eM = v && v > 0 ? Math.min(40, Math.max(0.5, v)) : 0; });
   $("#lK").checked = st.lK;
   $("#lG").checked = st.glow;
+  // the flight-path overlay on the viewport, shown or hidden from Display
+  $("#lE").addEventListener("change", (e) => { document.body.classList.toggle("noEnv", !e.target.checked); if (e.target.checked) drawEnvelope(); });
   $("#lG").addEventListener("change", (e) => { st.glow = e.target.checked; userSet.add("glow"); });
   $("#gexp").value = st.gexp; $("#oGexp").textContent = "×" + Math.pow(10, st.gexp).toFixed(2);
   $("#gexp").addEventListener("input", (e) => { st.gexp = +e.target.value; $("#oGexp").textContent = "×" + Math.pow(10, st.gexp).toFixed(2); });
