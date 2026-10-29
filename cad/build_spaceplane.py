@@ -114,6 +114,115 @@ def bells(engines):
     return parts
 
 
+def section_at(sections, x):
+    """Fuselage section at x, interpolated between the package's stations."""
+    for a, b in zip(sections, sections[1:]):
+        if a["x"] <= x <= b["x"]:
+            t = (x - a["x"]) / max(b["x"] - a["x"], 1e-9)
+            out = {k: a[k] + (b[k] - a[k]) * t for k in ("halfWidth", "top", "bottom", "centreZ", "lowerHalfHeight")}
+            out["squareness"] = a["squareness"]
+            return out
+    return dict(sections[-1])
+
+
+def structure(D):
+    """Primary structure from the package: frames and bulkheads as section rings or discs, longerons
+    as square bars between frames, wing spars as webs lofted root to tip, ribs as aerofoil plates,
+    thrust structure as rods. A baseline for the structural designer, not a sized structure."""
+    S = D.get("structure")
+    if not S:
+        return []
+    secs, out = D["fuselageSections"], []
+    # structure sits inside the skin; the allowance also keeps its faces off the skin's, which the
+    # boolean kernel handles badly when they coincide
+    sk = 0.5 * max((fr["thickness"] for fr in S["frames"]), default=0.02)
+    inset = lambda sec, d: dict(sec, halfWidth=sec["halfWidth"] - d, top=sec["top"] - d, bottom=sec["bottom"] + d,
+                                lowerHalfHeight=sec["lowerHalfHeight"] - d)
+    for fr in S["frames"]:
+        sec = section_at(secs, fr["x"])
+        if sec["halfWidth"] < 1e-3:
+            continue
+        x, t, dp = fr["x"], fr["thickness"], fr["depth"]
+        sec = inset(sec, sk)
+        if sec["halfWidth"] < 2 * sk or sec["top"] - sec["bottom"] < 2 * sk:
+            continue
+        outer = Face(Wire.make_polygon([(x, y, z) for y, z in superellipse(sec)], close=True))
+        face = outer
+        if not fr["full"]:
+            inner = inset(sec, dp)
+            if inner["halfWidth"] > dp and inner["top"] - inner["bottom"] > dp:
+                face = outer - Face(Wire.make_polygon([(x, y, z) for y, z in superellipse(inner)], close=True))
+        sol = Solid.extrude(face, (t, 0, 0)).moved(Location((-t / 2, 0, 0)))
+        sol.label = f"{fr['name']} at {x:.2f} m"
+        out.append(sol)
+    xs = [fr["x"] for fr in S["frames"]]
+    t = max((fr["thickness"] for fr in S["frames"]), default=0.02)
+    for lg in S["longerons"]:
+        a = lg["section"]
+        for x0, x1 in zip(xs, xs[1:]):
+            if x0 < lg["x"][0] - 1e-6 or x1 > lg["x"][1] + 1e-6:
+                continue
+            # each end follows its own frame's section, so the bar follows the skin as the body tapers
+            def spots(x):
+                sec = section_at(secs, x); yc = sec["halfWidth"] - 1.5 * a - sk
+                return {"keel": [(0.0, sec["bottom"] + a + sk)], "chine": [(yc, sec["centreZ"]), (-yc, sec["centreZ"])],
+                        "sill": [(lg.get("y", 0), lg.get("z", 0)), (-lg.get("y", 0), lg.get("z", 0))]}[lg["kind"]]
+            sq = lambda x, y, z: Wire.make_polygon([(x, y - a / 2, z - a / 2), (x, y + a / 2, z - a / 2), (x, y + a / 2, z + a / 2), (x, y - a / 2, z + a / 2)], close=True)
+            for (ya, za), (yb, zb) in zip(spots(x0 + t / 2), spots(x1 - t / 2)):
+                if min(abs(ya), abs(yb)) < a and lg["kind"] == "chine":
+                    continue
+                bar = Solid.make_loft([sq(x0 + t / 2, ya, za), sq(x1 - t / 2, yb, zb)], ruled=True)
+                bar.label = lg["name"]
+                out.append(bar)
+    w = D.get("wing")
+    if w:
+        (xr, yr), (xt, yt), (xtt, _), (xrt, _) = w["planformHalf"]
+        tc, zmid, dih = w["thicknessRatio"], w["zMid"], math.radians(w["dihedralDeg"])
+        lerp = lambda y: min(1.0, max(0.0, (y - yr) / max(yt - yr, 1e-9)))
+        le = lambda y: xr + (xt - xr) * lerp(y)
+        ch = lambda y: (xrt - xr) + ((xtt - xt) - (xrt - xr)) * lerp(y)
+        zz = lambda y: zmid + max(0.0, y - yr) * math.tan(dih)
+        thick = lambda c, u: 2 * 5 * tc * c * (0.2969 * math.sqrt(u) - 0.126 * u - 0.3516 * u**2 + 0.2843 * u**3 - 0.1036 * u**4)
+        ts = S["sparThickness"]
+        for sp in S["wingSpars"]:
+            u = sp["chordFraction"]
+            # a station at the root too: inboard the wing is flat and unswept, outboard it has dihedral and sweep
+            ys = ([0.0] if sp["carriedThrough"] and yr > 1e-3 else []) + [yr, yt]
+            wires = []
+            for y in ys:
+                c = max(ch(y), 1e-3); x = le(y) + u * c; h = max(thick(c, u) - 2 * sk, 2 * ts)
+                wires.append(Wire.make_polygon([(x - ts / 2, y, zz(y) - h / 2), (x + ts / 2, y, zz(y) - h / 2), (x + ts / 2, y, zz(y) + h / 2), (x - ts / 2, y, zz(y) + h / 2)], close=True))
+            half = Solid.make_loft(wires, ruled=True); half.label = sp["name"]
+            other = mirror(half, Plane.XZ); other.label = sp["name"] + " (starboard)"
+            out += [half, other]
+        tr = S["ribThickness"]
+        el = D.get("elevons")
+        if el:
+            el_a = yr + el["spanFrom"] * (yt - yr) - tr; el_b = yr + el["spanTo"] * (yt - yr) + tr
+        for y in S["wingRibsY"]:
+            y = min(max(y, yr + tr / 2), yt - tr / 2 - sk)      # the tip rib stays inside the tip
+            c = max(ch(y), 1e-3); tce = max(tc - 2 * sk / c, 0.3 * tc)
+            # behind the hinge the elevon is its own part: the fixed wing's rib stops short of it
+            xmax = 0.99 * c
+            if el and el_a <= y <= el_b:
+                xmax = min(xmax, (1 - el["chordFraction"]) * c - tr)
+            pts = [(0.01 * c + 0.98 * px, pz) for px, pz in naca(tce, c)]
+            pts = [(min(px, xmax), pz) for px, pz in pts]
+            pts = [q for i, q in enumerate(pts) if i == 0 or q != pts[i - 1]]
+            prof = Wire.make_polygon([(le(y) + px, y - tr / 2, zz(y) + pz) for px, pz in pts], close=True)
+            rib = Solid.extrude(Face(prof), (0, tr, 0)); rib.label = f"Rib at {y:.2f} m"
+            other = mirror(rib, Plane.XZ); other.label = f"Rib at {-y:.2f} m"
+            out += [rib, other]
+    for i, t in enumerate(S.get("thrustStructure") or []):
+        (x0, y, z), (x1, _, _) = t["from"], t["to"]
+        if x1 - x0 < 1e-3:
+            continue
+        r = 0.01 * (x1 - x0) + 0.02
+        rod = Solid.make_cylinder(r, x1 - x0, Plane((x0, y, z), z_dir=(1, 0, 0))); rod.label = f"Thrust structure {i + 1}"
+        out.append(rod)
+    return out
+
+
 def boxes(bx):
     out = []
     for b in bx:
@@ -185,8 +294,9 @@ def main():
     for i, s in enumerate(nz):
         s.label = f"Nozzle {i + 1}"
     inside = boxes(D["boxes"])
+    struct = structure(D)
     oml.label = "Outer mould line"
-    export_step(Compound(children=[oml, *surfaces, *nz, *inside]), str(out / f"{name}.step"))
+    export_step(Compound(children=[oml, *surfaces, *nz, *inside, *struct]), str(out / f"{name}.step"))
     export_stl(oml, str(out / f"{name}.stl"))
 
     # how the CAD compares with what the tunnel assumed
@@ -195,7 +305,10 @@ def main():
            "tunnelWettedAreaM2": D["areas"]["wettedM2"], "tunnelUsableVolumeM3": D["volumes"]["usableM3"],
            # inside the outer mould line (a main gear bay may sit in the wing root), within 0.1 % of volume
            "boxesInsideHull": [b.label for b in inside if (b - oml).volume < 1e-3 * max(b.volume, 1e-9)],
-           "boxesOutsideHull": {b.label: round((b - oml).volume / max(b.volume, 1e-9), 4) for b in inside if (b - oml).volume >= 1e-3 * max(b.volume, 1e-9)}}
+           "boxesOutsideHull": {b.label: round((b - oml).volume / max(b.volume, 1e-9), 4) for b in inside if (b - oml).volume >= 1e-3 * max(b.volume, 1e-9)},
+           "structureParts": len(struct),
+           # structure that pokes through the skin by more than 2 % of its own volume
+           "structureOutsideSkin": {p.label: round((p - oml).volume / max(p.volume, 1e-9), 3) for p in struct if (p - oml).volume > 0.02 * max(p.volume, 1e-9)}}
     (out / f"{name}.cad-report.json").write_text(json.dumps(rep, indent=1))
     print(json.dumps(rep, indent=1))
 
