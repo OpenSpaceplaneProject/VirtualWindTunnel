@@ -17,6 +17,7 @@ The design record is the source of truth. Never edit geometry in a way that cann
   - `fins`: root, cant and an (x, span) profile;
   - `tailplane`, `canards`, `elevons`, `bodyFlap` (hinge and deflection), `nacelles`;
   - `engines`: positions and bell sizes from the ideal-rocket model, with `enginePerformance`;
+  - `structure`: frames and bulkheads (x, kind, depth; `full` for a solid bulkhead), longerons, wing spars (chord fraction, whether carried through the body), rib stations and thrust structure. This is a layout to size, not a sized structure;
   - `boxes`: the internal layout. Every item is an axis-aligned box inside the hull. `mirrored` means there is a starboard copy;
   - `rcs` clusters, `mass` (breakdown and balance points), `areas`, `volumes`.
 - `analysis` holds the generated SDF and what the tunnel measured with it: the α table, entry nose heating and ascent. Use it to know what must not change.
@@ -34,8 +35,8 @@ The design record is the source of truth. Never edit geometry in a way that cann
 1. **Run the baseline and read its report.** Boxes outside the hull, or a wetted area more than 5 % from the tunnel's, are findings to report. Don't hide them.
 2. **Outer mould line:** keep the stations, and replace the polyline lofts with splines through them. Blend the wing–body and fin–body junctions with fillets no larger than the tunnel's (wing 0.025 L, fins 0.012 L). Give the leading edges the aerofoil's own radius.
 3. **Control surfaces:** split them on their hinge lines with a gap of 0.002 L. Model the hinge axis as a datum, and keep the deflections at zero in the master.
-4. **Structure from the boxes:**
-   - Frames go at every box boundary.
+4. **Structure from the package's `structure` layout:**
+   - Frames go where the package puts them; the baseline builds them from the section at each frame.
    - Wing spars run at 15 % and 65 % of the chord, and the rear spar carries the elevon hinges.
    - Tank walls follow the box outlines, rounded to the section. Tank volume must stay at or above the box volume × 0.8, the tunnel's packing factor.
    - The thrust structure runs from the engine bay to the nearest frame.

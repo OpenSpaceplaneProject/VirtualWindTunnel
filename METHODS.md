@@ -45,6 +45,17 @@ Each group has Randomise, within ranges where real spaceplanes sit.
 - **Engine bay** is sized by the engines.
 - **Fill the hull with propellant** solves for the most propellant the tanks can take in the length left over, in the set mixture ratio, by bisection on the layout. That becomes the design's propellant, so ascent, entry and the optimiser all fly it, and a bigger hull carries more. The builder reports the ideal vacuum Δv and the share of usable volume the layout takes. Tanks grow only lengthwise: space above and below the cabin and payload stays empty.
 
+**Structure** is laid out from the design and its layout. Main frames go where something needs one:
+- a pressure bulkhead at each end of the cabin;
+- a bulkhead at each end of an integral tank, and support frames at each end of a capsule tank;
+- the payload bay ends and the gear bays;
+- the wing and fin spars where they meet the body;
+- the thrust frame ahead of the engines, the nose cap and the base.
+
+Plain frames fill the gaps at the set pitch. A keel runs along the bottom, a chine along the widest line each side, and sills along the payload bay's top edges. Wing spars sit at the set chord fractions, with ribs streamwise at the rib pitch. A spar carries through the body as a wing box unless a cabin, bay or tank is in the way at the wing's height; otherwise its spar frame takes the load round. The thrust structure runs from each engine to the thrust frame. All of it goes into the CAD package. The baseline CAD script builds the frames as section rings or bulkhead discs, the longerons as bars, the spars as lofted webs and the ribs as aerofoil plates.
+
+**Sculpting.** With Fuselage chosen, orange handles on the drawing set the half-width (plan) and the upper and lower half-heights (side) at seven stations. They scale what the sliders make, smoothly between stations. Reset sculpting puts it back.
+
 "Place for least balance shift" tries every order (tanks split fore and aft as well) and keeps the one whose balance point moves least between full and landing.
 
 **Mass** is a first-order sizing estimate: structure per m² wetted, heat shield, tanks per m³, engines, RCS and an "other" allowance. Of the allowance, 3.5 % of the landing mass is landing gear, placed at the bays. The rest (avionics, power, hydraulics, life support, crew) goes where a designer would put it to balance the vehicle. Its centre is solved so the landing balance point sits a 2 % L static margin ahead of the planform centroid, which is where Newtonian lift acts at entry angles of attack. Anything that cannot reach is nose ballast, listed as such. The Test screen's trim and pitching moment are the real check. The landing mass and balance point feed the entry and pitching moments.

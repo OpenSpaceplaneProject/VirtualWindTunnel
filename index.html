@@ -1380,28 +1380,25 @@ fn prof16(v: array<vec2f, 16>, n: u32, x: f32) -> vec2f {
   if (x > w[n - 1u].x) { r = vec2f(w[n - 1u].y, 0.0); }
   return r;
 }
-// Fuselage along x in [0, 1]: half-height H(x) and half-width W(x) profiles, superelliptic section of
-// exponent S (2 round, higher squarer), the upper surface falling to top.x of its height from x = top.y
-// to the tail, and the nose dropped by droop.x over its length droop.y. A bound on the distance, exact
-// at the surface. The section's radial distance is shortened by the steepest slope of the outline
-// there, 1 / √(1 + s²), so it stays a bound where the surface turns towards the flow (the nose cap,
-// the boat-tail), and it is combined with the end planes as a box is, not by max(): with max() and a
-// floor on the section size, points ahead of the nose read up to 16 times too far, so rays and the
-// voxeliser overshot the nose.
-fn sdBody(p: vec3f, H: array<vec2f, 16>, W: array<vec2f, 16>, n: u32, S: f32, top: vec2f, droop: vec2f) -> f32 {
+// Fuselage along x in [0, 1]: upper and lower half-heights T(x), B(x) and half-width W(x) profiles,
+// superelliptic section of exponent S (2 round, higher squarer), the nose dropped by droop.x over its
+// length droop.y. A bound on the distance, exact at the surface. The section's radial distance is
+// shortened by the steepest slope of the outline there, 1 / √(1 + s²), so it stays a bound where the
+// surface turns towards the flow (the nose cap, the boat-tail), and it is combined with the end planes
+// as a box is, not by max(): with max() and a floor on the section size, points ahead of the nose read
+// up to 16 times too far, so rays and the voxeliser overshot the nose.
+fn sdBody(p: vec3f, T: array<vec2f, 16>, B: array<vec2f, 16>, W: array<vec2f, 16>, n: u32, S: f32, droop: vec2f) -> f32 {
   let x = clamp(p.x, 0.0, 1.0);
-  let hh = prof16(H, n, x); let bb = prof16(W, n, x);
-  let h = hh.x; let b = max(bb.x, 1e-4);
+  let tt = prof16(T, n, x); let bt = prof16(B, n, x); let ww = prof16(W, n, x);
+  let b = max(ww.x, 1e-4);
   let u = max(0.0, 1.0 - x / droop.y);
   let zz = p.z + droop.x * u * u;
-  let tt = clamp((x - top.y) / (1.0 - top.y), 0.0, 1.0);
-  let tf = 1.0 - (1.0 - top.x) * tt * tt * (3.0 - 2.0 * tt);   // smooth, so the top has no crease where it starts to fall
-  let a = max(select(h, h * tf, zz > 0.0), 1e-4);
+  let a = max(select(bt.x, tt.x, zz > 0.0), 1e-4);
   let q = vec2f(abs(p.y) / b, abs(zz) / a);
   let k = pow(pow(q.x, S) + pow(q.y, S), 1.0 / S);
   // beyond the ends the end planes join in (box-style combination)
   let dx = max(-p.x, p.x - 1.0);
-  let sl = length(vec2f(bb.y, hh.y)) + 2.0 * droop.x * u / max(droop.y, 1e-3);
+  let sl = length(vec3f(ww.y, tt.y, bt.y)) + 2.0 * droop.x * u / max(droop.y, 1e-3);
   let dr = (k - 1.0) * min(a, b) * 0.8 / sqrt(1.0 + sl * sl);
   return length(max(vec2f(dr, dx), vec2f(0.0))) + min(max(dr, dx), 0.0);
 }
@@ -4497,6 +4494,7 @@ const bldDef = () => ({
   flap: { on: 0, len: 0.05, w: 0.6, df: 0 },
   eng: { type: "bell", prop: "tanks", n: 0, F: 1000, eps: 35, tw: 70 },
   rcs: { on: 0, F: 400, n: 12 },
+  str: { pitch: 0.75, rib: 0.75, fs: 0.15, rs: 0.65, depth: 10 },
   int: { prop: "LOX/LH2", mp: 0, pay: 0, payLen: 0, cab: 0, order: "cab,fu,ox,pay", ks: 18, other: 0, tank: "auto", cont: "auto", fill: 0 },
   // part colours in PARTS order: fuselage, wing, tail, canards, nacelles, body flap, nozzles, control surfaces, underside
   paint: { colors: ["#e6e3dc", "#e6e3dc", "#e6e3dc", "#e6e3dc", "#b9b6ae", "#2a2a2c", "#5b5a58", "#a8a59d", "#1c1c1e"], belly: 0 },
@@ -4513,6 +4511,7 @@ const BLD_SCHEMA = [
   ["Body flap", "flap", [["len", "Length", 0.01, 0.12, 0.005], ["w", "Width, of fuselage", 0.2, 1, 0.05], ["df", "Deflection, ° down", -20, 30, 1]]],
   ["Engines", "eng", [["n", "Count", 0, 9, 1], ["F", "Thrust each, kN vac", 1, 5000, 1], ["eps", "Area ratio", 4, 120, 1], ["tw", "Thrust / weight", 10, 150, 1]]],
   ["RCS", "rcs", [["F", "Thruster, N", 20, 5000, 10], ["n", "Thrusters per cluster", 4, 40, 1]]],
+  ["Structure", "str", [["pitch", "Frame pitch, m", 0.2, 3, 0.05], ["rib", "Rib pitch, m", 0.2, 3, 0.05], ["fs", "Front spar, of chord", 0.08, 0.35, 0.01], ["rs", "Rear spar, of chord", 0.45, 0.8, 0.01], ["depth", "Frame depth, % of radius", 3, 25, 1]]],
 ];
 // Reference designs. Public dimensions and masses, rounded; shapes are approximations by components, and
 // "other" (systems, gear, crew, margin) is set so the dry or gross mass matches the published figure.
@@ -4619,7 +4618,9 @@ const bldFill = (src) => {
 // fuselage half-height profile: elliptic nose, parallel body, quarter-ellipse closure to a base radius
 function bldProfile(f) {
   const rf = f.rf, x1 = 1 - f.boat, ln = Math.min(f.ln, x1 - 0.02), rb = Math.min(1, f.base) * rf, pts = [[0, 0]];
-  for (const u of [0.005, 0.02, 0.05, 0.1, 0.2, 0.35, 0.55, 0.77, 1]) { const x = ln * u, e = (ln - x) / ln; pts.push([x, rf * Math.sqrt(Math.max(0, 1 - e * e))]); }
+  for (const u of [0.01, 0.05, 0.15, 0.35, 0.65, 1]) { const x = ln * u, e = (ln - x) / ln; pts.push([x, rf * Math.sqrt(Math.max(0, 1 - e * e))]); }
+  // four stations along the parallel body, where the top fall-off and the sculpting act
+  for (let i = 1; i <= 4; i++) pts.push([ln + ((x1 - ln) * i) / 5, rf]);
   pts.push([x1, rf]);
   for (const u of [0.45, 0.8, 1]) pts.push([x1 + f.boat * u, rb + (rf - rb) * Math.sqrt(Math.max(0, 1 - u * u))]);
   if (rb > 1e-4) pts.push([1, 0]);
@@ -4650,10 +4651,18 @@ function bldWidth(f, H) {
 }
 // the section at x (fractions of L): half-width b, upper and lower half-heights about the centre zc,
 // and the flat-bottom plane zb, matching sdBody
-function bldAt(f, H, W, x) {
-  const h = bldR(H, x), b = bldR(W, x), u = Math.max(0, 1 - x / Math.max(f.ln, 0.05)), zc = -f.droop * f.rf * u * u;
-  const tt = Math.min(1, Math.max(0, (x - 0.35) / 0.65)), tf = 1 - (1 - f.hump) * tt * tt * (3 - 2 * tt);
-  return { b, aT: h * tf, aB: h, zc, zb: f.flat > 0 ? -f.rf * (1 - f.flat) : -Infinity };
+function bldAt(f, S, x) {
+  const u = Math.max(0, 1 - x / Math.max(f.ln, 0.05)), zc = -f.droop * f.rf * u * u;
+  return { b: bldR(S.W, x), aT: bldR(S.T, x), aB: bldR(S.B, x), zc, zb: f.flat > 0 ? -f.rf * (1 - f.flat) : -Infinity };
+}
+// Sculpting: scale factors for the half-width, the upper and the lower half-height at seven stations
+// along the body (f.k, one [width, top, bottom] each, 1 = as the sliders make it), set by dragging the
+// outline in the Build drawing. Smooth between stations and level beyond the end ones.
+const SCULPT_X = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75, 0.9];
+function sculptAt(f, j, x) {
+  if (!f.k) return 1;
+  const pts = [[0, f.k[0][j]], ...SCULPT_X.map((kx, i) => [kx, f.k[i][j]]), [1, f.k[SCULPT_X.length - 1][j]]];
+  return bldR(pts, Math.min(1, Math.max(0, x)));
 }
 // half-width of the superelliptic section at height z (absolute), 0 outside
 function bldHalfW(f, s, z) {
@@ -4676,8 +4685,14 @@ function bldPerim(f, s) {
 // Components share one frame: x from the nose (0) to the tail (1), y to port, z up, lengths in L.
 // The wing root sits on the fuselage side (its semi-span is measured from the centreline, like a
 // published span); a wing is solid from there to the centreline so it always joins the body.
-const bldStations = (f) => { const H = bldProfile(f); return { H, W: bldWidth(f, H) }; };
-const bldSecAt = (f, S, x) => bldAt(f, S.H, S.W, Math.min(1, Math.max(0, x)));
+// The body's three profiles at shared stations (at most 16, as the shader takes): upper half-height T
+// (with the top falling to hump at the tail), lower half-height B and half-width W, each sculpted.
+const bldStations = (f) => {
+  const H = bldProfile(f), W0 = bldWidth(f, H);
+  const tf = (x) => { const tt = Math.min(1, Math.max(0, (x - 0.35) / 0.65)); return 1 - (1 - f.hump) * tt * tt * (3 - 2 * tt); };
+  return { H, T: H.map(([x, r]) => [x, r * tf(x) * sculptAt(f, 1, x)]), B: H.map(([x, r]) => [x, r * sculptAt(f, 2, x)]), W: W0.map(([x, r]) => [x, r * sculptAt(f, 0, x)]) };
+};
+const bldSecAt = (f, S, x) => bldAt(f, S, Math.min(1, Math.max(0, x)));
 function wingRootY(d, S) { const w = d.wing; return Math.min(w.b * 0.9, bldSecAt(d.fus, S, w.x + 0.3 * w.cr).b); }
 // wing half planform: root LE, tip LE, tip TE, root TE (root on the body side at yr)
 function wingPts(w, yr = 0) { const xt = Math.max(0, w.b - yr) * Math.tan(w.sweep * D); return [[w.x, yr], [w.x + xt, w.b], [w.x + xt + w.taper * w.cr, w.b], [w.x + w.cr, yr]]; }
@@ -4791,7 +4806,7 @@ const f5 = (v) => (+v).toFixed(5);
 // The SDF: each component is one entry of parts(), so matId() can say which part is nearest (for
 // colours) and sdf() joins them with fillets. Components that are off stay at 10 (far outside).
 function bldCode(d) {
-  const f = d.fus, S = bldStations(f), prof = S.H, wid = S.W, w = d.wing, t = d.tail, yr = w.on ? wingRootY(d, S) : 0;
+  const f = d.fus, S = bldStations(f), w = d.wing, t = d.tail, yr = w.on ? wingRootY(d, S) : 0;
   const arr = (P) => { const pad = P.concat(Array(16 - P.length).fill(P[P.length - 1])), rows = [];
     for (let i = 0; i < 16; i += 4) rows.push("    " + pad.slice(i, i + 4).map(([x, r]) => `vec2f(${f5(x)}, ${f5(r)})`).join(", "));
     return `array<vec2f, 16>(\n${rows.join(",\n")})`; };
@@ -4808,7 +4823,7 @@ function bldCode(d) {
   };
   const L = [`// ${d.name}: spaceplane builder, length 1 (${d.L} m). Parts: ${PARTS.slice(0, 8).join(", ")}.`, "fn parts(p: vec3f) -> array<f32, 8> {",
     "  var c = array<f32, 8>(10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0);   // 10 L away: absent (large values would lose precision in the fillets)",
-    `  c[0] = sdBody(p, ${arr(prof)},\n  ${arr(wid)}, ${prof.length}u, ${f5(f.sq)}, vec2f(${f5(f.hump)}, 0.35), vec2f(${f5(f.droop * f.rf)}, ${f5(Math.max(f.ln, 0.05))}));`];
+    `  c[0] = sdBody(p, ${arr(S.T)},\n  ${arr(S.B)},\n  ${arr(S.W)}, ${S.T.length}u, ${f5(f.sq)}, vec2f(${f5(f.droop * f.rf)}, ${f5(Math.max(f.ln, 0.05))}));`];
   if (f.flat > 0) L.push(`  c[0] = max(c[0], ${f5(-f.rf * (1 - f.flat))} - p.z);   // flat underside`);
   const ctrl = [];
   if (w.on) {
@@ -5125,6 +5140,76 @@ function bldMass(d) {
   return { M, items, boxes, dry, gross, land, mp, Swet, Splan, over, Vavail, Vused, dv, tankV, xEnd, x0, cgLand, cgGross, P, engBay, E, rcs, xPlan, xTarget, ballast };
 }
 
+// Primary structure, laid out from the design and its internal layout (lengths in L): the frames and
+// bulkheads a builder would put in, the longerons between them, the wing and fin spars and ribs, and
+// the thrust structure. Main frames go where something needs one: a pressure bulkhead at each end of
+// the cabin, a bulkhead at each end of an integral tank, support frames at each end of a capsule tank,
+// the payload bay ends, the gear bays, the wing and fin spars where they meet the body, the thrust
+// frame ahead of the engines, the nose cap and the base. Plain frames fill the gaps at the set pitch.
+// The wing spars carry through the body unless a cabin, bay or tank is in the way at the wing's height,
+// in which case the spar frames take the load round it as rings.
+const STR_KIND = {   // drawing order and weight
+  pressure: { name: "Pressure bulkhead", rank: 6 }, tank: { name: "Tank bulkhead", rank: 5 }, thrust: { name: "Thrust frame", rank: 5 },
+  spar: { name: "Spar frame", rank: 4 }, gear: { name: "Gear frame", rank: 3 }, bay: { name: "Bay frame", rank: 3 },
+  fin: { name: "Fin frame", rank: 2 }, nose: { name: "Nose cap frame", rank: 2 }, base: { name: "Base frame", rank: 2 }, frame: { name: "Frame", rank: 0 },
+};
+function bldStructure(d, m) {
+  const f = d.fus, S = bldStations(f), at = (x) => bldSecAt(f, S, Math.min(1, Math.max(0, x))), L = d.L, s = d.str;
+  const P = Math.max(s.pitch, 0.1) / L, RB = Math.max(s.rib, 0.1) / L, w = d.wing, yr = w.on ? wingRootY(d, S) : 0;
+  const main = [], add = (x, kind) => { if (x > 0.005 && x < 0.999) main.push({ x, kind }); };
+  add(m.x0, "nose");
+  add(0.995, "base");
+  for (const b of m.boxes) {
+    if (b.k === "cab") { add(b.x0, "pressure"); add(b.x1, "pressure"); }
+    else if (b.k === "pay") { add(b.x0, "bay"); add(b.x1, "bay"); }
+    else if (b.k === "fu" || b.k === "ox") { const k = b.shape === "cylinder" ? "frame" : "tank"; add(b.x0, k === "tank" ? "tank" : "bay"); add(b.x1, k === "tank" ? "tank" : "bay"); }
+    else if (b.k === "gear") { add(b.x0, "gear"); add(b.x1, "gear"); }
+    else if (b.k === "eng") add(b.x0, "thrust");
+  }
+  const zw = w.on ? wingZ(d, S) : 0, spars = [];
+  if (w.on) {
+    for (const [fr, name] of [[s.fs, "Front spar"], [s.rs, "Rear spar"]]) {
+      const xr = w.x + fr * w.cr;
+      // carried through unless a cabin, bay or tank sits across the wing's height there
+      const blocked = m.boxes.some((b) => b.k !== "gear" && b.k !== "eng" && xr >= b.x0 && xr <= b.x1 && zw >= b.z0 - 0.01 && zw <= b.z1 + 0.01);
+      if (xr < 1) add(xr, "spar");
+      spars.push({ name, fr, blocked });
+    }
+  }
+  const fins = finSpecs(d, S, yr);
+  for (const F of fins) if (F.y0 < 1e-6 || F.tag === "ft" || F.tag === "fv") { add(F.xr - F.cr + 0.2 * F.cr, "fin"); add(F.xr - F.cr + 0.7 * F.cr, "fin"); }
+  // merge frames closer than a third of the pitch, keeping the more important kind
+  main.sort((a, b) => a.x - b.x);
+  const frames = [];
+  for (const q of main) {
+    const last = frames[frames.length - 1];
+    if (last && q.x - last.x < P / 3) { if (STR_KIND[q.kind].rank > STR_KIND[last.kind].rank) frames[frames.length - 1] = q; continue; }
+    frames.push(q);
+  }
+  // plain frames in the gaps, evenly, no further apart than the pitch
+  const all = [];
+  for (let i = 0; i < frames.length; i++) {
+    all.push(frames[i]);
+    if (i + 1 < frames.length) {
+      const gap = frames[i + 1].x - frames[i].x, n = Math.ceil(gap / P - 1e-6) - 1;
+      for (let k = 1; k <= n; k++) all.push({ x: frames[i].x + (gap * k) / (n + 1), kind: "frame" });
+    }
+  }
+  const xs0 = all.length ? all[0].x : 0.05, xs1 = all.length ? all[all.length - 1].x : 0.99;
+  // longerons: keel along the bottom, a chine at the widest line each side, and sills at the payload
+  // bay's top edges (the bay doors leave the top open, so the sills carry the bending there)
+  const pay = m.boxes.find((b) => b.k === "pay");
+  const longerons = [{ name: "Keel", kind: "keel", x0: xs0, x1: xs1 }, { name: "Chines", kind: "chine", x0: xs0, x1: xs1 }];
+  if (pay) longerons.push({ name: "Bay sills", kind: "sill", x0: pay.x0, x1: pay.x1, y: pay.y1, z: pay.z1 });
+  // wing ribs: streamwise, from the root to the tip at the rib pitch
+  const ribs = [];
+  if (w.on) { const n = Math.max(1, Math.round((w.b - yr) / RB)); for (let i = 0; i <= n; i++) ribs.push(yr + ((w.b - yr) * i) / n); }
+  // thrust structure: each engine forward to the thrust frame
+  const NZ = nozzleLayout(d, S), tf = all.filter((q) => q.kind === "thrust").pop();
+  const thrust = tf ? NZ.pts.map(([y, z]) => ({ y, z, x0: tf.x, x1: 1 - 0.15 * NZ.bell })) : [];
+  return { frames: all, longerons, spars, ribs, fins, thrust, zw, yr };
+}
+
 // Tank and bay placement: try every order of the items (the cabin stays at the front) and with each
 // tank split in two, keep the one that moves the balance point least between full and landing, among
 // those that fit. Returns the new order and the shift it gives.
@@ -5208,6 +5293,7 @@ function livUpload() {
 // ── UI: one slider per schema field, the inside layout, livery painting, the mass table
 function bldApply(recompile = true) {
   const m = bldMass(BLD);
+  m.str = bldStructure(BLD, m);
   BLD.m = m;
   const mpIn = $('#bldInt input[data-i="mp"]');
   if (mpIn) { mpIn.disabled = !!BLD.int.fill; if (BLD.int.fill) mpIn.value = (+BLD.int.mp).toFixed(1); }
@@ -5297,7 +5383,7 @@ function bldChips() {
   document.querySelectorAll("#bldPane [data-g]:not(.chip)").forEach((el) => { el.classList.toggle("sel", el.dataset.g === BLDUI.sel); if (el.tagName === "DETAILS") el.open = true; });
   if (BLDUI.sel === "liv") requestAnimationFrame(livDraw);
 }
-function bldSelect(key) { BLDUI.sel = key; bldChips(); }
+function bldSelect(key) { const was = BLDUI.sel; BLDUI.sel = key; bldChips(); if ((was === "str") !== (key === "str")) bldDraw(); }
 // which component is under a click on the layout drawing
 function bldPick(px, py) {
   const M = BLDUI.map, d = BLD;
@@ -5350,6 +5436,12 @@ function buildBuilderUI() {
     head.appendChild(dice); pane.appendChild(head);
     if (key === "tail") pane.appendChild($("#bldTailL"));
     if (key === "eng") pane.appendChild($("#bldEngSel"));
+    if (key === "fus") {
+      const rs = document.createElement("button"); rs.type = "button"; rs.className = "btn"; rs.id = "btnSculptReset"; rs.textContent = "Reset sculpting";
+      rs.title = "Drag the orange handles on the drawing to shape the body; this puts it back to the sliders' shape";
+      rs.addEventListener("click", () => { delete BLD.fus.k; bldEdited(); });
+      pane.appendChild(rs);
+    }
     for (const [k, lab, lo, hi, step] of fields) {
       const l = document.createElement("label"); l.className = "ctl";
       l.innerHTML = `<span class="k">${lab}</span><output></output>`;
@@ -5401,7 +5493,30 @@ function buildBuilderUI() {
   $("#livSize").addEventListener("input", (e) => { LIV.size = +e.target.value; });
   $("#btnLivClear").addEventListener("click", () => { livInit(); LIV.ctx.clearRect(0, 0, 1024, 1023); livPalette(); livDraw(); });
   livPaintEvents($("#livCanvas"));
-  $("#bldChart").addEventListener("click", (e) => { const r = e.currentTarget.getBoundingClientRect(), k = bldPick(e.clientX - r.left, e.clientY - r.top); if (k) bldSelect(k); });
+  $("#bldChart").addEventListener("click", (e) => { if (BLDUI.dragged) { BLDUI.dragged = false; return; } const r = e.currentTarget.getBoundingClientRect(), k = bldPick(e.clientX - r.left, e.clientY - r.top); if (k) bldSelect(k); });
+  // Sculpting: drag a handle on the outline (Fuselage chosen) to scale the width, top or bottom there
+  const chart = $("#bldChart");
+  chart.addEventListener("pointerdown", (e) => {
+    if (BLDUI.sel !== "fus" || !BLDUI.handles) return;
+    const r = chart.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+    let best = null, bd = 14;
+    for (const hd of BLDUI.handles) { const dd = Math.hypot(hd.px - px, hd.py - py); if (dd < bd) { bd = dd; best = hd; } }
+    if (!best) return;
+    BLDUI.drag = best; chart.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  chart.addEventListener("pointermove", (e) => {
+    const hd = BLDUI.drag, M = BLDUI.map;
+    if (!hd || !M) return;
+    const r = chart.getBoundingClientRect(), py = e.clientY - r.top, f = BLD.fus, sc = bldSecAt(f, bldStations(f), hd.x);
+    if (!f.k) f.k = SCULPT_X.map(() => [1, 1, 1]);
+    const cur = [sc.b, sc.aT, sc.aB][hd.j], want = hd.j === 0 ? Math.abs((M.cy - py) / M.sc) : hd.j === 1 ? (M.zs - py) / M.sc - sc.zc : sc.zc - (M.zs - py) / M.sc;
+    if (cur < 1e-5) return;
+    f.k[hd.i][hd.j] = Math.min(3, Math.max(0.25, f.k[hd.i][hd.j] * Math.max(want, 1e-4) / cur));
+    BLDUI.dragged = true;
+    bldEdited();
+  });
+  const endDrag = () => { if (BLDUI.drag) { BLDUI.drag = null; bldDraw(); } };
+  chart.addEventListener("pointerup", endDrag); chart.addEventListener("pointercancel", endDrag);
   BLD = bldFill(JSON.parse(JSON.stringify(BLD_LIB.shuttle)));
   bldFields(); bldChips();
 }
@@ -5445,6 +5560,18 @@ function cadPackage(d) {
         return { x: N.x * L, y: N.y * L, z: N.z * L, length: n.len * L, radius: n.r * L, mirrored: true }; })() : null,
       engines: NZ.pts.map(([y, z]) => ({ y: y * L, z: z * L, exitRadius: NZ.re * L, throatRadius: NZ.rt * L, bellLength: NZ.bell * L, type: d.eng.type })),
       enginePerformance: d.eng.n > 0 ? { chemistry: engChem(d).name, seaLevel: { thrustN: M.E.sl.F, isp: M.E.sl.Isp }, vacuum: { thrustN: M.E.vac.F, isp: M.E.vac.Isp }, massKg: M.E.mass } : null,
+      structure: (() => {
+        const T = (m && m.str) || bldStructure(d, M);
+        return {
+          note: "Frames are rings of the fuselage section at x, depth inward; full: a solid bulkhead. Longerons run between the first and last frame. Spars at chord fractions from root to tip; carriedThrough: the spar crosses the body as a wing box, otherwise the spar frame takes it round. Ribs are streamwise at each y.",
+          frames: T.frames.map((q) => { const sc = bldSecAt(d.fus, S, q.x); return { x: q.x * L, kind: q.kind, name: STR_KIND[q.kind].name, full: q.kind === "pressure" || q.kind === "tank" || q.kind === "thrust" || q.kind === "nose", depth: Math.max(0.002, (d.str.depth / 100) * Math.min(sc.b, sc.aB, sc.aT)) * L, thickness: 0.0015 * L }; }),
+          longerons: T.longerons.map((l) => ({ name: l.name, kind: l.kind, x: [l.x0 * L, l.x1 * L], ...(l.kind === "sill" ? { y: l.y * L, z: l.z * L } : {}), section: 0.003 * L })),
+          wingSpars: T.spars.map((sp) => ({ name: sp.name, chordFraction: sp.fr, carriedThrough: !sp.blocked })),
+          wingRibsY: T.ribs.map((y) => y * L), ribThickness: 0.0015 * L, sparThickness: 0.002 * L,
+          finSpars: [0.2, 0.7],
+          thrustStructure: T.thrust.map((t) => ({ from: [t.x0 * L, t.y * L, t.z * L], to: [t.x1 * L, t.y * L, t.z * L] })),
+        };
+      })(),
       boxes: M.boxes.map((b) => ({ name: b.name, kind: b.k, shape: b.shape || "box", ...(b.shape === "cylinder" ? { radius: b.r * L, axis: "x", ends: "hemispherical" } : {}), x: [b.x0 * L, b.x1 * L], y: [b.y0 * L, b.y1 * L], z: [b.z0 * L, b.z1 * L], mirrored: !!b.pair })),
       rcs: M.rcs ? { clusters: M.rcs.pts.map(([x, y, z]) => [x * L, y * L, z * L]), thrusterN: d.rcs.F, perCluster: d.rcs.n, quarterTurnS: M.rcs.t90 } : null,
       mass: { grossKg: M.gross, dryKg: M.dry, landingKg: M.land, propellantKg: M.mp, breakdown: Object.fromEntries(M.M.map(([k, v]) => [k, v])), balanceFull: M.cgGross * L, balanceLanding: M.cgLand * L },
@@ -5726,6 +5853,48 @@ function bldDraw() {
     if (b.pair) hatch(X(x0), Yp(-b.y0), bw, (b.y1 - b.y0) * sc, col, rr);
     lab.push({ x: X((x0 + x1) / 2), y: Yp((b.y0 + b.y1) / 2), s: b.name.replace(/ tank$/, "").replace(/ bay$/, ""), col });
   }
+  // primary structure: faint behind everything, drawn out in full when the Structure chip is chosen
+  const T = m.str;
+  if (T) {
+    const emph = BLDUI.sel === "str", A = emph ? 0.95 : 0.3, at = (x) => bldSecAt(f, O.S, Math.min(1, Math.max(0, x)));
+    const KC = { pressure: "#f29c4f", tank: "#7fb2f0", thrust: "#c98ad8", spar: ink, gear: "#a8a8a8" };
+    g.save(); g.globalAlpha = A;
+    for (const q of T.frames) {
+      const sc = at(q.x), top = sc.zc + sc.aT, bot = Math.max(sc.zc - sc.aB, sc.zb), main = q.kind !== "frame";
+      g.strokeStyle = KC[q.kind] || ink; g.lineWidth = main ? (emph ? 1.8 : 1.1) : (emph ? 0.9 : 0.6); g.globalAlpha = main ? A : A * 0.7;
+      g.beginPath(); g.moveTo(X(q.x), Ys(top)); g.lineTo(X(q.x), Ys(bot)); g.moveTo(X(q.x), Yp(sc.b)); g.lineTo(X(q.x), Yp(-sc.b)); g.stroke();
+    }
+    g.globalAlpha = A; g.setLineDash([6, 3]); g.lineWidth = 0.8; g.strokeStyle = ink;
+    const xsL = Array.from({ length: 41 }, (_, i) => i / 40);
+    for (const l of T.longerons) {
+      const xs = xsL.filter((x) => x >= l.x0 && x <= l.x1);
+      g.beginPath();
+      if (l.kind === "keel") xs.forEach((x, i) => { const sc = at(x), y = Ys(Math.max(sc.zc - sc.aB, sc.zb) + 0.004); i ? g.lineTo(X(x), y) : g.moveTo(X(x), y); });
+      if (l.kind === "chine") { xs.forEach((x, i) => { const y = Ys(at(x).zc); i ? g.lineTo(X(x), y) : g.moveTo(X(x), y); }); for (const sg of [1, -1]) xs.forEach((x, i) => { const y = Yp(sg * at(x).b * 0.97); i ? g.lineTo(X(x), y) : g.moveTo(X(x), y); }); }
+      if (l.kind === "sill") { g.moveTo(X(l.x0), Ys(l.z)); g.lineTo(X(l.x1), Ys(l.z)); for (const sg of [1, -1]) { g.moveTo(X(l.x0), Yp(sg * l.y)); g.lineTo(X(l.x1), Yp(sg * l.y)); } }
+      g.stroke();
+    }
+    g.setLineDash([]);
+    if (d.wing.on) {
+      const P = wingPts(d.wing, T.yr), le = (y) => P[0][0] + (P[1][0] - P[0][0]) * Math.min(1, Math.max(0, (y - T.yr) / Math.max(d.wing.b - T.yr, 1e-6)));
+      const te = (y) => P[3][0] + (P[2][0] - P[3][0]) * Math.min(1, Math.max(0, (y - T.yr) / Math.max(d.wing.b - T.yr, 1e-6)));
+      for (const sg of [1, -1]) {
+        g.lineWidth = emph ? 1.6 : 1; g.strokeStyle = ink;
+        for (const sp of T.spars) { const y0 = sp.blocked ? T.yr : 0, xa = le(y0) + sp.fr * (te(y0) - le(y0)), xb = le(d.wing.b) + sp.fr * (te(d.wing.b) - le(d.wing.b)); g.beginPath(); g.moveTo(X(xa), Yp(sg * y0)); g.lineTo(X(xb), Yp(sg * d.wing.b)); g.stroke(); }
+        g.lineWidth = 0.7;
+        for (const y of T.ribs) { g.beginPath(); g.moveTo(X(le(y)), Yp(sg * y)); g.lineTo(X(te(y)), Yp(sg * y)); g.stroke(); }
+      }
+    }
+    for (const F of T.fins) {
+      if (Math.abs(Math.sin(F.cant * D)) > 0.95) continue;
+      const x0 = F.xr - F.cr, xt = F.h * Math.tan(F.sweep * D), ca = Math.cos(F.cant * D);
+      g.lineWidth = emph ? 1.4 : 0.9; g.strokeStyle = ink;
+      for (const fr of [0.2, 0.7]) { g.beginPath(); g.moveTo(X(x0 + fr * F.cr), Ys(F.z0)); g.lineTo(X(x0 + xt + fr * F.taper * F.cr), Ys(F.z0 + F.h * ca)); g.stroke(); }
+    }
+    g.strokeStyle = "#c98ad8"; g.lineWidth = emph ? 1.6 : 1;
+    for (const t of T.thrust) { g.beginPath(); g.moveTo(X(t.x0), Ys(t.z)); g.lineTo(X(t.x1), Ys(t.z)); g.moveTo(X(t.x0), Yp(t.y)); g.lineTo(X(t.x1), Yp(t.y)); g.stroke(); }
+    g.restore();
+  }
   lab.sort((a, b) => a.x - b.x);
   const rows = [[], [], [], []];   // above near, below near, above far, below far
   lab.forEach((L_, i) => {
@@ -5753,6 +5922,20 @@ function bldDraw() {
   dim(Yf(-halfW), yS, Yf(halfW), yS, m_(2 * halfW));
   const xH = Yf(halfW) + 16;
   dim(xH, Zf(zLo), xH, Zf(zHi), m_(zHi - zLo));
+  // sculpting handles on the outline: width in plan, top and bottom in side, at the seven stations
+  BLDUI.handles = [];
+  if (BLDUI.sel === "fus") {
+    for (let i = 0; i < SCULPT_X.length; i++) {
+      const x = SCULPT_X[i], sc = bldSecAt(f, O.S, x), bot = Math.max(sc.zc - sc.aB, sc.zb);
+      BLDUI.handles.push({ i, j: 0, x, px: X(x), py: Yp(sc.b) }, { i, j: 1, x, px: X(x), py: Ys(sc.zc + sc.aT) });
+      if (!(sc.zb > sc.zc - sc.aB)) BLDUI.handles.push({ i, j: 2, x, px: X(x), py: Ys(bot) });
+    }
+    for (const hd of BLDUI.handles) {
+      const on = BLDUI.drag && BLDUI.drag.i === hd.i && BLDUI.drag.j === hd.j;
+      g.fillStyle = on ? "#f29c4f" : bg; g.strokeStyle = "#f29c4f"; g.lineWidth = 1.5;
+      g.beginPath(); g.arc(hd.px, hd.py, on ? 6 : 4.5, 0, 7); g.fill(); g.stroke();
+    }
+  }
   // view names, set like the BUILD and TEST switch
   g.font = "700 11px Archivo, system-ui, sans-serif"; if ("letterSpacing" in g) g.letterSpacing = "0.22em";
   for (const [s, x, y] of [["SIDE", X(0), sideTop - 10], ["PLAN", X(0), Yp(halfW) - 44], ["FRONT", Yf(-halfW), narrow ? Zf(zHi) - 16 : sideTop - 10]]) { g.fillStyle = mute; g.textAlign = "left"; g.textBaseline = "middle"; g.fillText(s, x, y); }
@@ -5787,6 +5970,7 @@ function bldInfo() {
     (m.rcs ? row("RCS, 90° turn", `pitch ${m.rcs.t90.pitch.toFixed(0)} s · yaw ${m.rcs.t90.yaw.toFixed(0)} s · roll ${m.rcs.t90.roll.toFixed(0)} s`) : "") +
     m.boxes.filter((b) => b.container).map((b) => (!b.fits ? row(b.name, `<span class="err">does not fit the hull here</span>`) : "") + (BLD.int.pay * 1000 > CONTAINER[b.container].max ? row(b.name, `<span class="err">payload over its ${CONTAINER[b.container].max / 1000} t rating</span>`) : "")).join("") +
     m.boxes.map((b) => row(b.name, `${(b.x0 * Lm).toFixed(1)}–${(b.x1 * Lm).toFixed(1)} m · ` + (b.shape === "cylinder" ? `${b.pair ? "2 × " : ""}⌀ ${(2 * b.r * Lm).toFixed(2)} m` : `${((b.y1 - b.y0) * Lm).toFixed(1)} × ${((b.z1 - b.z0) * Lm).toFixed(1)} m`))).join("") +
+    (m.str ? row("Structure", `${m.str.frames.length} frames, ${m.str.frames.filter((q) => q.kind !== "frame").length} of them main frames or bulkheads` + (m.str.spars.length ? ` · wing box ${m.str.spars.every((sp) => !sp.blocked) ? "carried through the body" : m.str.spars.some((sp) => !sp.blocked) ? "part carried through" : "taken round by spar frames"} · ${m.str.ribs.length} ribs a side` : "")) : "") +
     (wingTip > 1.08 ? row("Wing tip", `<span class="err">${((wingTip - 1) * Lm).toFixed(1)} m behind the tail: less sweep or span</span>`) : "") +
     (BLD.src ? row("Source", BLD.src) : "");
 }
