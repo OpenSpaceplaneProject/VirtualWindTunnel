@@ -10,6 +10,8 @@ Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent 
 
 **Intro.** On first load the app opens with an explainer: the Space Shuttle preset as a tunnel model whose skin lifts off to show the structure the builder lays out (frames, bulkheads, longerons, tanks, payload, spars and ribs). It is drawn with [Anatomy](https://github.com/wheresryan22/anatomy) from the preset's own numbers; see `intro/`. "Don't show this again" hides it, "What is this?" under the title brings it back, and `?intro=1` or `?intro=0` forces it.
 
+**Line art.** Display › Render style draws the body the way the intro figure does: four flat light bands, bone ink on silhouettes, creases, part seams and (for builder designs) the main frame stations. "Line art" keeps the surface colours (pressure, heating, stress, livery); "Line art, plain" drops them. It only changes the final shading, so the simulation and its fields are untouched. On Lite it draws silhouettes only.
+
 **Phones, tablets and slow PCs.** Lite mode starts on the coarse grid at half resolution, takes longer render steps and reads surface heating from the solver's cells instead of per pixel. It switches on by itself for touch devices and machines with 4 or fewer cores or 4 GB or less of memory. Add `?lite=1` or `?lite=0` to the address to force it, or toggle it under Display. Auto resolution, on by default, lowers the render resolution while frames take over 40 ms and restores it when they speed up. Without WebGPU the Build screen still works; Test needs WebGPU.
 
 ## What's inside

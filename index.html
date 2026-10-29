@@ -845,6 +845,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="chk"><input type="checkbox" id="lP">Slice</label>
             <label class="chk" title="The flight path and the chosen point, drawn across the altitude and airspeed bars"><input type="checkbox" id="lE" checked>Flight path</label>
           </div>
+          <label class="field" title="How the body is drawn. Line art keeps the surface colours unless you pick the plain one; it never changes the simulation."><span class="k">Render style</span><select id="rstyle"><option value="0">Shaded</option><option value="1">Line art</option><option value="2">Line art, plain</option></select></label>
           <details>
             <summary>Vortices</summary>
             <div class="pane">
@@ -2710,7 +2711,19 @@ fn sliceColor(p: vec3f) -> vec4f {
   return vec4f(c, 0.88);
 }
 
+// Line art (Display › Render style): the look of the intro figure. Four flat light bands; bone ink on
+// silhouettes, creases, part seams and the builder's main frame stations. Display only: the solver, its
+// fields and the overlays' colours are untouched.
+const INK = vec3f(0.84, 0.81, 0.74);
+// normal from four evaluations (tetrahedral), for the line-art crease test
+fn sdNt(p: vec3f) -> vec3f {
+  let h = 0.35; let k = vec2f(1.0, -1.0);
+  return normalize(k.xyy * sdR(p + k.xyy * h) + k.yyx * sdR(p + k.yyx * h) + k.yxy * sdR(p + k.yxy * h) + k.xxx * sdR(p + k.xxx * h));
+}
+fn artInk(base: vec3f) -> vec3f { return select(INK, vec3f(0.035, 0.032, 0.028), dot(base, vec3f(0.3, 0.55, 0.15)) > 0.42); }
 @fragment fn fs(v: VO) -> @location(0) vec4f {
+  // radians per pixel, for line widths (taken before any branch, as derivatives must be)
+  let pa = max(abs(dpdx(v.uv.x)) * 2.0 * C.tanHalf * C.aspect, 1e-5);
   let ndc = v.uv * 2.0 - 1.0 - C.view.xy;
   let rd = normalize(C.fwd + C.right * (ndc.x * C.tanHalf * C.aspect) + C.up * (ndc.y * C.tanHalf));
   let ro = C.pos;
@@ -2729,6 +2742,9 @@ fn sliceColor(p: vec3f) -> vec4f {
   let showP = (C.mode & 4u) != 0u;
   let showK = (C.mode & 8u) != 0u;
   let lite = (C.mode & 16u) != 0u;   // Lite: surface heating from the solver's cells, not per pixel
+  let art = (C.mode & 32u) != 0u;
+  let plain = (C.mode & 64u) != 0u;
+  var edgeM = 1e9; var edgeA = 0.0; var dPrevW = 1e9; var tPrevW = 0.0; var falling = false;
   var tPl = -1.0;
   if (showP) {
     let ra = rd[C.sliceAxis];
@@ -2757,7 +2773,14 @@ fn sliceColor(p: vec3f) -> vec4f {
     if (t > tf) { break; }
     let p = ro + rd * t;
     var dW = dLast - (t - tLast);
-    if (dLast < 0.0 || dW < 1.5) { dW = sdR(p); dLast = dW; tLast = t; }
+    if (dLast < 0.0 || dW < 1.5) {
+      dW = sdR(p); dLast = dW; tLast = t;
+      // a near miss: the distance fell and is rising again; how close it came, in pixels, is an outline
+      if (art) {
+        if (dW > dPrevW && falling && dPrevW > 0.0) { let r = dPrevW / (tPrevW * pa); if (r < edgeM) { edgeM = r; edgeA = A; } }
+        falling = dW < dPrevW; dPrevW = dW; tPrevW = t;
+      }
+    }
     // sphere-trace towards the surface so thin parts are never stepped over
     let h = clamp(abs(dW) * 0.9, 0.15, dt);
     if (showS && dW < 0.0) {
@@ -2798,9 +2821,33 @@ fn sliceColor(p: vec3f) -> vec4f {
       }
       let key = normalize(-rd + 0.6 * C.up + 0.3 * C.right);
       let dif = max(dot(nrm, key), 0.0);
-      let rim = pow(1.0 - max(dot(nrm, -rd), 0.0), 3.0);
-      let spec = pow(max(dot(reflect(rd, nrm), key), 0.0), 40.0);
-      let sc = base * (0.32 + 0.68 * dif) + vec3f(0.18) * spec + vec3f(0.10, 0.12, 0.18) * rim + emit;
+      var sc: vec3f;
+      if (art) {
+        let q = floor(min(dif, 0.999) * 4.0) / 3.0;
+        if (plain && C.glow < 0.5) { base = mix(vec3f(0.050, 0.046, 0.040), vec3f(0.185, 0.172, 0.150), q); sc = base; }
+        else { sc = base * (0.42 + 0.58 * q); }
+        sc += emit;
+        let ink = artInk(sc);
+        let w = t * pa;   // one pixel, in cells, at this depth
+        var cov = 1.0 - smoothstep(0.07, 0.16, dot(nrm, -rd));   // limb
+        if (!lite) {
+          let o1 = normalize(cross(gN, C.up + 0.31 * C.right)) * (1.5 * w);
+          let o2 = normalize(cross(gN, o1)) * (1.5 * w);
+          let n1 = sdNt(ph + o1); let n2 = sdNt(ph + o2);
+          cov = max(cov, smoothstep(0.018, 0.045, max(1.0 - dot(gN, n1), 1.0 - dot(gN, n2))));   // crease: 11–17° across two pixels
+          let piv = vec3f(0.5, 0.0, 0.0);
+          let bp = G.rot * ((ph - G.origin) / G.scale - piv) + piv;
+          let b1 = G.rot * ((ph + 0.71 * (o1 + o2) - G.origin) / G.scale - piv) + piv;
+          if (round(matId(b1)) != round(matId(bp))) { cov = max(cov, 0.85); }   // part seam
+          let sw = w / G.scale;
+          cov = max(cov, 0.55 * (1.0 - smoothstep(0.5 * sw, 1.3 * sw, seamX(bp.x))));   // frame station
+        }
+        sc = mix(sc, ink, cov);
+      } else {
+        let rim = pow(1.0 - max(dot(nrm, -rd), 0.0), 3.0);
+        let spec = pow(max(dot(reflect(rd, nrm), key), 0.0), 40.0);
+        sc = base * (0.32 + 0.68 * dif) + vec3f(0.18) * spec + vec3f(0.10, 0.12, 0.18) * rim + emit;
+      }
       col += (1.0 - A) * sc;
       A = 1.0;
       break;
@@ -2848,7 +2895,9 @@ fn sliceColor(p: vec3f) -> vec4f {
   }
   var c2 = col;
   if (C.glow > 0.5) { c2 = vec3f(1.0) - exp(-col * 1.6); }
-  return vec4f(c2 + (1.0 - A) * bg, 1.0);
+  var outc = c2 + (1.0 - A) * bg;
+  if (art && edgeM < 2.0) { outc = mix(outc, INK, (1.0 - smoothstep(0.55, 1.35, edgeM)) * (1.0 - edgeA)); }
+  return vec4f(outc, 1.0);
 }`;
 
 // ─────────────────────────── Presets ───────────────────────────
@@ -3133,7 +3182,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, qthr: 0.9, vop: 0.6, vcol: 0,
+  lV: true, lS: true, lP: false, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -3462,6 +3511,7 @@ const PREFIX_LINES = PREFIX.split("\n").length;
 async function compileSDF(code) {
   if (compiling) return false;
   if (!/fn\s+matId\s*\(/.test(code)) code += "\nfn matId(p: vec3f) -> f32 { return 0.0; }";   // one colour unless the shape names its parts
+  if (!/fn\s+seamX\s*\(/.test(code)) code += "\nfn seamX(x: f32) -> f32 { return 1e9; }";   // no frame stations unless the builder made it
   compiling = true;
   const msg = $("#codeMsg");
   msg.className = "msg"; msg.textContent = "Compiling…";
@@ -3620,7 +3670,7 @@ function writeCam(aspect) {
   camF[20] = st.spos * R.dims[st.sax];
   const hyp = st.regime === "hyp";
   const ef = hyp && st.euler;
-  camU[21] = (hyp && !ef ? 2 : (st.lV ? 1 : 0) | (st.lS ? 2 : 0) | (st.lP ? 4 : 0) | (ef && st.lK ? 8 : 0)) | (LITE ? 16 : 0);
+  camU[21] = (hyp && !ef ? 2 : (st.lV ? 1 : 0) | (st.lS ? 2 : 0) | (st.lP ? 4 : 0) | (ef && st.lK ? 8 : 0)) | (LITE ? 16 : 0) | (st.rstyle > 0 ? 32 : 0) | (st.rstyle > 1 ? 64 : 0);
   camU[22] = st.sfield; camU[23] = st.sax;
   camF[24] = LITE ? 1.6 : 1.0; camF[25] = st.vop; camU[26] = st.vcol;
   const sm = surfModeNow();
@@ -4949,6 +4999,10 @@ function bldCode(d) {
     "  d = opSmoothUnion(d, c[4], 0.01);", "  d = opSmoothUnion(d, c[5], 0.004);", "  return min(min(d, c[6]), c[7]);", "}",
     "// nearest part, for colouring", "fn matId(p: vec3f) -> f32 {", "  var c = parts(p);", "  var m = 0u;",
     "  for (var i = 1u; i < 8u; i++) { if (c[i] < c[m]) { m = i; } }", "  return f32(m);", "}");
+  // the main frame stations (not the plain frames between), drawn as panel joints in line art
+  const mainX = (d.m && d.m.str ? d.m.str.frames : []).filter((q) => q.kind !== "frame").map((q) => q.x).slice(0, 24);
+  L.push("// distance along the body to the nearest main frame station, for line art",
+    `fn seamX(x: f32) -> f32 { return ${mainX.length ? mins(mainX.map((x) => `abs(x - ${f5(x)})`)) : "1e9"}; }`);
   return L.join("\n");
 }
 
@@ -10134,6 +10188,12 @@ function buildUI() {
     toast(e.target.checked ? "Reloading in Lite mode" : "Reloading at full quality");
     setTimeout(() => location.replace(u.toString()), 400);
   });
+  {
+    const el = $("#rstyle");
+    try { const v = +localStorage.getItem("vwt.style"); if (v >= 0 && v <= 2) st.rstyle = v; } catch (e) { /* storage blocked */ }
+    el.value = String(st.rstyle);
+    el.addEventListener("change", () => { st.rstyle = +el.value; try { localStorage.setItem("vwt.style", el.value); } catch (e) { /* storage blocked */ } refreshOutputs(); });
+  }
   for (const k of ["les", "spfAuto", "lV", "lS", "lP", "avg", "showMean"]) {
     const el = $("#" + k);
     el.checked = st[k];
