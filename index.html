@@ -1345,49 +1345,66 @@ fn sdFoilWing(q: vec3f, p0: vec2f, p1: vec2f, p2: vec2f, p3: vec2f, tc: f32, kx:
   let u = clamp((q.x - le) / c, 0.0, 1.0);
   let yt = 5.0 * tc * c * (0.2969 * sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u * u * u - 0.1036 * u * u * u * u);
   let dp = max(max(le - q.x, q.x - te) * kx, q.y - p1.y);
-  let w = vec2f(dp, abs(q.z) - max(yt, 0.0012));
+  // the thickness distance is vertical: shorten it by the surface slope so it stays a bound near the
+  // round leading edge (it read up to 4 times too far there)
+  // (the correction fades out over a gap of 4 t/c chords, where the vertical distance is already safe)
+  let uu = max(u, 1e-4);
+  let g = clamp(max(abs(q.z) - max(yt, 0.0012), 0.0) / (4.0 * tc * c), 0.0, 1.0);
+  let sp = 5.0 * tc * (0.14845 / sqrt(uu) - 0.126 - 0.7032 * uu + 0.8529 * uu * uu - 0.4144 * uu * uu * uu) * (1.0 - g * g * (3.0 - 2.0 * g));
+  let w = vec2f(dp, (abs(q.z) - max(yt, 0.0012)) / sqrt(1.0 + sp * sp));
   return min(max(w.x, w.y), 0.0) + length(max(w, vec2f(0.0)));
 }
 // Piecewise-linear profile lookup, (x, value) pairs in increasing x.
 fn pSlope(w: array<vec2f, 16>, i: u32) -> f32 { return (w[i + 1u].y - w[i].y) / max(w[i + 1u].x - w[i].x, 1e-6); }
 fn pTan(a: f32, b: f32) -> f32 { return select(2.0 * a * b / (a + b), 0.0, a * b <= 0.0); }
-// monotone cubic through the stations (Fritsch–Butland tangents), as bldR in the page script
-fn prof16(v: array<vec2f, 16>, n: u32, x: f32) -> f32 {
-  var w = v; var r = w[0].y;
+// monotone cubic through the stations (Fritsch–Butland tangents), as bldR in the page script: the
+// radius at x and its slope dr/dx
+fn prof16(v: array<vec2f, 16>, n: u32, x: f32) -> vec2f {
+  var w = v; var r = vec2f(w[0].y, 0.0);
   for (var i = 0u; i + 1u < n; i++) {
     let a = w[i]; let b = w[i + 1u];
     if (x >= a.x && x <= b.x) {
       let h = b.x - a.x;
-      if (h < 1e-6) { r = max(a.y, b.y); } else {
+      if (h < 1e-6) { r = vec2f(max(a.y, b.y), 0.0); } else {
         let d = pSlope(w, i); let t = (x - a.x) / h;
         var m0 = d; var m1 = d;
         if (i > 0u) { m0 = pTan(pSlope(w, i - 1u), d); }
         if (i + 2u < n) { m1 = pTan(d, pSlope(w, i + 1u)); }
         let t2 = t * t; let t3 = t2 * t;
-        r = (2.0 * t3 - 3.0 * t2 + 1.0) * a.y + (t3 - 2.0 * t2 + t) * h * m0 + (-2.0 * t3 + 3.0 * t2) * b.y + (t3 - t2) * h * m1;
+        r = vec2f((2.0 * t3 - 3.0 * t2 + 1.0) * a.y + (t3 - 2.0 * t2 + t) * h * m0 + (-2.0 * t3 + 3.0 * t2) * b.y + (t3 - t2) * h * m1,
+          ((6.0 * t2 - 6.0 * t) * (a.y - b.y)) / h + (3.0 * t2 - 4.0 * t + 1.0) * m0 + (3.0 * t2 - 2.0 * t) * m1);
       }
       break;
     }
   }
-  if (x > w[n - 1u].x) { r = w[n - 1u].y; }
+  if (x > w[n - 1u].x) { r = vec2f(w[n - 1u].y, 0.0); }
   return r;
 }
 // Fuselage along x in [0, 1]: half-height H(x) and half-width W(x) profiles, superelliptic section of
 // exponent S (2 round, higher squarer), the upper surface falling to top.x of its height from x = top.y
 // to the tail, and the nose dropped by droop.x over its length droop.y. A bound on the distance, exact
-// at the surface.
+// at the surface. The section's radial distance is shortened by the steepest slope of the outline
+// there, 1 / √(1 + s²), so it stays a bound where the surface turns towards the flow (the nose cap,
+// the boat-tail), and it is combined with the end planes as a box is, not by max(): with max() and a
+// floor on the section size, points ahead of the nose read up to 16 times too far, so rays and the
+// voxeliser overshot the nose.
 fn sdBody(p: vec3f, H: array<vec2f, 16>, W: array<vec2f, 16>, n: u32, S: f32, top: vec2f, droop: vec2f) -> f32 {
   let x = clamp(p.x, 0.0, 1.0);
-  let h = prof16(H, n, x); let b = max(prof16(W, n, x), 1e-4);
+  let hh = prof16(H, n, x); let bb = prof16(W, n, x);
+  let h = hh.x; let b = max(bb.x, 1e-4);
   let u = max(0.0, 1.0 - x / droop.y);
   let zz = p.z + droop.x * u * u;
-  let tf = 1.0 - (1.0 - top.x) * clamp((x - top.y) / (1.0 - top.y), 0.0, 1.0);
+  let tt = clamp((x - top.y) / (1.0 - top.y), 0.0, 1.0);
+  let tf = 1.0 - (1.0 - top.x) * tt * tt * (3.0 - 2.0 * tt);   // smooth, so the top has no crease where it starts to fall
   let a = max(select(h, h * tf, zz > 0.0), 1e-4);
   let q = vec2f(abs(p.y) / b, abs(zz) / a);
   let k = pow(pow(q.x, S) + pow(q.y, S), 1.0 / S);
-  return max((k - 1.0) * max(min(a, b), 0.002) * 0.8, max(-p.x, p.x - 1.0));
+  // beyond the ends the end planes join in (box-style combination)
+  let dx = max(-p.x, p.x - 1.0);
+  let sl = length(vec2f(bb.y, hh.y)) + 2.0 * droop.x * u / max(droop.y, 1e-3);
+  let dr = (k - 1.0) * min(a, b) * 0.8 / sqrt(1.0 + sl * sl);
+  return length(max(vec2f(dr, dx), vec2f(0.0))) + min(max(dr, dx), 0.0);
 }
-// Sphere-cone: spheres of radius r1 at a and r2 at b joined by their tangent cone (exact SDF).
 fn sdRoundCone(p: vec3f, a: vec3f, b: vec3f, r1: f32, r2: f32) -> f32 {
   let ba = b - a; let l2 = dot(ba, ba); let rr = r1 - r2; let a2 = l2 - rr * rr; let il2 = 1.0 / l2;
   let pa = p - a; let y = dot(pa, ba); let z = y - l2;
@@ -1490,7 +1507,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg:
         let k2 = select(min(k2o / (1.0 - k2o * dl), kmax), kmax, k2o * dl > 0.4);
         kap = k1 + k2;
       }
-      nv = vec2u(pack4x8snorm(vec4f(n, 0.0)), pack2x16float(vec2f(clamp(kap, -60000.0, 60000.0), d)));
+      // the distance stored for the ghost-cell wall is normalised by the field's gradient: the shape
+      // functions are bounds that may read short (for safe ray marching), and d / |∇d| is accurate
+      // near the surface, where the immersed boundary mirrors the flow
+      nv = vec2u(pack4x8snorm(vec4f(n, 0.0)), pack2x16float(vec2f(clamp(kap, -60000.0, 60000.0), d / max(gl, 0.05))));
     }
     nrm[n0 + k] = nv;
   }
@@ -3432,6 +3452,7 @@ async function compileSDF(code) {
     voxGen++;
     msg.textContent = "Geometry rebuilt";
     geoDirty = true;
+    if (st.mode !== "build") { if (st.regime === "hyp") scheduleHyp(); scheduleFit(); }
     return true;
   } catch (e) {
     msg.className = "msg err"; msg.textContent = String(e.message || e);
@@ -3495,7 +3516,7 @@ function aeroAngles(A = ATT) {
   const by = [A[0][1], A[1][1], A[2][1]];
   return { aoa: Math.atan2(v[2], v[0]) / D, beta: Math.asin(Math.max(-1, Math.min(1, -v[1]))) / D, roll: Math.atan2(by[2], by[1]) / D };
 }
-function syncAtt() { ATT = attFromAngles(st.aoa, st.beta, st.roll); }
+function syncAtt() { ATT = attFromAngles(st.aoa, st.beta, st.roll); scheduleFit(); }
 function orientMatrix() {
   if (st.preset === "stl") return [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
   return orientRaw();
@@ -4631,7 +4652,7 @@ function bldWidth(f, H) {
 // and the flat-bottom plane zb, matching sdBody
 function bldAt(f, H, W, x) {
   const h = bldR(H, x), b = bldR(W, x), u = Math.max(0, 1 - x / Math.max(f.ln, 0.05)), zc = -f.droop * f.rf * u * u;
-  const tf = 1 - (1 - f.hump) * Math.min(1, Math.max(0, (x - 0.35) / 0.65));
+  const tt = Math.min(1, Math.max(0, (x - 0.35) / 0.65)), tf = 1 - (1 - f.hump) * tt * tt * (3 - 2 * tt);
   return { b, aT: h * tf, aB: h, zc, zb: f.flat > 0 ? -f.rf * (1 - f.flat) : -Infinity };
 }
 // half-width of the superelliptic section at height z (absolute), 0 outside
@@ -4808,7 +4829,13 @@ function bldCode(d) {
       const [a, b, c] = strakePts(d, S, yr), th = Math.max(0.5 * w.tc * w.cr * 0.4, 0.003);
       pl.push(`sdPlate(${mins(quad("wq.xy", [a[0], -0.05], a, b, c))} + ${f5(th)}, wq.z, ${f5(th / 3)}, ${f5(th)})`);
     }
+    // inboard, the wing (and strake) only needs to reach a little way inside the body to join it:
+    // cut it there, so it does not blend with the body's top and bottom surfaces
+    let yIn = Infinity;
+    for (let i = 0; i <= 8; i++) yIn = Math.min(yIn, bldHalfW(f, bldSecAt(f, S, w.x + (w.cr * i) / 8), zw));
+    yIn = Math.max(0, Math.min(yIn, yr) - 0.02);
     L.push(`  c[1] = ${mins(pl)};`);
+    if (yIn > 0.005) L.push(`  c[1] = max(c[1], ${f5(yIn)} - wq.y);`);
   }
   const fins = [];
   if (t.type !== "none") {
@@ -5190,13 +5217,15 @@ function bldApply(recompile = true) {
   bldDraw(); bldInfo(); livPalette(); livDraw(); buildHeadline();
   if (recompile) {
     clearTimeout(bldApply.t);
-    bldApply.t = setTimeout(() => {
+    bldApply.fn = () => {
+      bldApply.fn = null;
       const code = bldCode(BLD);
       PRESETS.builder = { ...(PRESETS.spaceplane || {}), cat: "body", name: "Built: " + BLD.name, code, entry: { ...(PRESETS.spaceplane || {}).entry, mass: st.ent.mass, L: BLD.L, cg: st.ent.cg } };
       if (st.preset !== "builder") applyPreset("builder");
       else { $("#code").value = code; const go = () => (compiling ? setTimeout(go, 60) : compileSDF(code)); go(); }
       computeAscent();
-    }, 250);
+    };
+    bldApply.t = setTimeout(bldApply.fn, 250);
   }
 }
 // Two screens. Build: the design alone, drawn in its part colours, nothing simulated, so every slider is
@@ -5221,6 +5250,9 @@ function setMode(m) {
     document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x.dataset.tab === "model")));
     if (st.wasRunning !== undefined) { running = st.wasRunning; st.wasRunning = undefined; syncRun(); }
     geoDirty = true;   // analyse what was built
+    // a design change still waiting to compile goes now, and the analysis starts without waiting for an edit
+    if (bldApply.fn) { clearTimeout(bldApply.t); bldApply.fn(); }
+    else if (st.regime === "hyp") scheduleHyp();
     fillPresetList();
   }
   livPalette();
@@ -6667,6 +6699,43 @@ async function measureBody() {
   areas = a;
   if (!a.solid) toast("No solid cells: the body is outside the domain or smaller than one cell.");
   updateLoads();
+  fitDomain();
+}
+// Keep the body, the room its bow shock needs ahead and beside it, and its near wake inside the grid
+// at the current attitude, by shrinking the model when it would not fit. Extents come from the body
+// voxelised at zero incidence (cached), turned to the current attitude about the same pivot the
+// voxeliser uses. Margins, in body lengths: 0.15 ahead and to the sides, 0.35 behind.
+let fitTimer = 0;
+function scheduleFit() { clearTimeout(fitTimer); fitTimer = setTimeout(async () => { if (R && voxPipe) { const a = await refAreas(); if (a) { areas = a; fitDomain(); } } }, 300); }
+function fitDomain() {
+  const a = areas;
+  if (!R || !a || !a.solid || (st.zoom && st.zoom.on)) return;
+  const [nx, ny, nz] = R.dims;
+  const touching = a.xmin <= 0 || a.xmax >= nx - 1 || a.ymin <= 0 || a.ymax >= ny - 1 || a.zmin <= 0 || a.zmax >= nz - 1;
+  let fit;
+  if (touching) fit = st.size * 0.8;   // clipped even at zero incidence: shrink, re-measure, refine
+  else {
+    const L0 = a.L, o0 = a.o, piv = [0.5, 0, 0];
+    const bb = [[(a.xmin - o0[0]) / L0, (a.xmax + 1 - o0[0]) / L0], [(a.ymin - o0[1]) / L0, (a.ymax + 1 - o0[1]) / L0], [(a.zmin - o0[2]) / L0, (a.zmax + 1 - o0[2]) / L0]];
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let k = 0; k < 8; k++) {
+      const c = [bb[0][k & 1], bb[1][(k >> 1) & 1], bb[2][(k >> 2) & 1]], d = [c[0] - piv[0], c[1], c[2]];
+      for (let r = 0; r < 3; r++) { const w = ATT[r][0] * d[0] + ATT[r][1] * d[1] + ATT[r][2] * d[2] + piv[r]; lo[r] = Math.min(lo[r], w); hi[r] = Math.max(hi[r], w); }
+    }
+    const o = origin(), mUp = 0.15, mDn = 0.35, mS = 0.15;
+    let Lmax = Infinity;
+    const lim = (room, need) => { if (need > 1e-6) Lmax = Math.min(Lmax, room / need); };
+    lim(o[0] - 1, mUp - lo[0]); lim(nx - 1 - o[0], hi[0] + mDn);
+    lim(o[1] - 1, mS - lo[1]); lim(ny - 1 - o[1], hi[1] + mS);
+    lim(o[2] - 1, mS - lo[2]); lim(nz - 1 - o[2], hi[2] + mS);
+    fit = Lmax / (0.34 * nx);
+  }
+  if (!(st.size > fit * 1.01)) return;
+  const was = st.size;
+  st.size = Math.max(0.3, Math.floor(fit * 40) / 40);
+  $("#size").value = st.size; geoDirty = true; refCache.key = ""; refreshOutputs();
+  if (st.regime === "hyp") scheduleHyp();
+  toast(`Scaled the model to ${Math.round((100 * st.size) / was)} % so it, its bow shock and its wake fit the grid at this attitude.`);
 }
 
 // Reference areas from the body at zero incidence, voxelised into a scratch flag buffer
@@ -6687,13 +6756,13 @@ async function refAreas() {
   if (Rr !== R) return null;
   const f = new Uint32Array(ab), [nx, ny, nz] = Rr.dims;
   const plan = new Uint8Array(nx * ny), front = new Uint8Array(ny * nz);
-  let solid = 0, xmin = nx, xmax = -1, ymin = ny, ymax = -1;
+  let solid = 0, xmin = nx, xmax = -1, ymin = ny, ymax = -1, zmin = nz, zmax = -1;
   const sx = new Float32Array(nx);
   for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) {
     const row = nx * (y + ny * z);
-    for (let x = 0; x < nx; x++) if (f[row + x] === 1) { solid++; sx[x]++; plan[x + nx * y] = 1; front[y + ny * z] = 1; if (x < xmin) xmin = x; if (x > xmax) xmax = x; if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
+    for (let x = 0; x < nx; x++) if (f[row + x] === 1) { solid++; sx[x]++; plan[x + nx * y] = 1; front[y + ny * z] = 1; if (x < xmin) xmin = x; if (x > xmax) xmax = x; if (y < ymin) ymin = y; if (y > ymax) ymax = y; if (z < zmin) zmin = z; if (z > zmax) zmax = z; }
   }
-  const val = { plan: plan.reduce((a, b) => a + b, 0), front: front.reduce((a, b) => a + b, 0), solid, xmin, xmax, ymin, ymax, sx };
+  const val = { plan: plan.reduce((a, b) => a + b, 0), front: front.reduce((a, b) => a + b, 0), solid, xmin, xmax, ymin, ymax, zmin, zmax, sx, o: origin(), L: lc(), size: st.size };
   refCache.key = key; refCache.val = val;
   return val;
 }
