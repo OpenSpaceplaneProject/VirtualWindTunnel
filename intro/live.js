@@ -19,9 +19,13 @@ for (const node of nodes) node.lift = node.m[0] * D.V[0] + node.m[1] * D.V[1] + 
 let order = nodes.map((_, index) => index);
 
 const IDS = Object.keys(D.pieces);
-const piece = Object.fromEntries(IDS.map((id) => [id, { x: 0, v: 0, target: 0, pending: null }]));
+// Keyframed tracks: each assembly comes off in turn, eased in and out, so you watch it come apart.
+// Closing plays the same timeline backwards. A change of mind part-way starts from where each part is.
+const SPAN = Math.max(...IDS.map((id) => D.tracks[id][0] + D.tracks[id][1]));
+const piece = Object.fromEntries(IDS.map((id) => [id, { x: 0, from: 0, to: 0, start: 0, dur: 0 }]));
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 let clock = 0, apart = false, selected = null, inside = false, leaveTimer = 0;
-let touring = !still.matches, tourClock = -1.2, idleTimer = 0, visible = false, frame = 0, last = 0;
+let touring = !still.matches, tourClock = -1.2, idleTimer = 0, visible = true, frame = 0, last = 0;
 
 const say = (text) => { if (readout.textContent !== text) readout.textContent = text; };
 function describe() {
@@ -32,11 +36,13 @@ function describe() {
 function setApart(on) {
   if (apart === on) return;
   apart = on;
-  const goal = on ? 1 : 0;
-  let index = 0;
-  for (const id of on ? D.stagger : [...D.stagger].reverse()) {
-    if (piece[id].target === goal) piece[id].pending = null;
-    else piece[id].pending = { value: goal, at: clock + (still.matches ? 0 : index++ * D.spring.stagger) };
+  for (const id of IDS) {
+    const [delay, dur] = D.tracks[id];
+    const p = piece[id];
+    p.from = p.x;
+    p.to = on ? 1 : 0;
+    p.dur = dur * Math.abs(p.to - p.from);
+    p.start = clock + (on ? delay : SPAN - delay - dur) * (on ? 1 : 0.75);
   }
   describe();
   run();
@@ -51,24 +57,16 @@ function select(id) {
   stage.setAttribute("aria-valuenow", String(id ? D.order.indexOf(id) + 1 : 0));
   describe();
 }
-function steer(state, dt, calm) {
-  if (state.pending && clock >= state.pending.at) { state.target = state.pending.value; state.pending = null; }
-  if (calm) { state.x = state.target; state.v = 0; return false; }
-  for (let i = 0; i < D.spring.substeps; i++) {
-    const h = dt / D.spring.substeps;
-    state.v += ((state.target - state.x) * D.spring.stiffness - state.v * D.spring.damping) * h;
-    state.x += state.v * h;
-  }
-  if (Math.abs(state.target - state.x) < 2e-4 && Math.abs(state.v) < 2e-4) { state.x = state.target; state.v = 0; return state.pending !== null; }
-  return true;
+function steer(p) {
+  const t = p.dur > 0 ? Math.min(1, Math.max(0, (clock - p.start) / p.dur)) : clock >= p.start ? 1 : 0;
+  p.x = p.from + (p.to - p.from) * ease(t);
+  return t < 1;
 }
+const shown = {};
 function place() {
-  for (const node of nodes) {
-    const share = piece[node.ride].x;
-    const tx = (D.EX[0] * node.m[0] + D.EY[0] * node.m[1] + D.EZ[0] * node.m[2]) * share;
-    const ty = (D.EX[1] * node.m[0] + D.EY[1] * node.m[1] + D.EZ[1] * node.m[2]) * share;
-    const text = share === 0 ? "" : `translate(${tx.toFixed(2)} ${ty.toFixed(2)})`;
-    if (text !== node.shown) { node.shown = text; text ? node.el.setAttribute("transform", text) : node.el.removeAttribute("transform"); }
+  for (const id of IDS) {
+    const v = piece[id].x.toFixed(4);
+    if (shown[id] !== v) { shown[id] = v; model.style.setProperty(`--s-${id}`, v); }
   }
   const next = nodes.map((_, i) => i).sort((a, b) => nodes[a].key + nodes[a].lift * piece[nodes[a].ride].x - (nodes[b].key + nodes[b].lift * piece[nodes[b].ride].x));
   if (next.some((index, at) => index !== order[at])) {
@@ -94,12 +92,12 @@ function quietTour() {
 }
 function idleText() {
   if (selected) return D.pieces[selected].say;
-  const moving = IDS.some((id) => Math.abs(piece[id].x - piece[id].target) > 0.002 || piece[id].pending);
+  const moving = IDS.some((id) => Math.abs(piece[id].x - piece[id].to) > 0.002);
   if (moving) return apart ? "lifting the skin" : "closing up";
   return apart ? D.apartSay : D.restSay;
 }
 function tick(now) {
-  const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60;
+  const dt = last ? Math.min((now - last) / 1000, 0.1) : 1 / 60;
   last = now;
   clock += dt;
   if (touring) {
@@ -110,10 +108,11 @@ function tick(now) {
     select(step.part);
   }
   let moving = false;
-  for (const id of IDS) if (steer(piece[id], dt, still.matches)) moving = true;
+  for (const id of IDS) if (steer(piece[id])) moving = true;
   place();
   say(idleText());
   frame = visible && (moving || touring) ? requestAnimationFrame(tick) : 0;
+  if (frame === 0) last = 0;
 }
 function run() { if (!frame && visible) { last = 0; frame = requestAnimationFrame(tick); } }
 new IntersectionObserver((entries) => { visible = entries[entries.length - 1].isIntersecting; if (visible) run(); }, { rootMargin: "120px 0px" }).observe(stage);

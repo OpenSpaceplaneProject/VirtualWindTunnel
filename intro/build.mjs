@@ -77,7 +77,7 @@ const PIECES = {
   skin: { name: "Upper skin, payload-bay doors and fin", move: lift(UP, 6.6 * U) },
   wingskin: { name: "Upper wing skins", move: [0, 0, 0] },
   payload: { name: "40 ft container", move: lift(UP, 4.8 * U) },
-  engines: { name: "Three main engines", move: lift(AX, 2.2 * U) },
+  engines: { name: "Three main engines", move: lift(AX, 1.3 * U) },
   structure: { name: "Primary structure", move: [0, 0, 0] },
   stand: { name: "Pitch sector and sting", move: [0, 0, 0] },
 };
@@ -145,7 +145,7 @@ function latheCut(piece, F, rOf, s0, s1, style, options = {}) {
 }
 const BAY = [8.89, 21.08];
 const inBay = (f) => f.x >= BAY[0] - 0.01 && f.x <= BAY[1] + 0.01;
-const OPEN = [67.5, 112.5]; // the bay frames are U-shaped, open above the sills: the doors close the top
+const OPEN = [37.5, 142.5]; // the bay frames are U-shaped, open above the sills: the doors close the top
 for (const f of FRAMES) {
   const s = f.x * U;
   const outer = f.x < NOSE_END ? noseR(f.x) - SKIN * U - 0.05 : FR_OUT;
@@ -179,7 +179,7 @@ for (const lg of STR.longerons) {
   const within = FRAMES.filter((f) => f.x >= x0 && f.x <= x1);
   const rr = Math.min(...within.filter((f) => !f.full).map(ringIn)) - LONG_A / 2;
   if (lg.kind === "keel") KEEL_TOP = -rr + LONG_A / 2;
-  const spots = { keel: [-90], chine: [0, 180], sill: [OPEN[0] - 3, OPEN[1] + 3] }[lg.kind];
+  const spots = { keel: [-90], chine: [0, 180], sill: [OPEN[0] - 4, OPEN[1] + 4] }[lg.kind];
   for (const deg of spots) {
     const c = [rr * Math.cos(deg * DEG), rr * Math.sin(deg * DEG)];
     const h = LONG_A / 2;
@@ -434,7 +434,10 @@ items.sort((a, b) => (APART ? a.key + liftOf(a) - b.key - liftOf(b) : a.key - b.
 const groups = items.map((item, index) => {
   const [mx, my, mz] = item.move;
   const t = APART ? ` transform="${k.translateAlong(P, item.move)}"` : "";
-  return `<g class="it"${t} data-piece="${item.piece}" data-k="${item.key.toFixed(2)}" data-m="${mx.toFixed(1)},${my.toFixed(1)},${mz.toFixed(1)}" data-i="${index}">${item.svg}</g>`;
+  const o = at([0, 0, 0]), q = at(item.move);
+  const moving = Math.hypot(q[0] - o[0], q[1] - o[1]) > 0.01;
+  const css = moving && !APART ? ` style="--dx:${(q[0] - o[0]).toFixed(2)}px;--dy:${(q[1] - o[1]).toFixed(2)}px"` : "";
+  return `<g class="it${moving ? " mv" : ""}"${t}${css} data-piece="${item.piece}" data-k="${item.key.toFixed(2)}" data-m="${mx.toFixed(1)},${my.toFixed(1)},${mz.toFixed(1)}" data-i="${index}">${item.svg}</g>`;
 });
 const halo = `<path class="iso-halo" d="${k.haloOf(FLOOR, -FLOOR_H - FOOT_H, FLOOR_H, P)}"/>`;
 const tf = (n) => Math.round(n).toLocaleString("en-GB");
@@ -461,6 +464,7 @@ const DATA = {
   V, EX: unit([1, 0, 0]), EY: unit([0, 1, 0]), EZ: unit([0, 0, 1]),
   pieces: Object.fromEntries(Object.entries(PIECES).map(([id, p]) => [id, { name: p.name, say: p.say }])),
   stagger: STAGGER, spring: SPRING, order: ORDER,
+  tracks: { nose: [0, 0.75], skin: [0.35, 1.0], wingskin: [0.95, 0.8], payload: [1.45, 0.9], engines: [1.9, 0.7], structure: [0, 0], stand: [0, 0] },
   restSay: `Shuttle preset · ${LM} m · ${tf(D.mass.grossKg / 1000)} t gross · α ${ALPHA}°`,
   apartSay: `apart · ${ORDER.length} assemblies`,
 };

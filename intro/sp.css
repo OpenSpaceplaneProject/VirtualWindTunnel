@@ -48,3 +48,11 @@ body.embed .iso-page { width: min(1020px, 100% - 16px); margin: 8px auto 10px; }
 .iso[data-theme="osp"] .sp-num { font-family: "Archivo", system-ui, sans-serif; font-variation-settings: "wdth" 125; }
 .iso[data-theme="osp"] .iso-caption { color: var(--anatomy-muted); }
 .iso[data-theme="osp"] .iso-plate { box-shadow: 0 0 0 1px rgba(214, 206, 189, 0.17); }
+
+/* each moving item is placed by its assembly's share (--s-<piece>, 0 to 1) times its own offset */
+.it.mv { transform: translate(calc(var(--s) * var(--dx)), calc(var(--s) * var(--dy))); }
+.it.mv[data-piece="nose"] { --s: var(--s-nose, 0); }
+.it.mv[data-piece="skin"] { --s: var(--s-skin, 0); }
+.it.mv[data-piece="wingskin"] { --s: var(--s-wingskin, 0); }
+.it.mv[data-piece="payload"] { --s: var(--s-payload, 0); }
+.it.mv[data-piece="engines"] { --s: var(--s-engines, 0); }
