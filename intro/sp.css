@@ -1,0 +1,50 @@
+.sp { --sp-part-ring: #ffffff12; --sp-part-hover: #ffffff0b; }
+[data-theme="light"] .sp { --sp-part-ring: #00000016; --sp-part-hover: #0000000a; }
+.sp .iso-plate { position: relative; }
+.sp-stage { position: relative; outline: none; touch-action: manipulation; }
+.sp-stage:focus-visible { outline: 1px solid var(--anatomy-muted); outline-offset: 4px; border-radius: 6px; }
+.sp-stage .iso-svg { display: block; width: 100%; height: auto; }
+.sp-stage[data-focus] .it:not([data-on]):not([data-piece="stand"]) { --anatomy-hi: var(--anatomy-mid); --anatomy-mid: var(--anatomy-lo); }
+.sp-stage[data-focus] .it[data-piece="stand"] { --anatomy-mid: var(--anatomy-lo); }
+.it[data-on] { --anatomy-hi: var(--anatomy-lit); --anatomy-mid: var(--anatomy-hi); }
+.it[data-on] .iso-top { fill: var(--anatomy-lit-top); }
+.it[data-on] .iso-shade { fill: var(--anatomy-lit-shade); }
+.it[data-on] [data-seamless] > .iso-shade { stroke: var(--anatomy-lit-shade); }
+.it[data-on] [data-seamless] > .iso-top { stroke: var(--anatomy-lit-top); }
+.sp-controls { position: absolute; left: 20px; bottom: 16px; font-family: var(--anatomy-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--anatomy-muted); }
+.sp-parts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.sp-part { display: inline-flex; align-items: baseline; gap: 7px; padding: 5px 10px; border: 0; border-radius: 999px; background: transparent; color: var(--anatomy-muted); font: 12.5px/1.3 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; cursor: pointer; box-shadow: inset 0 0 0 1px var(--sp-part-ring); transition: color 160ms var(--anatomy-ease), background 160ms var(--anatomy-ease); }
+.sp-part:hover, .sp-part:focus-visible, .sp-part[data-on] { color: var(--anatomy-strong); background: var(--sp-part-hover); outline: none; }
+.sp-num { font-family: var(--anatomy-mono); font-size: 10px; color: var(--anatomy-muted); }
+.sp-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (max-width: 640px) {
+  .sp .iso-plate { padding: 48px 6px 64px; }
+  .sp .iso-plate-corner[data-corner="readout"] { bottom: 40px; right: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sp-controls { left: 14px; bottom: 14px; }
+  .sp-part { font-size: 11.5px; padding: 4px 8px; }
+}
+body.embed { background: transparent; }
+body.embed .iso-page { width: min(1020px, 100% - 16px); margin: 8px auto 10px; }
+/* OSP: the Virtual Windtunnel's own look: warm black, bone line work, one warm accent, Archivo */
+.iso[data-theme="osp"] {
+  --anatomy-page: #000; --anatomy-card: #070605; --anatomy-text: #b9b3a5; --anatomy-strong: #e6e0d1; --anatomy-muted: #8e897d;
+  --anatomy-paper: #070605; --anatomy-face: #14130f; --anatomy-top: #1b1914;
+  --anatomy-shade-0: #0b0a08; --anatomy-shade-1: #0e0d0a; --anatomy-shade-2: #11100c; --anatomy-shade-3: #14120f;
+  --anatomy-lit-top: #2a1c0f; --anatomy-lit-shade: #1e150c;
+  --anatomy-hi: #d6cebd; --anatomy-mid: #8c8578; --anatomy-lo: #5a554b; --anatomy-faint: #34302a; --anatomy-lit: #f29c4f;
+  --anatomy-halo: #000; --anatomy-halo-opacity: .9; --anatomy-dot: #d6cebd;
+  --anatomy-mono: "Archivo", system-ui, sans-serif;
+  --anatomy-lift: 0 0 0 1px rgba(214, 206, 189, 0.17);
+  --sp-part-ring: rgba(214, 206, 189, 0.17); --sp-part-hover: rgba(214, 206, 189, 0.06);
+  color-scheme: dark;
+  font-family: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.iso[data-theme="osp"] .iso-plate { border-radius: 4px; }
+.iso[data-theme="osp"] .iso-plate-corner { font-variation-settings: "wdth" 125; font-weight: 600; letter-spacing: 0.06em; }
+.iso[data-theme="osp"] .iso-plate-corner[data-corner="readout"] { color: var(--anatomy-strong); letter-spacing: 0.01em; text-transform: none; }
+.iso[data-theme="osp"] .sp-controls { font-variation-settings: "wdth" 125; font-weight: 600; letter-spacing: 0.06em; }
+.iso[data-theme="osp"] .sp-part { font-family: "Archivo", system-ui, sans-serif; border-radius: 3px; }
+.iso[data-theme="osp"] .sp-part[data-on] { color: #f29c4f; box-shadow: inset 0 0 0 1px rgba(242, 156, 79, 0.55); }
+.iso[data-theme="osp"] .sp-num { font-family: "Archivo", system-ui, sans-serif; font-variation-settings: "wdth" 125; }
+.iso[data-theme="osp"] .iso-caption { color: var(--anatomy-muted); }
+.iso[data-theme="osp"] .iso-plate { box-shadow: 0 0 0 1px rgba(214, 206, 189, 0.17); }

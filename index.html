@@ -407,13 +407,52 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
 .frame::before { left: 88px; top: 96px; }
 .frame::after { right: calc(var(--pw) + 14px); top: 96px; transition: right 0.25s ease; }
 @media (max-width: 760px) { .frame::before, .frame::after { display: none; } }
+/* intro: the explainer figure shown on first load */
+#intro { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+#intro[hidden] { display: none; }
+#intro .ic { width: min(1080px, 100%); max-height: calc(100dvh - 36px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+#intro header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+#intro .ik { font-family: var(--f-display); font-size: 11.5px; font-weight: 600; color: var(--bone); font-variation-settings: "wdth" 125; }
+#intro h2 { margin: 2px 0 0; font-family: var(--f-display); font-size: 22px; font-weight: 700; font-variation-settings: "wdth" 125; letter-spacing: -0.01em; }
+#intro .il { margin: 4px 0 0; color: var(--muted); max-width: 62ch; text-wrap: pretty; }
+#intro iframe { flex: 1 1 auto; width: 100%; min-height: 0; height: 680px; border: 0; background: transparent; display: block; }
+#intro footer { display: flex; align-items: center; gap: 14px; padding: 12px 20px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+#intro .steps { display: flex; gap: 18px; color: var(--muted); font-size: 12.5px; flex: 1 1 auto; flex-wrap: wrap; }
+#intro .steps b { color: var(--fg); font-weight: 600; margin-right: 6px; }
+#intro label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; cursor: pointer; }
+#intro .btn { padding: 8px 18px; }
+.hud:has(.introBtn) { z-index: 7; }
+.introBtn { pointer-events: auto; align-self: flex-start; background: none; border: 0; padding: 2px 0; color: var(--muted); font: inherit; font-size: 11px; letter-spacing: 0.02em; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line2); }
+.introBtn:hover { color: var(--fg); }
+@media (max-width: 640px) {
+  #intro { padding: 0; }
+  #intro .ic { max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
+  #intro header { padding: 12px 14px 10px; }
+  #intro h2 { font-size: 19px; }
+  #intro .il { font-size: 12.5px; }
+  #intro footer { padding: 10px 14px 12px; gap: 10px; }
+  #intro .steps { display: none; }
+  #intro footer .btn { margin-left: auto; }
+}
 </style>
 
+<div id="intro" role="dialog" aria-modal="true" aria-labelledby="introT" hidden>
+  <div class="ic">
+    <header><div><div class="ik">Open Spaceplane Project</div><h2 id="introT">Virtual Windtunnel</h2><p class="il">Design a spaceplane down to its frames, tanks and payload, then put the same shape in a wind tunnel that runs on your graphics card. Here is the Space Shuttle preset, built that way.</p></div></header>
+    <iframe id="introFrame" title="The Space Shuttle preset as a tunnel model: hover it to lift the skin and see the structure inside" loading="eager"></iframe>
+    <footer>
+      <div class="steps"><span><b>1 · Build</b>shape, structure, tanks, payload, balance</span><span><b>2 · Test</b>flow, heating and loads, from subsonic to re-entry</span></div>
+      <label><input type="checkbox" id="introSkip"> Don't show this again</label>
+      <button class="btn primary" id="introGo" type="button">Start</button>
+    </footer>
+  </div>
+</div>
 <canvas id="gpu" aria-label="Flow visualisation. Drag to orbit, right-drag or shift-drag to pan, scroll or pinch to zoom, double-click to reset."></canvas>
 <div id="ui">
   <div class="frame">
     <div class="hud">
       <div class="brandRow"><img class="patch" src="patch.png" alt="Open Spaceplane Project mission patch"><div class="brand"><span class="kick">Open Spaceplane Project</span><span class="name">Virtual Windtunnel</span><span class="credit">Brought to you with 💖 &amp; determination by Supernova Labs</span></div></div>
+      <button class="introBtn" id="introBtn" type="button">What is this?</button>
     </div>
 
     <div class="legend">
@@ -10346,6 +10385,34 @@ function buildUI() {
   syncRun();
   refreshOutputs();
 }
+
+// ── intro: the explainer figure (intro.html) on first load ──
+(function intro() {
+  const box = document.getElementById("intro"), frame = document.getElementById("introFrame");
+  const go = document.getElementById("introGo"), skip = document.getElementById("introSkip");
+  const q = new URLSearchParams(location.search).get("intro");
+  let seen = false;
+  try { seen = localStorage.getItem("vwt.intro") === "0"; } catch (e) { /* storage blocked: show it */ }
+  const open = () => {
+    if (!frame.src) frame.src = "intro.html?embed=1";
+    box.hidden = false;
+    skip.checked = seen;
+    setTimeout(() => go.focus(), 0);
+  };
+  const close = () => {
+    box.hidden = true;
+    try { localStorage.setItem("vwt.intro", skip.checked ? "0" : "1"); } catch (e) { /* storage blocked */ }
+    seen = skip.checked;
+  };
+  go.addEventListener("click", close);
+  box.addEventListener("click", (e) => { if (e.target === box) close(); });
+  box.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } });
+  document.getElementById("introBtn").addEventListener("click", open);
+  window.addEventListener("message", (e) => {
+    if (e.source === frame.contentWindow && e.data && e.data.introHeight) frame.style.height = Math.ceil(e.data.introHeight) + "px";
+  });
+  if (q === "1" || (q !== "0" && !seen)) open();
+})();
 
 init().catch((e) => { console.error(e); fatal("Could not start", String(e.message || e)); });
 </script>
