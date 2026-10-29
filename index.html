@@ -843,6 +843,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="chk hyp-only"><input type="checkbox" id="lK" checked>Shocks</label>
             <label class="chk hyp-only"><input type="checkbox" id="lG">Glow</label>
             <label class="chk"><input type="checkbox" id="lP">Slice</label>
+            <label class="chk" title="Nested surfaces of density (fast flow) or speed (low-speed flow): shock layer, expansion and wake"><input type="checkbox" id="lH">Shells</label>
             <label class="chk" title="The flight path and the chosen point, drawn across the altitude and airspeed bars"><input type="checkbox" id="lE" checked>Flight path</label>
           </div>
           <label class="field" title="How the body is drawn. Line art keeps the surface colours unless you pick the plain one; it never changes the simulation."><span class="k">Render style</span><select id="rstyle"><option value="0">Shaded</option><option value="1">Line art</option><option value="2">Line art, plain</option></select></label>
@@ -2692,6 +2693,22 @@ fn surfColor(f: vec4f, h: vec4f, sp: vec2f) -> vec3f {
   if (C.surfMode == 3u) { return cpColor(h.r); }
   return cpColor(f.r);
 }
+// Shells (Display › Show): nested level surfaces of one flow quantity, CT-scan style. Density over
+// freestream in the compressible solver (shock layer and expansion), speed over freestream in the
+// low-speed one (wake and the fast flow over the body). Display only.
+fn shellV(q: vec3f) -> f32 {
+  let f = textureSampleLevel(fieldT, smp, q / C.dims, 0.0);
+  if (C.euler == 1u) { return gasState(f).y / max(C.rhoInf, 1e-12); }
+  return f.g;
+}
+fn shellLevel(i: i32) -> f32 {
+  if (C.euler == 1u) { return select(select(4.5, 2.5, i == 1), 1.3, i == 0); }
+  return select(select(1.2, 0.8, i == 1), 0.35, i == 0);
+}
+fn shellColor(i: i32, art: bool) -> vec3f {
+  if (art) { return vec3f(0.84, 0.81, 0.74); }
+  return select(select(vec3f(0.96, 0.94, 0.89), vec3f(0.95, 0.60, 0.33), i == 1), vec3f(0.72, 0.22, 0.20), i == 0);
+}
 fn occAt(p: vec3f) -> f32 { return textureSampleLevel(occT, smp, p / C.dims, 0.0).r; }
 fn hash12(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(12.9898, 78.233))) * 43758.5453); }
 
@@ -2744,6 +2761,8 @@ fn artInk(base: vec3f) -> vec3f { return select(INK, vec3f(0.035, 0.032, 0.028),
   let lite = (C.mode & 16u) != 0u;   // Lite: surface heating from the solver's cells, not per pixel
   let art = (C.mode & 32u) != 0u;
   let plain = (C.mode & 64u) != 0u;
+  let showH = (C.mode & 128u) != 0u;
+  var hPrev = -1e9;
   var edgeM = 1e9; var edgeA = 0.0; var dPrevW = 1e9; var tPrevW = 0.0; var falling = false;
   var tPl = -1.0;
   if (showP) {
@@ -2873,6 +2892,28 @@ fn artInk(base: vec3f) -> vec3f { return select(INK, vec3f(0.035, 0.032, 0.028),
         col += (1.0 - A) * a * mix(vec3f(0.95, 0.62, 0.36), vec3f(1.0, 0.95, 0.85), dk);
         A += (1.0 - A) * a;
       }
+    }
+    if (showH) {
+      // a shell wherever the march crosses a level; off the wall, where the field is the flow's
+      let sv = select(shellV(p), -1e9, dW < 1.0);
+      if (hPrev > -1e8 && sv > -1e8) {
+        for (var li = 0; li < 3; li++) {
+          let L = shellLevel(li);
+          if ((hPrev - L) * (sv - L) < 0.0) {
+            let e = 1.0;
+            let g = vec3f(shellV(p + vec3f(e, 0.0, 0.0)) - shellV(p - vec3f(e, 0.0, 0.0)),
+                          shellV(p + vec3f(0.0, e, 0.0)) - shellV(p - vec3f(0.0, e, 0.0)),
+                          shellV(p + vec3f(0.0, 0.0, e)) - shellV(p - vec3f(0.0, 0.0, e)));
+            let fc = abs(dot(g / max(length(g), 1e-6), rd));
+            // thin where it faces you, dense where it turns away: the edges read as outlines
+            var a = clamp((0.10 + 0.05 * f32(li)) / max(fc, 0.22), 0.0, 0.8);
+            if (art) { a = clamp(0.035 / max(fc, 0.07), 0.0, 0.7); }   // ink: clear face-on, a line at the rim
+            col += (1.0 - A) * a * shellColor(li, art) * (0.55 + 0.45 * fc);
+            A += (1.0 - A) * a;
+          }
+        }
+      }
+      hPrev = sv;
     }
     if (showV) {
       let fv = textureSampleLevel(fieldT, smp, p / C.dims, 0.0);
@@ -3182,7 +3223,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -3670,7 +3711,7 @@ function writeCam(aspect) {
   camF[20] = st.spos * R.dims[st.sax];
   const hyp = st.regime === "hyp";
   const ef = hyp && st.euler;
-  camU[21] = (hyp && !ef ? 2 : (st.lV ? 1 : 0) | (st.lS ? 2 : 0) | (st.lP ? 4 : 0) | (ef && st.lK ? 8 : 0)) | (LITE ? 16 : 0) | (st.rstyle > 0 ? 32 : 0) | (st.rstyle > 1 ? 64 : 0);
+  camU[21] = (hyp && !ef ? 2 : (st.lV ? 1 : 0) | (st.lS ? 2 : 0) | (st.lP ? 4 : 0) | (ef && st.lK ? 8 : 0)) | (LITE ? 16 : 0) | (st.rstyle > 0 ? 32 : 0) | (st.rstyle > 1 ? 64 : 0) | (st.lH && !(hyp && !ef) ? 128 : 0);
   camU[22] = st.sfield; camU[23] = st.sax;
   camF[24] = LITE ? 1.6 : 1.0; camF[25] = st.vop; camU[26] = st.vcol;
   const sm = surfModeNow();
@@ -10194,7 +10235,7 @@ function buildUI() {
     el.value = String(st.rstyle);
     el.addEventListener("change", () => { st.rstyle = +el.value; try { localStorage.setItem("vwt.style", el.value); } catch (e) { /* storage blocked */ } refreshOutputs(); });
   }
-  for (const k of ["les", "spfAuto", "lV", "lS", "lP", "avg", "showMean"]) {
+  for (const k of ["les", "spfAuto", "lV", "lS", "lP", "lH", "avg", "showMean"]) {
     const el = $("#" + k);
     el.checked = st[k];
     el.addEventListener("change", () => {

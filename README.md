@@ -12,6 +12,8 @@ Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent 
 
 **Line art.** Display › Render style draws the body the way the intro figure does: four flat light bands, bone ink on silhouettes, creases, part seams and (for builder designs) the main frame stations. "Line art" keeps the surface colours (pressure, heating, stress, livery); "Line art, plain" drops them. It only changes the final shading, so the simulation and its fields are untouched. On Lite it draws silhouettes only.
 
+**Shells.** Display › Show › Shells draws nested level surfaces of the flow, CT-scan style. In the compressible solver they are density over freestream at 1.3, 2.5 and 4.5 (shock layer and expansion); in the low-speed solver, speed over freestream at 0.35, 0.8 and 1.2 (wake and the fast flow over the body). Each is drawn where the render march crosses its level and is shaded by the field's gradient, denser where it turns away so its edges read as outlines. In line art they become bone ink. Display only.
+
 **Phones, tablets and slow PCs.** Lite mode starts on the coarse grid at half resolution, takes longer render steps and reads surface heating from the solver's cells instead of per pixel. It switches on by itself for touch devices and machines with 4 or fewer cores or 4 GB or less of memory. Add `?lite=1` or `?lite=0` to the address to force it, or toggle it under Display. Auto resolution, on by default, lowers the render resolution while frames take over 40 ms and restores it when they speed up. Without WebGPU the Build screen still works; Test needs WebGPU.
 
 ## What's inside
