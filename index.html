@@ -8799,36 +8799,44 @@ struct V { mvp: mat4x4f, eye: vec4f, geo: vec4f, geo2: vec4f, gas1: vec4f, gas2:
 // geo: rMean, rInner, rOuter, Lc   geo2: H, tan(half), scale, -   gas1: γ1, R1, q, -   gas2: γ2, R2, -, -   rng: lo, hi, show T (>0.5), -
 @group(0) @binding(0) var<uniform> U: V;
 @group(0) @binding(1) var<storage, read> S: array<f32>;
-struct O { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) n: vec3f, @location(2) w: vec3f, @location(3) k: f32 };
-fn radius(y: f32) -> f32 { if (y <= U.geo.w) { return U.geo.x; } return max(U.geo.y - (y - U.geo.w) * U.geo2.y, 0.0) + 0.4 * (U.geo.x - U.geo.y); }
+// uv: (θ / 2π, y / H); xi: across the gap, 0 at the inner body, 1 at the casing; cut: drop inside the cutaway
+struct O { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) n: vec3f, @location(2) w: vec3f, @location(3) k: f32, @location(4) xi: f32, @location(5) cut: f32 };
+fn rin(y: f32) -> f32 { if (y <= U.geo.w) { return U.geo.y; } return max(U.geo.y - (y - U.geo.w) * U.geo2.y, 0.0); }
 fn place(th: f32, y: f32, r: f32) -> vec3f { return vec3f(r * cos(th), r * sin(th), -y) * U.geo2.z; }
+const CUT = 0.9;   // half-width of the cutaway, radians, centred on the camera's side
+fn camTh() -> f32 { return atan2(U.eye.y, U.eye.x); }
 @vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> O {
   var o: O;
-  let NT = 160u;
+  let NT = 160u; let NY = 96u;
+  var du = array<u32, 6>(0u, 1u, 0u, 0u, 1u, 1u); var dv = array<u32, 6>(0u, 0u, 1u, 1u, 0u, 1u);
+  let q = vi / 6u; let c = vi % 6u;
+  o.k = 0.0; o.cut = 0.0; o.xi = 0.0;
   if (ii == 0u) {
-    // gas sheet: quads over (θ, y)
-    let NY = 96u; let q = vi / 6u; let c = vi % 6u;
-    let qi = q % NT; let qj = q / NT;
-    var du = array<u32, 6>(0u, 1u, 0u, 0u, 1u, 1u); var dv = array<u32, 6>(0u, 0u, 1u, 1u, 0u, 1u);
-    let u = f32(qi + du[c]) / f32(NT); let v = f32(qj + dv[c]) / f32(NY);
-    let y = v * U.geo2.x; let th = u * 6.2831853; let r = radius(y);
-    o.w = place(th, y, r); o.uv = vec2f(u, v); o.k = 0.0;
-    let dr = select(0.0, -U.geo2.y, y > U.geo.w);
-    o.n = normalize(vec3f(cos(th), sin(th), dr));
+    // inner body and plug: the gas against it
+    let u = f32(q % NT + du[c]) / f32(NT); let v = f32(q / NT + dv[c]) / f32(NY);
+    let y = v * U.geo2.x; let th = u * 6.2831853;
+    o.w = place(th, y, rin(y)); o.uv = vec2f(u, v);
+    o.n = normalize(vec3f(cos(th), sin(th), select(0.0, U.geo2.y, y > U.geo.w)));
+  } else if (ii == 1u) {
+    // outer casing over the annulus, cut away on the camera's side
+    let u = f32(q % NT + du[c]) / f32(NT); let v = f32(q / NT + dv[c]) / f32(NY);
+    let y = v * U.geo.w; let th = u * 6.2831853;
+    o.w = place(th, y, U.geo.z); o.uv = vec2f(u, y / U.geo2.x); o.xi = 1.0; o.cut = 1.0;
+    o.n = vec3f(cos(th), sin(th), 0.0);
+  } else if (ii <= 3u) {
+    // the two faces of the cut: the gap from the inner body to the casing, down the annulus
+    let th = camTh() + select(-CUT, CUT, ii == 3u);
+    let xi = f32(du[c]); let v = f32(q + dv[c]) / f32(NY);
+    let y = v * U.geo.w; let r = rin(y) + xi * (U.geo.z - rin(y));
+    o.w = place(th, y, r); o.uv = vec2f(fract(th / 6.2831853 + 1.0), y / U.geo2.x); o.xi = xi;
+    o.n = vec3f(-sin(th), cos(th), 0.0);
   } else {
-    // casing: rings at the injector face and the end of the annulus (inner and outer), and generators
+    // edges: rings at the injector face and the end of the annulus (inner and outer)
     let seg = vi / 2u; let e = vi % 2u;
-    var p = vec3f(0.0);
-    if (seg < 4u * NT) {
-      let ring = seg / NT; let k = seg % NT + e;
-      let th = f32(k) / f32(NT) * 6.2831853;
-      let r = select(U.geo.z, U.geo.y, ring % 2u == 1u); let y = select(0.0, U.geo.w, ring >= 2u);
-      p = place(th, y, r);
-    } else {
-      let g = seg - 4u * NT; let th = f32(g % 24u) / 24.0 * 6.2831853; let r = select(U.geo.z, U.geo.y, g >= 24u);
-      p = place(th, select(0.0, U.geo.w, e == 1u), r);
-    }
-    o.w = p; o.uv = vec2f(0.0); o.n = vec3f(0.0, 0.0, 1.0); o.k = 1.0;
+    let ring = seg / NT; let kk = seg % NT + e;
+    let th = f32(kk) / f32(NT) * 6.2831853;
+    let r = select(U.geo.z, U.geo.y, ring % 2u == 1u); let y = select(0.0, U.geo.w, ring >= 2u);
+    o.w = place(th, y, r); o.uv = vec2f(f32(kk) / f32(NT), 0.0); o.n = vec3f(0.0, 0.0, 1.0); o.k = 1.0; o.cut = 1.0;
   }
   o.pos = U.mvp * vec4f(o.w, 1.0);
   return o;
@@ -8842,11 +8850,14 @@ fn colour(a: f32, y: f32) -> vec3f {
   return mix(c, vec3f(47.0, 92.0, 248.0) / 255.0 * (0.55 + 0.45 * a), 0.85 * y);
 }
 @fragment fn fs(i: O) -> @location(0) vec4f {
+  if (i.cut > 0.5) {
+    var d = i.uv.x * 6.2831853 - camTh(); d = atan2(sin(d), cos(d));
+    if (abs(d) < CUT) { discard; }
+  }
   if (i.k > 0.5) { return vec4f(0.84, 0.81, 0.74, 0.55); }
-  // the sheet takes the middle of the gap in the annulus and the cells against the plug beyond it
   let nx = U.dims.x; let ny = U.dims.y; let nr = max(U.dims.z, 1u); let N = nx * ny * nr;
   let ci = min(u32(i.uv.x * f32(nx)), nx - 1u); let cj = min(u32(i.uv.y * f32(ny)), ny - 1u);
-  let kr = select(nr / 2u, 0u, i.uv.y * U.geo2.x > U.geo.w); let n = ci + nx * (kr + nr * cj);
+  let kr = min(u32(clamp(i.xi, 0.0, 0.9999) * f32(nr)), nr - 1u); let n = ci + nx * (kr + nr * cj);
   let r = max(S[n], 1e-6); let u = S[N + n] / r; let v = S[2u * N + n] / r; let w = S[6u * N + n] / r; let y = clamp(S[4u * N + n] / r, 0.0, 1.0);
   let cv = y * U.gas1.y / (U.gas1.x - 1.0) + (1.0 - y) * U.gas2.y / (U.gas2.x - 1.0);
   let T = (S[3u * N + n] / r - 0.5 * (u * u + v * v + w * w) - y * U.gas1.z) / cv;
@@ -8897,7 +8908,9 @@ function rdeDraw3d() {
   const bg = dev.createBindGroup({ layout: rde3.bgl, entries: [{ binding: 0, resource: { buffer: rde3.ubuf } }, { binding: 1, resource: { buffer: s.state } }] });
   const e = dev.createCommandEncoder();
   const p = e.beginRenderPass({ colorAttachments: [{ view: rde3.ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }], depthStencilAttachment: { view: rde3.depth.createView(), depthClearValue: 1, depthLoadOp: "clear", depthStoreOp: "store" } });
-  p.setBindGroup(0, bg); p.setPipeline(rde3.pipe); p.draw(160 * 96 * 6, 1, 0, 0); p.setPipeline(rde3.line); p.draw((4 * 160 + 48) * 2, 1, 0, 1); p.end();
+  p.setBindGroup(0, bg); p.setPipeline(rde3.pipe);
+  p.draw(160 * 96 * 6, 1, 0, 0); p.draw(160 * 96 * 6, 1, 0, 1); p.draw(96 * 6, 1, 0, 2); p.draw(96 * 6, 1, 0, 3);
+  p.setPipeline(rde3.line); p.draw(4 * 160 * 2, 1, 0, 4); p.end();
   dev.queue.submit([e.finish()]);
 }
 // Azimuthal modes of the injector-face pressure: |a_n| / mean for n = 1..8, and each mode's rotation

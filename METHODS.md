@@ -233,7 +233,7 @@ A fourth momentum component carries the radial velocity. The cylindrical terms a
 
 Near the plug tip the circumference shrinks towards zero, so the azimuthal metric holds the radius at no less than half the mean radius. Otherwise those cells would set a time step tens of times smaller.
 
-The mesh spreads its cells across the widening gap beyond the annulus, so the plug flow is coarser across than along. The 2D views show the gap-averaged state, plus one column across the gap just behind the leading wave. Flows and thrust are summed over the gap exactly.
+The mesh spreads its cells across the widening gap beyond the annulus, so the plug flow is coarser across than along. The 2D views show the gap-averaged state, plus one column across the gap just behind the leading wave. The 3D cutaway draws the cells against each wall and the full gap on its cut faces. Flows and thrust are summed over the gap exactly.
 
 One cell reproduces the quasi-2D solver to rounding error on the Goto engine. With 4 cells, mass flow and peak pressure stay within about 3% of the one-cell run over the first 41 µs, the same times compared.
 
