@@ -533,7 +533,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
         <button class="tab" role="tab" id="tab-flight" data-tab="flight" aria-selected="false">Flight</button>
         <button class="tab" role="tab" id="tab-engines" data-tab="engines" aria-selected="false">Engines</button>
         <button class="tab" role="tab" id="tab-solver" data-tab="solver" aria-selected="false">Solver</button>
-        <button class="tab" role="tab" id="tab-heat" data-tab="heat" aria-selected="false">Heat</button>
+        <button class="tab" role="tab" id="tab-heat" data-tab="heat" aria-selected="false">Mission</button>
         <button class="tab" role="tab" id="tab-display" data-tab="display" aria-selected="false">Display</button>
         <button class="tab" role="tab" id="tab-loads" data-tab="loads" aria-selected="false">Loads</button>
       </div>
@@ -739,35 +739,6 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           <div class="row2"><button class="btn primary" id="btnMan">Play</button><label class="chk"><input type="checkbox" id="manLoop">Loop</label></div>
           <dl class="kv" id="flyInfo"></dl>
           <canvas class="chart" id="flyChart" aria-label="Lift coefficient against angle of attack during the flight"></canvas>
-          <div class="pane hyp-only">
-            <h3 class="grp">Ascent</h3>
-            <label class="field"><span class="k">Launcher</span><select id="ascLv"></select></label>
-            <div class="row3">
-              <label class="field"><span class="k">Payload, t</span><input type="number" id="ascPay" min="0" step="any"></label>
-              <label class="field"><span class="k">Orbit, km</span><input type="number" id="ascH" min="120" max="2000" step="10"></label>
-              <label class="field"><span class="k">Latitude, °</span><input type="number" id="ascLat" min="-90" max="90" step="0.1"></label>
-            </div>
-            <div id="ascStages" class="tlRows"></div>
-            <div class="row2">
-              <button class="btn" id="btnAddStage">Add stage</button>
-              <label class="field" title="Throttle back to hold this acceleration; blank for full thrust"><span class="k">Max g</span><input type="number" id="ascG" min="1.5" step="0.1" placeholder="none"></label>
-              <label class="chk" id="ascOutL" title="The tunnel model rides on top in the airflow, so no fairing; off: it is inside a fairing"><input type="checkbox" id="ascOut" checked>Model outside</label>
-            </div>
-            <canvas class="chart" id="ascChart" aria-label="Ascent: altitude and speed against time, with staging and max-Q"></canvas>
-            <dl class="kv" id="ascInfo"></dl>
-          </div>
-          <div class="pane hyp-only">
-            <h3 class="grp">Entry timeline</h3>
-            <label class="field"><span class="k">Profile</span><select id="tlProf"><option value="shuttle">Space Shuttle style</option><option value="artemis">Artemis I (Orion skip entry)</option><option value="constant">Constant bank</option><option value="custom">Custom</option></select></label>
-            <div id="bankWrap"><label class="ctl" title="Rolling tips the lift sideways, so the vehicle descends faster"><span class="k">Bank angle</span><output id="oBank"></output><input type="range" id="eBank" min="0" max="90" step="1"></label></div>
-            <div id="tlRows" class="tlRows"></div>
-            <div class="row2"><button class="btn" id="btnAddEv">Add event</button><span class="msg" id="tlMsg"></span></div>
-            <div class="row2">
-              <button class="btn primary" id="btnPlayEntry">Play entry</button>
-              <label class="field"><span class="k">Speed</span><select id="tlRate"><option value="10">×10</option><option value="30" selected>×30</option><option value="100">×100</option><option value="300">×300</option></select></label>
-            </div>
-            <dl class="kv" id="tlInfo"></dl>
-          </div>
         </section>
 
         <section class="pane" data-pane="engines" hidden>
@@ -908,14 +879,24 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <button class="btn primary" id="btnToHyp">Switch to high speed</button>
           </div>
           <div class="pane hyp-only">
-            <span class="k">Show on the model</span>
-            <div class="seg" id="thermSeg" role="radiogroup" aria-label="Surface map">
-              <button class="segb" role="radio" data-sq="2" aria-checked="false">Temperature</button>
-              <button class="segb" role="radio" data-sq="4" aria-checked="false">Burn-through</button>
-              <button class="segb" role="radio" data-sq="0" aria-checked="false">Pressure</button>
+            <h3 class="grp">Ascent</h3>
+            <label class="field"><span class="k">Launcher</span><select id="ascLv"></select></label>
+            <div class="row3">
+              <label class="field"><span class="k">Payload, t</span><input type="number" id="ascPay" min="0" step="any"></label>
+              <label class="field"><span class="k">Orbit, km</span><input type="number" id="ascH" min="120" max="2000" step="10"></label>
+              <label class="field"><span class="k">Latitude, °</span><input type="number" id="ascLat" min="-90" max="90" step="0.1"></label>
             </div>
-            <p class="hint" id="thermHint"></p>
-            <h3 class="grp">Entry trajectory</h3>
+            <div id="ascStages" class="tlRows"></div>
+            <div class="row2">
+              <button class="btn" id="btnAddStage">Add stage</button>
+              <label class="field" title="Throttle back to hold this acceleration; blank for full thrust"><span class="k">Max g</span><input type="number" id="ascG" min="1.5" step="0.1" placeholder="none"></label>
+              <label class="chk" id="ascOutL" title="The tunnel model rides on top in the airflow, so no fairing; off: it is inside a fairing"><input type="checkbox" id="ascOut" checked>Model outside</label>
+            </div>
+            <canvas class="chart" id="ascChart" aria-label="Ascent: altitude and speed against time, with staging and max-Q"></canvas>
+            <dl class="kv" id="ascInfo"></dl>
+          </div>
+          <div class="pane hyp-only">
+            <h3 class="grp">Entry</h3>
             <div class="row3">
               <label class="field"><span class="k">Start altitude, km</span><input type="number" id="eH" min="60" max="200" step="1"></label>
               <label class="field"><span class="k">Start speed, m/s</span><input type="number" id="eV" min="500" max="16000" step="10"></label>
@@ -925,6 +906,23 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="ctl"><span class="k">Moment in the entry</span><output id="oTsel"></output><input type="range" id="tsel" min="0" max="1" step="1"></label>
             <div class="row2"><button class="btn" id="btnPeak">Jump to the hottest moment</button><span class="msg" id="selMsg"></span></div>
             <dl class="kv" id="entryInfo"></dl>
+            <h3 class="grp">Bank and events</h3>
+            <label class="field"><span class="k">Profile</span><select id="tlProf"><option value="shuttle">Space Shuttle style</option><option value="artemis">Artemis I (Orion skip entry)</option><option value="constant">Constant bank</option><option value="custom">Custom</option></select></label>
+          <div id="bankWrap"><label class="ctl" title="Rolling tips the lift sideways, so the vehicle descends faster"><span class="k">Bank angle</span><output id="oBank"></output><input type="range" id="eBank" min="0" max="90" step="1"></label></div>
+          <div id="tlRows" class="tlRows"></div>
+          <div class="row2"><button class="btn" id="btnAddEv">Add event</button><span class="msg" id="tlMsg"></span></div>
+          <div class="row2">
+            <button class="btn primary" id="btnPlayEntry">Play entry</button>
+            <label class="field"><span class="k">Speed</span><select id="tlRate"><option value="10">×10</option><option value="30" selected>×30</option><option value="100">×100</option><option value="300">×300</option></select></label>
+          </div>
+          <dl class="kv" id="tlInfo"></dl>
+            <span class="k">Show on the model</span>
+            <div class="seg" id="thermSeg" role="radiogroup" aria-label="Surface map">
+              <button class="segb" role="radio" data-sq="2" aria-checked="false">Temperature</button>
+              <button class="segb" role="radio" data-sq="4" aria-checked="false">Burn-through</button>
+              <button class="segb" role="radio" data-sq="0" aria-checked="false">Pressure</button>
+            </div>
+            <p class="hint" id="thermHint"></p>
             <details id="tpsBox" open>
               <summary>Heat shield</summary>
               <div class="pane">
@@ -11522,8 +11520,7 @@ function buildUI() {
     panel.classList.remove("collapsed");
     document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", String(x === tb)));
     document.querySelectorAll(".pane[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== tb.dataset.tab; });
-    if (tb.dataset.tab === "heat") requestAnimationFrame(() => { drawTraj(); drawTPS(); });
-    if (tb.dataset.tab === "flight") requestAnimationFrame(drawAscent);
+    if (tb.dataset.tab === "heat") requestAnimationFrame(() => { drawAscent(); drawTraj(); drawTPS(); });
     if (tb.dataset.tab === "model") requestAnimationFrame(() => { optDraw(); bldDraw(); });
   }));
 
