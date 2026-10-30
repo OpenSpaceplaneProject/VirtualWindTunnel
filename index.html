@@ -327,6 +327,9 @@ body.noEnv #envPlot { display: none; }
 }
 #toast.show { opacity: 1; }
 #fatal[hidden] { display: none; }
+.eng-def[hidden], #engFromBuild[hidden] { display: none !important; }
+#engFromBuild { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 10px; } #engFromBuild .note { color: var(--muted); font-size: 12.5px; min-width: 0; } #engFromBuild .btn { flex: none; }
+#bldEngSel, #bldEngChem { grid-column: 1 / -1; }
 #find { position: fixed; inset: 0; z-index: 20; display: grid; place-items: start center; padding: 12vh 12px 12px; background: rgba(0,0,0,0.45); }
 #find[hidden] { display: none; }
 #find .fbox { width: min(560px, 100%); background: #111113; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; max-height: 70vh; }
@@ -549,8 +552,13 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <div class="chips" id="bldChips" role="tablist" aria-label="Component"></div>
             <label class="field" id="bldTailL"><span class="k">Tail</span><select id="bldTail"></select></label>
             <div class="row2" id="bldEngSel">
-              <label class="field"><span class="k">Nozzle</span><select id="bldEngType"><option value="bell">Bell</option><option value="aerospike">Aerospike</option></select></label>
+              <label class="field"><span class="k">Nozzle</span><select id="bldEngType"><option value="bell">Bell</option><option value="aerospike">Aerospike</option><option value="rde">Rotating detonation</option></select></label>
               <label class="field grow"><span class="k">Chemistry</span><select id="bldEngProp"></select></label>
+            </div>
+            <div class="row3" id="bldEngChem">
+              <label class="field" title="Oxidiser / fuel mass ratio"><span class="k">O/F</span><input type="number" id="bldEngOF" min="0.3" step="0.05"></label>
+              <label class="field"><span class="k">Chamber, MPa</span><input type="number" id="bldEngPc" min="0.1" step="0.1"></label>
+              <label class="field" title="Shifting: the exhaust keeps reaching chemical equilibrium as it expands (upper bound). Frozen: composition fixed at the throat (lower bound)."><span class="k">Expansion</span><select id="bldEngShift"><option value="1">Shifting</option><option value="0">Frozen</option></select></label>
             </div>
             <div id="bldFields"></div>
             <details class="more" id="bldInt" data-g="int">
@@ -629,6 +637,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           </div>
           <div class="row2">
             <button class="btn" id="rdeRun" type="button">Run</button>
+            <button class="btn" id="rdeFromDesign" type="button" hidden title="Take the propellant and O/F from the design's engines (Build › Engines), as premixed gas">From the design</button>
             <button class="btn" id="rdeGoto" type="button" title="Goto et al. (2021): 60.5 mm, 3.2 mm channel, 48 mm long, 30° plug, ethylene/oxygen at φ 1.1, sea level">Goto et al. rig</button>
           </div>
           <div class="row2">
@@ -792,11 +801,12 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           </div>
           <div id="rocketBox">
           <label class="chk"><input type="checkbox" id="engOn">Engines firing</label>
-          <div class="row2">
-            <label class="field"><span class="k">Nozzle</span><select id="engType"><option value="bell">Bell nozzle</option><option value="aerospike">Aerospike (annular)</option></select></label>
+          <div class="row2" id="engFromBuild" hidden><span class="note" id="engFromBuildT"></span><button class="btn" id="engToBuild" type="button">Edit in Build</button></div>
+          <div class="row2 eng-def">
+            <label class="field"><span class="k">Nozzle</span><select id="engType"><option value="bell">Bell nozzle</option><option value="aerospike">Aerospike (annular)</option><option value="rde">Rotating detonation</option></select></label>
             <label class="field"><span class="k">Propellant</span><select id="engProp"></select></label>
           </div>
-          <details id="engCustomBox" class="more">
+          <details id="engCustomBox" class="more eng-def">
             <summary>Chamber conditions</summary>
             <div class="pane">
               <div class="row3 eng-cea">
@@ -815,20 +825,20 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             </div>
           </details>
           <label class="ctl"><span class="k">Throttle</span><output id="oEngThr"></output><input type="range" id="engThr" min="0.3" max="1" step="0.01"></label>
-          <h3 class="grp">Layout</h3>
-          <div class="row3">
+          <h3 class="grp eng-def">Layout</h3>
+          <div class="row3 eng-def">
             <label class="field"><span class="k">Engines</span><input type="number" id="engN" min="1" max="32" step="1"></label>
             <label class="field" title="Radius of the ring the engines sit on (0 for one central engine)"><span class="k">Ring radius, m</span><input type="number" id="engRing" min="0" step="0.05"></label>
             <label class="field" title="Fraction of the vehicle length from the nose"><span class="k">Exit plane at</span><input type="number" id="engX" min="0" max="1.2" step="0.01"></label>
           </div>
-          <div class="row3">
+          <div class="row3 eng-def">
             <label class="field"><span class="k">Exit radius, m</span><input type="number" id="engRe" min="0.01" step="0.01"></label>
             <label class="field" title="Aerospike: radius of the spike at the annular exit"><span class="k">Spike radius, m</span><input type="number" id="engRi" min="0" step="0.01"></label>
             <label class="field" title="Exit area / throat area. For an aerospike, of the primary annular nozzle only; the spike does the rest."><span class="k">Area ratio</span><input type="number" id="engEps" min="1.01" step="0.5"></label>
           </div>
           <div class="row2">
             <label class="field"><span class="k">Thrust towards</span><select id="engDir"><option value="aft">Aft (ascent)</option><option value="forward">Forward (retropropulsion)</option></select></label>
-            <label class="field" title="Aerospike: angle of the primary exhaust in towards the spike"><span class="k">Cant to axis, °</span><input type="number" id="engCant" min="0" max="60" step="1"></label>
+            <label class="field eng-def" title="Aerospike: angle of the primary exhaust in towards the spike"><span class="k">Cant to axis, °</span><input type="number" id="engCant" min="0" max="60" step="1"></label>
           </div>
           <dl class="kv" id="engInfo"></dl>
           </div>
@@ -5085,8 +5095,12 @@ function strakePts(d, S, yr) {
 // Engines: the same ideal-rocket model as the Engines tab. Propellant chemistry follows the tanks
 // unless set; the exit area is what gives the asked-for vacuum thrust at the chosen area ratio; the
 // bell is an 80 % bell (0.8 × a 15° cone); mass from thrust-to-weight.
+// plug nozzles: an aerospike, or a rotating detonation chamber exhausting over its plug
+const isPlug = (t) => t === "aerospike" || t === "rde";
 const TANK2ENG = { "LOX/LH2": "hydrolox", "LOX/CH4": "methalox", "LOX/RP-1": "kerolox", "LOX/NH3": "amlox", "NTO/MMH": "storable" };
-function engChem(d) { return PROPELLANTS[d.eng.prop === "tanks" ? TANK2ENG[d.int.prop] || "hydrolox" : d.eng.prop] || PROPELLANTS.hydrolox; }
+function engKey(d) { return d.eng.prop === "tanks" ? TANK2ENG[d.int.prop] || "hydrolox" : PROPELLANTS[d.eng.prop] ? d.eng.prop : "hydrolox"; }
+// the design's engine chemistry: the propellant's preset, with the design's own O/F, chamber pressure and expansion
+function engChem(d) { const b = PROPELLANTS[engKey(d)]; return { ...b, of: d.eng.of || b.of, pc: d.eng.pc || b.pc, shift: d.eng.shift !== false }; }
 function engineDims(d) {
   const E = d.eng, pr = engChem(d), Fv1 = rocketNozzle(pr, E.eps, 1, 0).F;   // vacuum thrust per m² of exit
   const Ae = Math.max(E.F, 0.01) * 1000 / Fv1, re = Math.sqrt(Ae / Math.PI), rt = re / Math.sqrt(E.eps);
@@ -5274,7 +5288,7 @@ function bldCode(d) {
   const NZ = nozzleLayout(d, S);
   if (NZ.pts.length) {
     const ends = NZ.pts.map(([y, z]) => [Math.abs(y), z]), x0 = 1 - 0.15 * NZ.bell, x1 = 1 + 0.85 * NZ.bell;
-    if (d.eng.type === "aerospike") {
+    if (isPlug(d.eng.type)) {
       // annular aerospike: a cowl ring at the base around a spike that runs aft
       L.push(`  let zq = vec3f(p.x, abs(p.y), p.z);`, `  c[6] = ${mins(ends.map(([y, z]) => `min(sdCappedCone(zq, ${v3(0.99, y, z)}, ${v3(1 + 1.3 * NZ.re, y, z)}, ${f5(NZ.re * 0.8)}, ${f5(NZ.re * 0.15)}), max(sdCappedCone(zq, ${v3(0.985, y, z)}, ${v3(1.01, y, z)}, ${f5(NZ.re)}, ${f5(NZ.re)}), -sdCappedCone(zq, ${v3(0.98, y, z)}, ${v3(1.02, y, z)}, ${f5(NZ.re * 0.88)}, ${f5(NZ.re * 0.88)})))`))};`);
     } else {
@@ -5717,7 +5731,7 @@ function setMode(m) {
   if (m === "engine") {
     if (OPT.on) optStop("Stopped: engine stand.");
     if (st.wasRunning === undefined) st.wasRunning = running; running = false; syncRun();
-    tabsPane("engine"); updateHeadline();
+    tabsPane("engine"); syncRdeUI(); updateHeadline();
     requestAnimationFrame(() => { if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
     livPalette(); return;
   }
@@ -5744,17 +5758,17 @@ function setMode(m) {
 // them (plumes in the flow solver, thrust and Isp in the ascent), and edits there come back here.
 function bldToEngines() {
   if (st.preset !== "builder" && st.lib !== "build") return;
-  const d = BLD, E = d.m.E, NZ = nozzleLayout(d, bldStations(d.fus)), key = d.eng.prop === "tanks" ? TANK2ENG[d.int.prop] || "hydrolox" : d.eng.prop;
+  const d = BLD, E = d.m.E, NZ = nozzleLayout(d, bldStations(d.fus)), key = engKey(d);
   const k = NZ.re > 0 ? NZ.re / E.re : 1;   // the base may scale the nozzles down to fit
-  Object.assign(st.eng, { type: d.eng.type, prop: key, of: undefined, pc: undefined, custom: { ...PROPELLANTS[key] }, n: Math.max(1, Math.round(d.eng.n)), eps: d.eng.eps,
-    re: E.reM * k, ri: d.eng.type === "aerospike" ? 0.55 * E.reM * k : 0, x: 1 + (d.eng.type === "aerospike" ? 0.01 : 0.85 * NZ.bell), dir: "aft", cant: d.eng.type === "aerospike" ? 20 : 0,
+  Object.assign(st.eng, { type: d.eng.type, prop: key, of: d.eng.of, pc: d.eng.pc, shift: d.eng.shift !== false, custom: { ...PROPELLANTS[key] }, n: Math.max(1, Math.round(d.eng.n)), eps: d.eng.eps,
+    re: E.reM * k, ri: isPlug(d.eng.type) ? 0.55 * E.reM * k : 0, x: 1 + (isPlug(d.eng.type) ? 0.01 : 0.85 * NZ.bell), dir: "aft", cant: isPlug(d.eng.type) ? 20 : 0,
     pos: NZ.pts.map(([y, z]) => [y * d.L, z * d.L]) });
   if (d.eng.n <= 0) st.eng.on = false;
   syncEngineUI();
 }
 function bldFromEngines() {
   const E = st.eng, d = BLD;
-  d.eng.type = E.type; d.eng.eps = E.eps; d.eng.n = E.n;
+  d.eng.type = E.type; d.eng.eps = E.eps; d.eng.n = E.n; d.eng.of = E.of; d.eng.pc = E.pc; d.eng.shift = E.shift !== false;
   if (E.prop !== "custom") d.eng.prop = E.prop === (TANK2ENG[d.int.prop] || "") ? "tanks" : E.prop;
   // a new exit radius in the Engines tab is a new thrust
   const pr = engChem(d), F = rocketNozzle(pr, E.eps, Math.PI * E.re * E.re, 0).F / 1000;
@@ -5832,7 +5846,7 @@ function buildBuilderUI() {
     dice.addEventListener("click", (e) => { e.preventDefault(); bldRandom(BLD, [key]); bldFields(); bldEdited(); });
     head.appendChild(dice); pane.appendChild(head);
     if (key === "tail") pane.appendChild($("#bldTailL"));
-    if (key === "eng") pane.appendChild($("#bldEngSel"));
+    if (key === "eng") { pane.appendChild($("#bldEngSel")); pane.appendChild($("#bldEngChem")); }
     if (key === "fus") {
       const rs = document.createElement("button"); rs.type = "button"; rs.className = "btn"; rs.id = "btnSculptReset"; rs.textContent = "Reset sculpting";
       rs.title = "Drag the orange handles on the drawing to shape the body; this puts it back to the sliders' shape";
@@ -5852,7 +5866,10 @@ function buildBuilderUI() {
   $("#bldTail").addEventListener("change", (e) => { BLD.tail.type = e.target.value; bldEdited(); });
   opt($("#bldEngProp"), [["tanks", "Same as the tanks"], ...Object.entries(PROPELLANTS).map(([k, v]) => [k, v.name])]);
   $("#bldEngType").addEventListener("change", (e) => { BLD.eng.type = e.target.value; bldEdited(); });
-  $("#bldEngProp").addEventListener("change", (e) => { BLD.eng.prop = e.target.value; bldEdited(); });
+  $("#bldEngProp").addEventListener("change", (e) => { BLD.eng.prop = e.target.value; delete BLD.eng.of; delete BLD.eng.pc; bldFields(); bldEdited(); });
+  $("#bldEngOF").addEventListener("change", (e) => { BLD.eng.of = Math.max(0.3, +e.target.value || 0) || undefined; bldEdited(); });
+  $("#bldEngPc").addEventListener("change", (e) => { BLD.eng.pc = Math.max(0.1, +e.target.value || 0) * 1e6; bldEdited(); });
+  $("#bldEngShift").addEventListener("change", (e) => { BLD.eng.shift = e.target.value === "1"; bldEdited(); });
   $("#btnBldPlace").addEventListener("click", () => {
     const r = bldPlace(BLD);
     if (!r) return;
@@ -5928,6 +5945,7 @@ function bldFields() {
   document.querySelectorAll("#livPal input[data-m]").forEach((x) => { x.value = BLD.paint.colors[+x.dataset.m]; });
   $("#livBelly").checked = !!BLD.paint.belly;
   $("#bldEngType").value = BLD.eng.type; $("#bldEngProp").value = BLD.eng.prop;
+  { const c = engChem(BLD), tab = !!c.tab; $("#bldEngOF").value = c.of || ""; $("#bldEngPc").value = +(c.pc / 1e6).toFixed(2); $("#bldEngShift").value = c.shift ? "1" : "0"; $("#bldEngOF").disabled = !tab; $("#bldEngShift").disabled = !tab; }
   $("#bldTail").value = BLD.tail.type; $("#bldProp").value = BLD.int.prop; $("#bldCont").value = BLD.int.cont || "auto"; $("#bldFill").checked = !!BLD.int.fill; $('#bldInt input[data-i="mp"]').disabled = !!BLD.int.fill; $("#bldL").value = BLD.L; $("#bldName").value = BLD.name;
 }
 // The hand-off to the CAD stage: the design record (the source of truth), what the tunnel derived from
@@ -7126,7 +7144,7 @@ function updateEngineInfo() {
   const expn = a.pe > 1.3 * en.p ? "under-expanded (plume balloons)" : a.pe < 0.7 * en.p ? "over-expanded (plume pinched)" : "close to matched";
   const tw = (a.F * n) / (st.ent.mass * G0);
   let spike = "";
-  if (st.eng.type === "aerospike") { const ie = idealExpandedF(S.pr, a.At, en.p, 80, st.eng.thr); spike = row("Ideal altitude-compensated", `${kN(ie.F)} · Isp ${ie.Isp.toFixed(0)} s`); }
+  if (isPlug(st.eng.type)) { const ie = idealExpandedF(S.pr, a.At, en.p, 80, st.eng.thr); spike = row("Ideal altitude-compensated", `${kN(ie.F)} · Isp ${ie.Isp.toFixed(0)} s`); }
   el.innerHTML =
     (a.Tc ? row("Chamber", `${a.Tc.toFixed(0)} K · c* ${a.cstar.toFixed(0)} m/s`) : "") +
     row("Exit", `Mach ${a.Me.toFixed(2)} · ${(a.ue).toFixed(0)} m/s · ${a.Te.toFixed(0)} K`) +
@@ -7147,7 +7165,12 @@ function syncEngineUI() {
   $("#engThr").value = E.thr; $("#oEngThr").textContent = Math.round(E.thr * 100) + " %";
   $("#engN").value = E.n; $("#engRing").value = E.ring; $("#engX").value = E.x; $("#engRe").value = E.re; $("#engRi").value = E.ri; $("#engEps").value = E.eps;
   $("#engDir").value = E.dir; $("#engCant").value = E.cant;
-  document.querySelectorAll("#engRi, #engCant").forEach((x) => { x.closest("label").style.opacity = E.type === "aerospike" ? 1 : 0.45; });
+  document.querySelectorAll("#engRi, #engCant").forEach((x) => { x.closest("label").style.opacity = isPlug(E.type) ? 1 : 0.45; });
+  // a builder design owns its engines: they are defined in Build › Engines; here they fire and throttle
+  const fromBuild = st.preset === "builder" && !!BLD;
+  document.querySelectorAll("#rocketBox .eng-def").forEach((x) => (x.hidden = fromBuild));
+  $("#engFromBuild").hidden = !fromBuild;
+  if (fromBuild) { const c = engChem(BLD), types = { bell: "bell", aerospike: "aerospike", rde: "rotating detonation" }; $("#engFromBuildT").textContent = `${BLD.eng.n} × ${types[BLD.eng.type] || BLD.eng.type} · ${c.name.split(" (")[0]} · O/F ${c.of != null ? (+c.of).toFixed(2) : "—"} · ${(c.pc / 1e6).toFixed(1)} MPa`; }
   updateEngineInfo();
 }
 function wireEngines() {
@@ -7172,6 +7195,7 @@ function wireEngines() {
     $(id).addEventListener("change", (e) => { st.eng[key] = Math.max(lo, +e.target.value || 0); changed(); });
   }
   $("#engDir").addEventListener("change", (e) => { st.eng.dir = e.target.value; changed(); });
+  $("#engToBuild").addEventListener("click", () => { setMode("build"); bldSelect("eng"); });
   syncEngineUI();
   const dep = () => {
     const Dp = st.dep;
@@ -8788,6 +8812,7 @@ function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
   $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat;
   document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
+  $("#rdeFromDesign").hidden = !(st.preset === "builder" && BLD && ["hydrolox", "ghydrox", "methalox", "gmethox", "ethox"].includes(engKey(BLD)));
   $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeShow").value = R.show;
 }
 function wireRde() {
@@ -8800,6 +8825,10 @@ function wireRde() {
   $("#rdeRun").addEventListener("click", () => { if (rdeSw.on) rdeSw.on = false; rdeToggle(); });
   $("#rdeSweep").addEventListener("click", rdeSweep);
   $("#rdeSweepT").addEventListener("change", (e) => { st.rde.sweepT = Math.max(0.05, +e.target.value || 0.5); });
+  $("#rdeFromDesign").addEventListener("click", () => {
+    const k = { hydrolox: "ghydrox", ghydrox: "ghydrox", methalox: "gmethox", gmethox: "gmethox", ethox: "ethox" }[engKey(BLD)];
+    if (!k) return; const c = engChem(BLD); st.rde.prop = k; if (c.of) st.rde.of = +(+c.of).toFixed(2); syncRdeUI(); if (rdeSim.run) { rdeStop(); rdeToggle(); }
+  });
   $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, mdot: 125, teeth: 0, throat: 1 }); syncRdeUI(); restart(); });
   syncRdeUI();
 }
@@ -9068,7 +9097,7 @@ function writeEngines(env) {
     for (let i = 0; i < n; i++) {
       const ph = (2 * Math.PI * i) / n, rg = n > 1 ? E.ring / L : 0;
       const pw = pos ? engWorld(E.x, pos[i][0] / L, pos[i][1] / L) : engWorld(E.x, rg * Math.cos(ph), rg * Math.sin(ph));
-      engF.set([pw[0], pw[1], pw[2], 1.5, axW[0], axW[1], axW[2], S.ro * k, rr, uu, pp, S.ri * k, E.type === "aerospike" ? E.cant * D : 0, 0, 0, 0], 4 + 16 * i);
+      engF.set([pw[0], pw[1], pw[2], 1.5, axW[0], axW[1], axW[2], S.ro * k, rr, uu, pp, S.ri * k, isPlug(E.type) ? E.cant * D : 0, 0, 0, 0], 4 + 16 * i);
     }
   }
   // Air-breathing flowpath: the engine face first (the field pass integrates the first face), then
