@@ -122,12 +122,23 @@ body[data-mode="build"] .bigview { display: block; }
 body[data-mode="build"] #gpu, body[data-mode="build"] #alt, body[data-mode="build"] #spd, body[data-mode="build"] #envPlot, body[data-mode="build"] #velw, body[data-mode="build"] #probe { display: none !important; }
 body[data-mode="engine"] .tabs, body[data-mode="engine"] #coefBox, body[data-mode="engine"] .legend, body[data-mode="engine"] .hlNums, body[data-mode="engine"] #btnRun, body[data-mode="engine"] #btnReset,
 body[data-mode="engine"] #gpu, body[data-mode="engine"] #alt, body[data-mode="engine"] #spd, body[data-mode="engine"] #envPlot, body[data-mode="engine"] #velw, body[data-mode="engine"] #probe { display: none !important; }
-#engStage { display: none; position: absolute; z-index: 0; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); height: calc(100% - 128px); flex-direction: column; gap: 10px; }
+#engStage { display: none; position: absolute; z-index: 0; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); bottom: 100px; flex-direction: column; gap: 8px; }
 body[data-mode="engine"] #engStage { display: flex; }
-#eng3d { flex: 1 1 auto; min-height: 0; width: 100%; display: block; cursor: grab; touch-action: none; border-radius: 6px; }
+#eng3d { flex: 1 1 auto; min-height: 0; width: 100%; display: block; cursor: grab; touch-action: none; }
 #eng3d:active { cursor: grabbing; }
-#eng2d { flex: 0 0 30%; width: 100%; min-height: 0; display: block; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 5px; background: #08090c; }
-@media (max-width: 1180px) { #engStage { top: 118px; height: calc(100% - 150px); } }
+#eng2d { flex: 0 0 30%; width: 100%; min-height: 0; display: block; border-top: 1px solid var(--line); }
+#engLegend { position: absolute; right: 0; top: 0; transform: none; }
+#engLegend .lb { height: 120px; }
+#engWaves { display: none; left: 32px; right: calc(var(--pw, 0px) + 48px); }
+body[data-mode="engine"] #engWaves { display: block; }
+body[data-mode="engine"] #engLegend { display: flex !important; }
+#engWaves .spdMark button { font-size: 11px; padding: 2px 8px; }
+.engWaves .spdHead output { font-size: 15px; color: var(--warm); min-width: 1ch; text-align: right; }
+.engWaves .eset { font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+.spdBands.even { background: linear-gradient(to right, var(--b0), var(--b3)); }
+@keyframes setflash { from { box-shadow: 0 0 0 2px var(--warm); } to { box-shadow: 0 0 0 2px transparent; } }
+.setflash { animation: setflash 1s ease-out; }
+@media (max-width: 1180px) { #engStage { top: 118px; } }
 .field.grow { flex: 1; }
 .tlRow.stRow { grid-template-columns: repeat(5, minmax(0, 1fr)) 26px; }
 .tlRow.stRow input { padding: 5px 3px; font-size: 11px; }
@@ -372,7 +383,9 @@ body.nogpu .spd, body.nogpu .velw, body.nogpu .legend, body.nogpu #probe, body.n
   .spdMark.minor button { display: none; }
   .alt, #envPlot { display: none; }
   #velc { width: 84px; height: 84px; }
-  #engStage { left: 8px; width: calc(100% - 16px); top: 96px; height: calc(48% - 100px); gap: 6px; }
+  #engStage { left: 8px; width: calc(100% - 16px); top: 96px; bottom: auto; height: calc(48% - 186px); gap: 6px; }
+  #engWaves { left: 8px; right: 8px; top: calc(48% - 84px); bottom: auto; height: auto; padding: 4px 8px 2px; }
+  body[data-mode="engine"] #engLegend { display: none !important; }
   #eng2d { flex-basis: 38%; }
   .brand .credit { display: none; }
   #fatal { top: 92px; bottom: auto; padding: 0 10px; place-items: start center; }
@@ -1049,6 +1062,25 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
     <div id="engStage">
       <canvas id="eng3d" aria-label="Detonation chamber in 3D: pressure on the gas in the annulus and over the plug. Drag to orbit, scroll to zoom."></canvas>
       <canvas id="eng2d" aria-label="Unrolled annulus: circumference across, injector face at the top, plug tip at the bottom"></canvas>
+      <div class="legend" id="engLegend">
+        <div class="lt" id="engLt">Pressure · bar</div>
+        <div class="lb"><div class="ticks"><span id="engLmax" style="top:0"></span><span id="engLmid" style="top:50%"></span><span id="engLmin" style="top:100%"></span></div><div class="bar" style="background:linear-gradient(to top, #000 0%, var(--h0) 20%, var(--h1) 45%, var(--h2) 72%, var(--h3) 100%)"></div></div>
+        <div class="lkey"><div><span class="sw" style="background:var(--cold)"></span>fresh propellant</div></div>
+      </div>
+    </div>
+    <div class="spd engWaves" id="engWaves">
+      <div class="spdHead">
+        <span class="k">Waves</span>
+        <span class="eset" id="engWavesSet"></span>
+        <span class="spacer"></span>
+        <span class="eset" id="engWavesNow"></span>
+        <output id="engWavesN">3</output>
+      </div>
+      <div class="spdTrack" id="engWavesTrack" role="slider" tabindex="0" aria-label="Number of detonation waves to design for" aria-valuemin="1" aria-valuemax="6" aria-valuenow="3">
+        <div class="spdBands even"></div>
+        <div class="spdMarks" id="engWavesMarks"></div>
+        <div class="spdThumb" id="engWavesThumb"></div>
+      </div>
     </div>
     <canvas id="envPlot" aria-hidden="true"></canvas>
     <div class="alt" id="alt">
@@ -8501,7 +8533,7 @@ function rdeConfig() {
   const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn);
   const area = (y) => (y <= Lc ? (y > Lc - 2e-3 ? Ac * Math.min(1, R.throat) : Ac) : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
   const plenum = { on: R.feed === "res", mdot: R.mdot / 1000, V: R.Vp * 1e-6, neck: R.neck / 1000, Cd: 0.7 };
-  return { key: R.prop, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 2 * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
+  return { key: R.prop, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 0.06 * m.pr * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
     Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }
@@ -8510,7 +8542,7 @@ async function rdeToggle() {
   if (!dev) { $("#rdeInfo").innerHTML = "<dt>GPU</dt><dd>needs WebGPU</dd>"; return; }
   const c = rdeConfig();
   try { rdeSim.run = await rdeCreate(dev, c); } catch (e) { $("#rdeInfo").innerHTML = `<dt>Error</dt><dd>${e.message}</dd>`; return; }
-  rdeSim.cfg = c; rdeSim.hist = []; $("#rdeRun").textContent = "Stop";
+  rdeSim.cfg = c; rdeSim.hist = []; $("#rdeRun").textContent = "Stop"; $("#engWavesNow").textContent = "";
   const gen = ++rdeSim.gen;
   const loop = async () => {
     if (gen !== rdeSim.gen || !rdeSim.run) return;
@@ -8539,9 +8571,12 @@ function rdeField(q, n, N, G) {
   return { p: r * (y * G.R1 + (1 - y) * G.R2) * T, T, y };
 }
 function rdeRange(c) { return st.rde.show === "T" ? [250, c.m.T * 1.15] : [c.pa * 0.5, c.init.pIgn * 2]; }
-function rdeColour(a, y) {   // warm ramp (dark → orange → bone), fresh propellant blue
-  const r = Math.min(1, a * 1.5), g = Math.max(0, a * 1.35 - 0.35) ** 1.15, b = Math.max(0, a - 0.75) * 2.4;
-  return [255 * (r * (1 - 0.6 * y)), 255 * (g * (1 - 0.4 * y) + 0.25 * y), 255 * Math.min(1, b + 0.85 * y)];
+// the site's heat ramp (black → --h0 → --h1 → --h2 → --h3); fresh propellant mixes towards --cold
+const RDE_RAMP = [[0, 0, 0, 0], [0.2, 42, 27, 92], [0.45, 155, 47, 124], [0.72, 240, 116, 60], [1, 253, 227, 140]], RDE_COLD = [47, 92, 248];
+function rdeColour(a, y) {
+  let k = 1; while (k < RDE_RAMP.length - 1 && a > RDE_RAMP[k][0]) k++;
+  const A = RDE_RAMP[k - 1], B = RDE_RAMP[k], t = Math.min(1, Math.max(0, (a - A[0]) / (B[0] - A[0]))), w = 0.85 * y, l = 0.55 + 0.45 * a;
+  return [1, 2, 3].map((i) => (A[i] + (B[i] - A[i]) * t) * (1 - w) + RDE_COLD[i - 1] * l * w);
 }
 function rdeDraw2d(q) {
   const cv = $("#eng2d"), c = rdeSim.cfg, N = c.nx * c.ny, G = c.gas, W = c.nx, H = c.ny;
@@ -8558,10 +8593,11 @@ function rdeDraw2d(q) {
   const x = cv.getContext("2d"); x.imageSmoothingEnabled = true; x.drawImage(off, 0, 0, Wd, Hd);
   // chamber exit line and labels
   const yc = (Hd * c.Lc) / c.H; x.strokeStyle = "rgba(214,206,189,0.35)"; x.setLineDash([4 * dpr, 4 * dpr]); x.beginPath(); x.moveTo(0, yc); x.lineTo(Wd, yc); x.stroke(); x.setLineDash([]);
-  x.font = `${11 * dpr}px Archivo, system-ui, sans-serif`; x.fillStyle = "rgba(214,206,189,0.92)"; x.shadowColor = "rgba(0,0,0,0.9)"; x.shadowBlur = 4 * dpr;
-  x.fillText("injector face", 6 * dpr, 14 * dpr); x.fillText("end of annulus", 6 * dpr, yc + 14 * dpr); x.fillText("plug tip", 6 * dpr, Hd - 6 * dpr);
-  const lab = T ? `${lo.toFixed(0)}–${hi.toFixed(0)} K` : `${(lo / 1e5).toFixed(2)}–${(hi / 1e5).toFixed(0)} bar (log)`;
-  x.textAlign = "right"; x.fillText(`${T ? "temperature" : "pressure"} ${lab} · blue: fresh propellant`, Wd - 6 * dpr, Hd - 6 * dpr); x.textAlign = "left"; x.shadowBlur = 0;
+  x.font = `${10.5 * dpr}px Archivo, system-ui, sans-serif`; x.fillStyle = "rgba(230,224,209,0.8)"; x.shadowColor = "rgba(0,0,0,0.9)"; x.shadowBlur = 4 * dpr;
+  x.fillText("injector face", 6 * dpr, 14 * dpr); x.fillText("end of annulus", 6 * dpr, yc + 14 * dpr); x.fillText("plug tip", 6 * dpr, Hd - 6 * dpr); x.shadowBlur = 0;
+  const f = (v) => (T ? v.toFixed(0) : v / 1e5 >= 10 ? (v / 1e5).toFixed(0) : (v / 1e5).toFixed(1));
+  $("#engLt").textContent = T ? "Temperature · K" : "Pressure · bar";
+  $("#engLmax").textContent = f(hi); $("#engLmin").textContent = f(lo); $("#engLmid").textContent = f(T ? (lo + hi) / 2 : Math.sqrt(lo * hi));
 }
 // 3D: gas sheet at the mean radius through the annulus, then on the plug surface; casing as lines
 const RDE3D_WGSL = /* wgsl */`
@@ -8604,8 +8640,12 @@ fn place(th: f32, y: f32, r: f32) -> vec3f { return vec3f(r * cos(th), r * sin(t
   return o;
 }
 fn colour(a: f32, y: f32) -> vec3f {
-  let r = min(1.0, a * 1.5); let g = pow(max(0.0, a * 1.35 - 0.35), 1.15); let b = max(0.0, a - 0.75) * 2.4;
-  return vec3f(r * (1.0 - 0.6 * y), g * (1.0 - 0.4 * y) + 0.25 * y, min(1.0, b + 0.85 * y));
+  let h0 = vec3f(42.0, 27.0, 92.0) / 255.0; let h1 = vec3f(155.0, 47.0, 124.0) / 255.0; let h2 = vec3f(240.0, 116.0, 60.0) / 255.0; let h3 = vec3f(253.0, 227.0, 140.0) / 255.0;
+  var c = mix(vec3f(0.0), h0, clamp(a / 0.2, 0.0, 1.0));
+  if (a > 0.2) { c = mix(h0, h1, clamp((a - 0.2) / 0.25, 0.0, 1.0)); }
+  if (a > 0.45) { c = mix(h1, h2, clamp((a - 0.45) / 0.27, 0.0, 1.0)); }
+  if (a > 0.72) { c = mix(h2, h3, clamp((a - 0.72) / 0.28, 0.0, 1.0)); }
+  return mix(c, vec3f(47.0, 92.0, 248.0) / 255.0 * (0.55 + 0.45 * a), 0.85 * y);
 }
 @fragment fn fs(i: O) -> @location(0) vec4f {
   if (i.k > 0.5) { return vec4f(0.84, 0.81, 0.74, 0.55); }
@@ -8660,7 +8700,7 @@ function rdeDraw3d() {
   dev.queue.writeBuffer(rde3.ubuf, 0, f);
   const bg = dev.createBindGroup({ layout: rde3.bgl, entries: [{ binding: 0, resource: { buffer: rde3.ubuf } }, { binding: 1, resource: { buffer: s.state } }] });
   const e = dev.createCommandEncoder();
-  const p = e.beginRenderPass({ colorAttachments: [{ view: rde3.ctx.getCurrentTexture().createView(), clearValue: { r: 0.03, g: 0.035, b: 0.045, a: 1 }, loadOp: "clear", storeOp: "store" }], depthStencilAttachment: { view: rde3.depth.createView(), depthClearValue: 1, depthLoadOp: "clear", depthStoreOp: "store" } });
+  const p = e.beginRenderPass({ colorAttachments: [{ view: rde3.ctx.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }], depthStencilAttachment: { view: rde3.depth.createView(), depthClearValue: 1, depthLoadOp: "clear", depthStoreOp: "store" } });
   p.setBindGroup(0, bg); p.setPipeline(rde3.pipe); p.draw(160 * 96 * 6, 1, 0, 0); p.setPipeline(rde3.line); p.draw((4 * 160 + 48) * 2, 1, 0, 1); p.end();
   dev.queue.submit([e.finish()]);
 }
@@ -8724,6 +8764,7 @@ function rdeReport() {
   const S = rdeStats(), c = rdeSim.cfg; if (!S) return;
   const pr = { ...PROPELLANTS[c.key], of: st.rde.of, shift: true }, ideal = idealExpandedF({ ...pr, pc: Math.max(S.p, c.pa * 1.01) }, 1, c.pa, c.Ae / c.Ac).Isp;
   const row = (k, val) => `<dt>${k}</dt><dd>${val}</dd>`;
+  $("#engWavesNow").textContent = S.t > 1e-4 ? `running ${S.waves}` : "";
   $("#rdeInfo").innerHTML =
     row("Simulated", `${(S.t * 1e3).toFixed(3)} ms · averages over the second half`) +
     row("Mass flow", `${S.mIn.toFixed(3)} kg/s · ${RDE_NAMES[c.key]} φ ${c.m.phi.toFixed(2)}`) +
@@ -8799,8 +8840,53 @@ function rdeDrawSweep(done) {
   $("#rdeSweepInfo").innerHTML = `<dt>Lock</dt><dd>${same ? `mode ${ns[0]} held across 60–140%` : `modes ${ns.join(" → ")}`} · frequency spread ${isFinite(spread) ? (100 * spread).toFixed(0) + "%" : "—"}</dd>` +
     `<dt>Thrust</dt><dd>${r.map((e) => (isFinite(e.F) ? e.F.toFixed(0) : "—")).join(" · ")} N</dd><dt>Isp</dt><dd>${r.map((e) => (isFinite(e.isp) ? e.isp.toFixed(0) : "—")).join(" · ")} s</dd>`;
 }
+// Waves: one control for how many detonation waves to design for. It moves the variables that set the
+// count, in the panel, so you see what each does: the injector teeth (n lobes for n waves to mesh with)
+// and the feed, scaled from the Goto et al. rig (3 waves at 0.85 MPa, 125 g/s) so that each wave meets
+// the same height of fresh propellant: flux per unit area ∝ n / mean diameter.
+const RDE_WREF = { n: 3, Dm: 63.7, AtAw: 0.12, p0: 0.85, mdot: 125, w: 3.2 }, RDE_WMAX = 6;
+function rdeWavesFor(n) {
+  const R = st.rde, W = RDE_WREF;
+  return { teeth: n, depth: R.teeth > 0 && R.depth > 0 ? R.depth : 0.5,
+    p0: +Math.min(5, Math.max(0.15, W.p0 * (n / W.n) * (W.Dm / (R.Di + R.w)) * (W.AtAw / R.AtAw))).toFixed(2),
+    mdot: Math.max(5, Math.round(W.mdot * (n / W.n) * (R.w / W.w))) };
+}
+function rdeWavesNow() {
+  const R = st.rde, W = RDE_WREF; if (R.teeth > 0) return Math.min(RDE_WMAX, R.teeth);
+  return Math.min(RDE_WMAX, Math.max(1, Math.round(W.n * (R.p0 / W.p0) * ((R.Di + R.w) / W.Dm) * (R.AtAw / W.AtAw))));
+}
+function syncWaves() {
+  const n = rdeWavesNow(), R = st.rde, tr = $("#engWavesTrack"); if (!tr) return;
+  $("#engWavesThumb").style.left = `${4 + (92 * (n - 1)) / (RDE_WMAX - 1)}%`; $("#engWavesN").textContent = n; tr.setAttribute("aria-valuenow", n);
+  $("#engWavesSet").textContent = `teeth ${R.teeth} · ${R.feed === "res" ? R.mdot + " g/s" : R.p0 + " MPa"}`;
+}
+function rdeWavesSet(n, commit) {
+  n = Math.min(RDE_WMAX, Math.max(1, Math.round(n)));
+  const v = rdeWavesFor(n), ids = { teeth: "#rdeTeeth", depth: "#rdeDepth", p0: "#rdeP0", mdot: "#rdeMdot" }, moved = [];
+  for (const k in v) if (st.rde[k] !== v[k]) { st.rde[k] = v[k]; moved.push($(ids[k])); }
+  syncRdeUI();
+  moved.forEach((el, i) => { el.classList.remove("setflash"); void el.offsetWidth; el.classList.add("setflash"); if (!i) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); });
+  if (commit && rdeSim.run) { rdeStop(); rdeToggle(); }
+}
+function wireWaves() {
+  const tr = $("#engWavesTrack"), marks = $("#engWavesMarks"); let drag = false, last = 0;
+  for (let n = 1; n <= RDE_WMAX; n++) {
+    const m = document.createElement("div"); m.className = "spdMark dn"; m.style.left = `${4 + (92 * (n - 1)) / (RDE_WMAX - 1)}%`;
+    const b = document.createElement("button"); b.type = "button"; b.textContent = n; b.addEventListener("click", (e) => { e.stopPropagation(); rdeWavesSet(n, true); });
+    m.appendChild(b); marks.appendChild(m);
+  }
+  const at = (e) => { const r = tr.getBoundingClientRect(); return 1 + ((((e.clientX - r.left) / r.width) * 100 - 4) / 92) * (RDE_WMAX - 1); };
+  const go = (e) => { const n = Math.min(RDE_WMAX, Math.max(1, Math.round(at(e)))); if (n !== last) { last = n; rdeWavesSet(n, false); } };
+  tr.addEventListener("pointerdown", (e) => { if (e.target.closest("button")) return; drag = true; last = rdeWavesNow(); tr.setPointerCapture(e.pointerId); go(e); });
+  tr.addEventListener("pointermove", (e) => drag && go(e));
+  const end = () => { if (!drag) return; drag = false; if (rdeSim.run) { rdeStop(); rdeToggle(); } };
+  tr.addEventListener("pointerup", end); tr.addEventListener("pointercancel", end);
+  tr.addEventListener("keydown", (e) => { const d = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[e.key]; if (!d) return; e.preventDefault(); rdeWavesSet(rdeWavesNow() + d, true); });
+  syncWaves();
+}
 function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
+  syncWaves();
   $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat;
   document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
   $("#rdeFromDesign").hidden = !(st.preset === "builder" && BLD && ["hydrolox", "ghydrox", "methalox", "gmethox", "ethox"].includes(engKey(BLD)));
@@ -8809,7 +8895,7 @@ function syncRdeUI() {
 function wireRde() {
   const restart = () => { if (rdeSim.run) { rdeStop(); rdeToggle(); } };
   for (const [id, k, lo] of [["#rdeOF", "of", 0.2], ["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdePa", "pa", 0.1], ["#rdeNx", "nx", 50], ["#rdeMdot", "mdot", 1], ["#rdeVp", "Vp", 1], ["#rdeNeck", "neck", 0.5], ["#rdeTeeth", "teeth", 0], ["#rdeDepth", "depth", 0], ["#rdeThroat", "throat", 0.2]])
-    $(id).addEventListener("change", (e) => { st.rde[k] = Math.max(lo, +e.target.value || 0); restart(); });
+    $(id).addEventListener("change", (e) => { st.rde[k] = Math.max(lo, +e.target.value || 0); syncWaves(); restart(); });
   $("#rdeProp").addEventListener("change", (e) => { st.rde.prop = e.target.value; st.rde.of = +(RDE_STOICH[st.rde.prop] / 1.1).toFixed(2); syncRdeUI(); restart(); });
   $("#rdeFeed").addEventListener("change", (e) => { st.rde.feed = e.target.value; syncRdeUI(); restart(); });
   $("#rdeShow").addEventListener("change", (e) => { st.rde.show = e.target.value; if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
@@ -8821,7 +8907,7 @@ function wireRde() {
     if (!k) return; const c = engChem(BLD); st.rde.prop = k; if (c.of) st.rde.of = +(+c.of).toFixed(2); syncRdeUI(); if (rdeSim.run) { rdeStop(); rdeToggle(); }
   });
   $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, mdot: 125, teeth: 0, throat: 1 }); syncRdeUI(); restart(); });
-  syncRdeUI();
+  wireWaves(); syncRdeUI();
 }
 
 // Radiative-equilibrium wall temperature: hc (Tr - Tw) = eps sigma Tw^4.
