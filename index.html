@@ -628,8 +628,8 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           </div>
           <div class="row3">
             <label class="field"><span class="k">Ambient, kPa</span><input type="number" id="rdePa" min="0.1" step="1"></label>
-            <label class="field"><span class="k">Cells round</span><select id="rdeNx"><option value="200">200</option><option value="400">400</option><option value="800">800</option></select></label>
-            <label class="field"><span class="k">Show</span><select id="rdeShow"><option value="p">Pressure</option><option value="T">Temperature</option></select></label>
+            <label class="field"><span class="k">Cells round</span><select id="rdeNx"><option value="200">200</option><option value="400">400</option><option value="800">800</option><option value="1600">1600</option></select></label>
+            <label class="field"><span class="k">Show</span><select id="rdeShow"><option value="p">Pressure</option><option value="T">Temperature</option><option value="ne">Thermal electrons</option><option value="pmw">Microwave power needed</option><option value="S">Magnet interaction S</option><option value="hall">Electron Hall parameter</option></select></label>
           </div>
           <h3 class="grp">Feed and passive tuning</h3>
           <div class="row3">
@@ -649,6 +649,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           <div class="row2">
             <button class="btn" id="rdeRun" type="button">Run</button>
             <button class="btn" id="rdeFromDesign" type="button" hidden title="Take the propellant and O/F from the design's engines (Build › Engines), as premixed gas">From the design</button>
+            <button class="btn" id="rdeMav" type="button" title="MAV class: NASA's 7K lbf RDRE (Teasley et al. 2023), 142 mm inner body, 8.4 mm gap, 69.5 mm to the throat, 30° plug, methane/oxygen at O/F 3.5; about 10 kN, one MAV engine's share">MAV class</button>
             <button class="btn" id="rdeGoto" type="button" title="Goto et al. (2021): 60.5 mm, 3.2 mm channel, 48 mm long, 30° plug, ethylene/oxygen at φ 1.1, sea level">Goto et al. rig</button>
           </div>
           <div class="row2">
@@ -662,6 +663,18 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           <dl class="kv" id="rdeModeInfo"></dl>
           <canvas class="chart" id="rdeSweepChart" aria-label="Lock range: wave frequency against feed, labelled with the mode number, and thrust"></canvas>
           <dl class="kv" id="rdeSweepInfo"></dl>
+          <h3 class="grp">Ionisation and magnet</h3>
+          <div class="row3">
+            <label class="field" title="Alkali seed in the propellant: its low ionisation energy sets the thermal electrons"><span class="k">Seed</span><select id="ionSeed"><option value="none">None</option><option value="K">Potassium</option><option value="Cs">Caesium</option></select></label>
+            <label class="field" title="Seed atoms as a share of all molecules"><span class="k">Seed, %</span><input type="number" id="ionXs" min="0" max="5" step="0.05"></label>
+            <label class="field" title="Electron temperature the microwaves hold"><span class="k">Electrons, eV</span><input type="number" id="ionTe" min="0.2" max="5" step="0.1"></label>
+          </div>
+          <div class="row3">
+            <label class="field" title="Conductivity the microwaves must hold the gas at"><span class="k">Target σ, S/m</span><input type="number" id="ionSig" min="0.1" step="1"></label>
+            <label class="field"><span class="k">Field, T</span><input type="number" id="ionB" min="0" step="0.1"></label>
+            <label class="field"><span class="k">Microwaves, GHz</span><input type="number" id="ionF" min="0.1" step="0.05"></label>
+          </div>
+          <dl class="kv" id="ionInfo"></dl>
         </section>
 
         <section class="pane" data-pane="model">
@@ -3493,7 +3506,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, ign: 1, sweepT: 0.5 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, ign: 1, sweepT: 0.5, ion: { seed: "K", xs: 0.5, Te: 1, sig: 10, B: 2, f: 2.45 } }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -8520,7 +8533,7 @@ const RDE_MIX = {"phi":[0.5,0.6,0.8,1.0,1.2,1.5,2.0],"mix":{"ethox":[[1.3611,264
 // unrolled field below it is the same data flat.
 const RDE_STOICH = { ethox: (3.0 * 31.998) / 28.054, gmethox: (2.0 * 31.998) / 16.043, ghydrox: 31.998 / (2 * 2.016) };
 const RDE_NAMES = { ethox: "C₂H₄/O₂", gmethox: "CH₄/O₂", ghydrox: "H₂/O₂" };
-const rdeSim = { run: null, hist: [], gen: 0, cfg: null, q: null };
+const rdeSim = { run: null, hist: [], gen: 0, cfg: null, q: null, avg: null, ion: null };
 function rdeMix(key, of) {
   const rows = RDE_MIX.mix[key], P = RDE_MIX.phi, phi = RDE_STOICH[key] / of;
   const x = Math.min(Math.max(phi, P[0]), P[P.length - 1]); let i = 0; while (i < P.length - 2 && x > P[i + 1]) i++;
@@ -8537,7 +8550,7 @@ function rdeConfig() {
   const area = (y) => (y <= Lc ? (y > Lc - 2e-3 ? Ac * Math.min(1, R.throat) : Ac) : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
   const plenum = { on: R.feed === "res", mdot: R.mdot / 1000, V: R.Vp * 1e-6, neck: R.neck / 1000, Cd: 0.7 };
   return { key: R.prop, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 0.06 * m.pr * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
-    Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { n: R.ign || 1, h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
+    Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { n: R.ign || 1, h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4, 0.1 * R.p0 * 1e6), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * Math.max(101325, 0.1 * R.p0 * 1e6), TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }
 async function rdeToggle() {
@@ -8545,20 +8558,20 @@ async function rdeToggle() {
   if (!dev) { $("#rdeInfo").innerHTML = "<dt>GPU</dt><dd>needs WebGPU</dd>"; return; }
   const c = rdeConfig();
   try { rdeSim.run = await rdeCreate(dev, c); } catch (e) { $("#rdeInfo").innerHTML = `<dt>Error</dt><dd>${e.message}</dd>`; return; }
-  rdeSim.cfg = c; rdeSim.hist = []; $("#rdeRun").textContent = "Stop"; $("#engWavesNow").textContent = "";
+  rdeSim.cfg = c; rdeSim.hist = []; rdeSim.avg = null; rdeSim.ion = null; $("#rdeRun").textContent = "Stop"; $("#engWavesNow").textContent = "";
   const gen = ++rdeSim.gen;
   const loop = async () => {
     if (gen !== rdeSim.gen || !rdeSim.run) return;
     if (st.mode !== "engine") { requestAnimationFrame(loop); return; }   // paused while away
     const s = rdeSim.run; s.step(st.rde.spf);
     const t0 = performance.now(); rdeSim.reading = s.read(); const q = await rdeSim.reading; rdeSim.reading = null; if (gen !== rdeSim.gen) return;
-    const d = s.diag(q); rdeSim.q = q;
+    const d = s.diag(q); rdeSim.q = q; rdeAvg(q);
     if (d.nan) { $("#rdeInfo").innerHTML = "<dt>Stopped</dt><dd>the solution blew up; try more cells or a lower plenum pressure</dd>"; rdeStop(); return; }
     if ((d.smax * s.dt) / Math.min(s.dx, s.dy) > 0.45) s.setDt((0.35 * Math.min(s.dx, s.dy)) / d.smax);
     const ph = d.pHead, mean = ph.reduce((a, b) => a + b, 0) / ph.length, pk = [];
     for (let i = 0; i < ph.length; i++) { const a = ph[(i - 1 + ph.length) % ph.length], b = ph[(i + 1) % ph.length]; if (ph[i] > 2.5 * mean && ph[i] >= a && ph[i] > b) pk.push(i); }
     rdeSim.hist.push({ t: s.t, mIn: d.mIn, F: d.F, p: d.pProbe, pPl: d.pPl, waves: pk.length, peaks: pk, modes: rdeModes(ph, s.t) });
-    rdeDraw2d(q); rdeDraw3d(); rdeReport(); rdeDrawHist(); rdeDrawModes(); updateHeadline();
+    rdeDraw2d(q); rdeDraw3d(); rdeReport(); rdeIonReport(); rdeDrawHist(); rdeDrawModes(); updateHeadline();
     // keep the frame near 30 ms of GPU work, and the waves under 1/16 of the circumference per frame so
     // the mode phases (n ≤ 8) can't alias
     const ms = performance.now() - t0, cap = Math.max(4, Math.floor(rdeSim.cfg.L / (16 * 1.2 * rdeSim.cfg.Dcj * s.dt)));
@@ -8574,6 +8587,21 @@ function rdeField(q, n, N, G) {
   return { p: r * (y * G.R1 + (1 - y) * G.R2) * T, T, y };
 }
 function rdeRange(c) { return st.rde.show === "T" ? [250, c.m.T * 1.15] : [c.pa * 0.5, c.init.pIgn * 2]; }
+// a derived map (ionisation, magnet) on a log scale over six decades below its 99th percentile
+function rdeDraw2dMap(cv, off, g, img, D, c) {
+  const W = c.nx, H = c.ny, srt = Array.from(D.filter((v, k) => k % 7 === 0 && v > 0)).sort((a, b) => a - b);
+  const hi = srt.length ? srt[Math.floor(0.99 * (srt.length - 1))] : 1, lo = hi * 1e-6, l0 = Math.log(lo), l1 = Math.log(hi);
+  for (let n = 0; n < W * H; n++) { const a = D[n] > 0 ? Math.min(1, Math.max(0, (Math.log(D[n]) - l0) / (l1 - l0))) : 0, col = rdeColour(a, 0), o = 4 * n; img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2]; img.data[o + 3] = 255; }
+  g.putImageData(img, 0, 0);
+  const dpr = devicePixelRatio || 1, Wd = Math.round(cv.clientWidth * dpr), Hd = Math.round(cv.clientHeight * dpr);
+  if (cv.width !== Wd || cv.height !== Hd) { cv.width = Wd; cv.height = Hd; }
+  const x = cv.getContext("2d"); x.imageSmoothingEnabled = true; x.drawImage(off, 0, 0, Wd, Hd);
+  const yc = (Hd * c.Lc) / c.H; x.strokeStyle = "rgba(214,206,189,0.35)"; x.setLineDash([4 * dpr, 4 * dpr]); x.beginPath(); x.moveTo(0, yc); x.lineTo(Wd, yc); x.stroke(); x.setLineDash([]);
+  x.font = `${10.5 * dpr}px Archivo, system-ui, sans-serif`; x.fillStyle = "rgba(230,224,209,0.8)"; x.fillText("injector face", 6 * dpr, 14 * dpr); x.fillText("end of annulus", 6 * dpr, yc + 14 * dpr); x.fillText("plug tip", 6 * dpr, Hd - 6 * dpr);
+  const e = (v) => v.toExponential(0).replace("e+", "e");
+  $("#engLt").textContent = { ne: "Thermal electrons · /m³", pmw: "Microwaves needed · W/m³", S: "Interaction S", hall: "Electron Hall parameter" }[st.rde.show];
+  $("#engLmax").textContent = e(hi); $("#engLmin").textContent = e(lo); $("#engLmid").textContent = e(Math.sqrt(lo * hi));
+}
 // the site's heat ramp (black → --h0 → --h1 → --h2 → --h3); fresh propellant mixes towards --cold
 const RDE_RAMP = [[0, 0, 0, 0], [0.2, 42, 27, 92], [0.45, 155, 47, 124], [0.72, 240, 116, 60], [1, 253, 227, 140]], RDE_COLD = [47, 92, 248];
 function rdeColour(a, y) {
@@ -8581,10 +8609,68 @@ function rdeColour(a, y) {
   const A = RDE_RAMP[k - 1], B = RDE_RAMP[k], t = Math.min(1, Math.max(0, (a - A[0]) / (B[0] - A[0]))), w = 0.85 * y, l = 0.55 + 0.45 * a;
   return [1, 2, 3].map((i) => (A[i] + (B[i] - A[i]) * t) * (1 - w) + RDE_COLD[i - 1] * l * w);
 }
+// ── Ionisation and magnet ──
+// What it would take to hold the exhaust conductive enough for a magnet to act on it, from the run's
+// time-averaged flow. Per cell: thermal electrons (Saha, for the seed), the electron density a target
+// conductivity needs, the microwave power to sustain the difference against recombination, the
+// electron and ion Hall parameters, and the magnetic interaction parameter S = σ_eff B² L / ρ|u|.
+// Order-of-magnitude constants, stated in METHODS: electron–neutral cross-section 1e-19 m², ion–neutral
+// 1e-18 m², 50 eV per electron made, recombination 2e-13 m³/s, Hall currents free (σ_eff = σ/(1+βe²)).
+const ION_SEED = { none: { IP: 12.07, g: 0.5, m: 32, x: 1e-2 }, K: { IP: 4.34, g: 1, m: 39.1 }, Cs: { IP: 3.89, g: 1, m: 132.9 } };
+const KB = 1.380649e-23, QE = 1.602177e-19, ME = 9.10938e-31, AMU = 1.66054e-27, MU0 = 1.256637e-6, EPS0 = 8.8541878e-12;
+function rdeAvg(q) {
+  const c = rdeSim.cfg, N = c.nx * c.ny, G = c.gas;
+  let A = rdeSim.avg; if (!A || A.N !== N) A = rdeSim.avg = { N, k: 0, r: new Float32Array(N), p: new Float32Array(N), T: new Float32Array(N), sp: new Float32Array(N) };
+  A.k++; const w = Math.max(1 / A.k, 0.02);
+  for (let n = 0; n < N; n++) {
+    const r = q[n], f = rdeField(q, n, N, G), sp = Math.hypot(q[N + n], q[2 * N + n]) / r;
+    A.r[n] += w * (r - A.r[n]); A.p[n] += w * (f.p - A.p[n]); A.T[n] += w * (f.T - A.T[n]); A.sp[n] += w * (sp - A.sp[n]);
+  }
+  if (A.k % 10 === 1) rdeIon();
+}
+function rdeIon() {
+  const A = rdeSim.avg, c = rdeSim.cfg; if (!A) return null;
+  const I = st.rde.ion, sd = ION_SEED[I.seed] || ION_SEED.none, xs = I.seed === "none" ? sd.x : I.xs / 100, N = A.N, nx = c.nx, ny = c.ny, dy = c.H / ny;
+  const ve = Math.sqrt((8 * QE * I.Te) / (Math.PI * ME)), mi = sd.m * AMU, w = 2 * Math.PI * I.f * 1e9, B = I.B, W = 50 * QE, beta = 2e-13;
+  const ne = new Float32Array(N), pmw = new Float32Array(N), S = new Float32Array(N), hall = new Float32Array(N);
+  const R = [0, 1].map(() => ({ V: 0, P: 0, Sn: 0, Sd: 0, ne: 0, be: 0, bi: 0, nu: 0 }));
+  for (let j = 0; j < ny; j++) {
+    const y = (j + 0.5) * dy, k = y > c.Lc ? 1 : 0, V = (c.area(y) / nx) * dy, L = k ? c.H - c.Lc : c.Lc;
+    for (let i = 0; i < nx; i++) {
+      const n = i + nx * j, T = Math.max(A.T[n], 200), Nn = A.p[n] / (KB * T);
+      const K = 2.415e21 * T ** 1.5 * sd.g * Math.exp((-sd.IP * 11604.5) / T), ns = xs * Nn, nT = (-K + Math.sqrt(K * K + 4 * K * ns)) / 2;
+      const nu = Nn * 1e-19 * ve, nReq = (I.sig * ME * nu) / (QE * QE), be = (QE * B) / (ME * nu);
+      const bi = (QE * B) / (mi * Nn * 1e-18 * Math.sqrt((8 * KB * T) / (Math.PI * mi)));
+      const pw = nReq > nT ? W * beta * (nReq * nReq - nT * nT) : 0, fB = (I.sig / (1 + be * be)) * B * B * L, mf = A.r[n] * A.sp[n], Sx = fB / Math.max(mf, 1e-6);
+      ne[n] = nT; pmw[n] = pw; S[n] = Sx; hall[n] = be;
+      const g = R[k]; g.V += V; g.P += pw * V; g.Sn += fB * V; g.Sd += mf * V; g.ne += nT * V; g.be += be * V; g.bi += bi * V; g.nu += nu * V;
+    }
+  }
+  // a region's S is its total magnetic drag over its total momentum flux, so still gas can't dominate it
+  R.forEach((g) => { g.S = g.Sd > 0 ? g.Sn / g.Sd : 0; if (g.V) ["ne", "be", "bi", "nu"].forEach((x) => (g[x] /= g.V)); });
+  return (rdeSim.ion = { ne, pmw, S, hall, R, w });
+}
+function rdeIonReport() {
+  const el = $("#ionInfo"), X = rdeSim.ion, c = rdeSim.cfg, S = rdeStats(); if (!el) return;
+  if (!X || !S) { el.innerHTML = ""; return; }
+  const I = st.rde.ion, row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`, e = (v) => (v > 0 ? v.toExponential(1).replace("e+", "e") : "0");
+  const W = (v) => (v >= 1e6 ? (v / 1e6).toFixed(v >= 1e7 ? 0 : 1) + " MW" : v >= 1e3 ? (v / 1e3).toFixed(v >= 1e4 ? 0 : 1) + " kW" : v.toFixed(0) + " W");
+  const [ch, pl] = X.R, chem = S.mIn * c.gas.q, sigT = (g) => (g.ne * QE * QE) / (ME * g.nu);
+  const skin = Math.sqrt(2 / (MU0 * I.sig * X.w)), nc = (EPS0 * ME * X.w * X.w) / (QE * QE);
+  el.innerHTML =
+    row("Thermal electrons, /m³", `chamber ${e(ch.ne)} · spike ${e(pl.ne)} (σ ${sigT(ch).toPrecision(2)} · ${sigT(pl).toPrecision(2)} S/m)`) +
+    row(`Microwaves for ${I.sig} S/m`, `chamber ${W(ch.P)} · spike ${W(pl.P)} · chemical ${W(chem)}`) +
+    row(`At ${I.f} GHz`, `skin depth ${(skin * 1e3).toFixed(1)} mm · collisions ${(pl.nu / X.w).toFixed(0)}× the wave frequency · cutoff ${e(nc)} /m³`) +
+    row(`Hall parameters, ${I.B} T, spike`, `electrons ${pl.be.toPrecision(2)} · ions ${pl.bi.toPrecision(2)}`) +
+    row("Interaction S", `chamber ${ch.S.toPrecision(2)} · spike ${pl.S.toPrecision(2)}`);
+}
 function rdeDraw2d(q) {
   const cv = $("#eng2d"), c = rdeSim.cfg, N = c.nx * c.ny, G = c.gas, W = c.nx, H = c.ny;
   const off = rdeDraw2d.off || (rdeDraw2d.off = document.createElement("canvas")); off.width = W; off.height = H;
-  const g = off.getContext("2d"), img = g.createImageData(W, H), [lo, hi] = rdeRange(c), T = st.rde.show === "T";
+  const g = off.getContext("2d"), img = g.createImageData(W, H), D = ["ne", "pmw", "S", "hall"].includes(st.rde.show) && rdeSim.ion ? rdeSim.ion[st.rde.show] : null;
+  $("#engLegend .lkey").hidden = !!D;
+  if (D) return rdeDraw2dMap(cv, off, g, img, D, c);
+  const [lo, hi] = rdeRange(c), T = st.rde.show === "T";
   const l0 = T ? lo : Math.log(lo), l1 = T ? hi : Math.log(hi);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const f = rdeField(q, i + W * j, N, G), a = Math.min(1, Math.max(0, ((T ? f.T : Math.log(f.p)) - l0) / (l1 - l0))), o = 4 * (i + W * j), col = rdeColour(a, f.y);
@@ -8892,6 +8978,7 @@ function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
   syncWaves();
   $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat; $("#rdeIgn").value = R.ign;
+  const I = R.ion; $("#ionSeed").value = I.seed; $("#ionXs").value = I.xs; $("#ionTe").value = I.Te; $("#ionSig").value = I.sig; $("#ionB").value = I.B; $("#ionF").value = I.f; $("#ionXs").disabled = I.seed === "none";
   document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
   $("#rdeFromDesign").hidden = !(st.preset === "builder" && BLD && ["hydrolox", "ghydrox", "methalox", "gmethox", "ethox"].includes(engKey(BLD)));
   $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeShow").value = R.show;
@@ -8903,6 +8990,12 @@ function wireRde() {
   $("#rdeProp").addEventListener("change", (e) => { st.rde.prop = e.target.value; st.rde.of = +(RDE_STOICH[st.rde.prop] / 1.1).toFixed(2); syncRdeUI(); restart(); });
   $("#rdeFeed").addEventListener("change", (e) => { st.rde.feed = e.target.value; syncRdeUI(); restart(); });
   $("#rdeShow").addEventListener("change", (e) => { st.rde.show = e.target.value; if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
+  // the ionisation settings act on the averaged flow, so they re-evaluate without a restart
+  const reIon = () => { syncRdeUI(); if (rdeSim.avg) { rdeIon(); rdeIonReport(); if (rdeSim.q) rdeDraw2d(rdeSim.q); } };
+  $("#ionSeed").addEventListener("change", (e) => { st.rde.ion.seed = e.target.value; reIon(); });
+  for (const [id, k, lo] of [["#ionXs", "xs", 0], ["#ionTe", "Te", 0.1], ["#ionSig", "sig", 0.01], ["#ionB", "B", 0], ["#ionF", "f", 0.01]])
+    $(id).addEventListener("change", (e) => { st.rde.ion[k] = Math.max(lo, +e.target.value || 0); reIon(); });
+  $("#rdeMav").addEventListener("click", () => { Object.assign(st.rde, { prop: "gmethox", of: 3.5, Di: 142, w: 8.4, Lc: 69.5, half: 30, AtAw: 0.2, p0: 5, pa: 101.325, nx: 800, teeth: 0, throat: 1, ign: 1, feed: "fixed" }); syncRdeUI(); restart(); });
   $("#rdeRun").addEventListener("click", () => { if (rdeSw.on) rdeSw.on = false; rdeToggle(); });
   $("#rdeSweep").addEventListener("click", rdeSweep);
   $("#rdeSweepT").addEventListener("change", (e) => { st.rde.sweepT = Math.max(0.05, +e.target.value || 0.5); });

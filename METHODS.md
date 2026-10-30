@@ -224,6 +224,20 @@ With two-cell zones, a 1D detonation held, but in the Goto engine the starting w
 
 Real rigs run their waves at 70–90% of the CJ speed, mostly because of mixing. Expect the solver's waves to run faster than measured. See tests/VALIDATION.md for the comparison with the Goto et al. (2021) ethylene/oxygen sled-test engine.
 
+**Wave count.** The model holds fewer waves than real engines at the same feed. The mass balance h = ṁ / (n ρ w D) gives the fresh-layer height each of n waves meets. A real wave needs h above about 12 detonation cells, and cells shrink as pressure rises, so higher pressure allows more waves. Here the smeared front needs a layer some number of grid cells deep instead. That depth doesn't shrink with pressure, so raising the plenum pressure adds density but not height. More waves need a finer grid.
+
+**MAV class.** The preset is NASA's 7K lbf RDRE (Teasley et al., AIAA 2023): 142 mm inner body, 8.4 mm gap, 69.5 mm from the injector to the throat and a 30° plug. It runs on methane/oxygen at O/F 3.5 and a 5 MPa plenum, about 8.7 kg/s. That is about one MAV engine's share of thrust. The start-up fill scales with the plenum pressure (0.1 p₀ when that is above ambient) so the igniter clears the ignition gate.
+
+**Ionisation and magnet.** This is a feasibility map, not a coupled solver. It works from the run's time-averaged flow, cell by cell:
+- Thermal electrons from the Saha equation for the seed: potassium 4.34 eV, caesium 3.89 eV, or 1% O₂ at 12.07 eV unseeded. Chemi-ionisation in the reaction zone is not included.
+- The electron density a target conductivity needs, σ = n_e e² / (m_e ν), with ν = N · 10⁻¹⁹ m² · v_e at the set electron temperature.
+- The microwave power to hold it above the thermal level, W β (n_req² − n_T²): 50 eV per electron made and recombination at 2 × 10⁻¹³ m³/s.
+- Electron and ion Hall parameters at the set field. Ion–neutral collisions use 10⁻¹⁸ m².
+- The interaction parameter S = σ_eff B² L / ρ|u|, with σ_eff = σ / (1 + β_e²) for Hall currents free to flow. L is the annulus length in the chamber and the plug length on the spike. Each region's S is its total magnetic drag over its total momentum flux.
+- The skin depth √(2 / μ₀ σ ω) at the microwave frequency, which holds while collisions outpace the wave.
+
+The constants are order-of-magnitude. The power scales as density squared, so the expanded flow on the spike is far cheaper to ionise than the chamber.
+
 ### Air-breathing engine
 
 The intake is solved by the high-speed flow solver, above Mach 0.6.
