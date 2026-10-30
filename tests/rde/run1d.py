@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 subprocess.run(['node', os.path.join(HERE, 'gen.js')], check=True)
 CJ = json.load(open(os.path.join(HERE, '../../tools/cj.json')))
-THETA = float(os.environ.get('THETA', 0)); NI = float(os.environ.get('NI', 2)); NR = float(os.environ.get('NR', 2)); TIGN = float(os.environ.get('TIGN', 0.65))
+THETA = float(os.environ.get('THETA', 0)); NI = float(os.environ.get('NI', 0.5)); NR = float(os.environ.get('NR', 0.5)); TIGN = float(os.environ.get('TIGN', 0.65))
 ONLY = os.environ.get('ONLY')
 FLAGS = ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface', '--ignore-gpu-blocklist']
 def model(name, dx, cells_rz=4, EaRT=8.0):

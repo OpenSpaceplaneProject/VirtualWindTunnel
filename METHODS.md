@@ -192,16 +192,18 @@ Engines › Nozzle › Rotating detonation runs a detonation chamber of your own
 **Chemistry.** It is an ignition-delay model with a temperature gate, the way NASA's Q2D code gates its reaction:
 - Gas hotter than 0.65 of the post-shock temperature counts down a fixed ignition delay.
 - When the delay runs out, the reactants convert.
-- The delay and the conversion each take about two cells' transit behind the lead shock.
+- The delay and the conversion each take half a cell's transit behind the lead shock, so the burn is close to instant once the gate opens. That is Q2D's approach on coarse grids.
 - Gas below the gate never ignites.
 
 The gate stops fresh propellant from burning where the numerics smear it into hot products. That happened at the injector between waves with a one-step Arrhenius rate.
 
 A delay that also shortens with temperature, the usual induction model, decoupled the lead shock on these grids at every steepness tried (θ = 3–20), and the wave fell to 60% of CJ. A gate at 0.75 failed the same way.
 
+With two-cell zones, a 1D detonation held, but in the Goto engine the starting wave died in the 10 mm fresh layer. The reaction zone has to be many times thinner than the layer the wave runs through.
+
 1D check (`tests/rde/run1d.py`), C₂H₄–O₂ at 1 atm:
-- 4.5% below CJ on the 0.4 mm grid.
-- 1.2% below CJ on the 0.2 mm grid.
+- 1.2% below CJ on the 0.4 mm grid.
+- 0.2% below CJ on the 0.2 mm grid.
 
 **Reaction zone.** Real reaction zones are tenths of a millimetre, so detonations here are thicker than real ones. The cells must be small against the fresh-propellant layer the wave runs through, a few millimetres in small rigs.
 
