@@ -1,0 +1,170 @@
+[
+ {
+  "name": "transparent: passed upstream",
+  "got": 1.000004,
+  "want": 0.9999990855828178,
+  "tol": 0.002,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "transparent: absorbed",
+  "got": 1e-09,
+  "want": 1e-09,
+  "tol": 1.0,
+  "ok": true,
+  "note": "(should be ~0)"
+ },
+ {
+  "name": "Drude absorption n/nc=0.3 \u03bd/\u03c9=0.01",
+  "got": 0.121564,
+  "want": 0.12131254042934421,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "  energy closes (abs+pass+refl)",
+  "got": 1.0000040000000001,
+  "want": 0.9999990855828178,
+  "tol": 0.005,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "  axial decay rate \u03b1",
+  "got": 2.0575233697828126,
+  "want": 2.0527957841050943,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "Drude absorption n/nc=0.05 \u03bd/\u03c9=0.05",
+  "got": 0.101721,
+  "want": 0.10257956585598565,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "  energy closes (abs+pass+refl)",
+  "got": 0.9991410000000001,
+  "want": 0.9999990855828178,
+  "tol": 0.005,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "  axial decay rate \u03b1",
+  "got": 1.7177327283507045,
+  "want": 1.7179511085142836,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "Drude absorption n/nc=0.8 \u03bd/\u03c9=0.01",
+  "got": 0.663614,
+  "want": 0.6639438607729325,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "  energy closes (abs+pass+refl)",
+  "got": 0.999661,
+  "want": 0.9999990855828178,
+  "tol": 0.005,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "  axial decay rate \u03b1",
+  "got": 17.309113306409454,
+  "want": 17.30918823101038,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "cut-off n/nc=1.5 \u03bd/\u03c9=0.023: reflected",
+  "got": 1.000004,
+  "want": 0.9999990855828178,
+  "tol": 0.002,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "collisional overdense \u03bd/\u03c9=3.2: reflected",
+  "got": 1e-09,
+  "want": 1e-09,
+  "tol": 1.0,
+  "ok": true,
+  "note": "(should be 0)"
+ },
+ {
+  "name": "  absorbed",
+  "got": 0.999797,
+  "want": 0.9999990841885914,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "wall takes the transmitted power",
+  "got": 1.000004,
+  "want": 0.9999990855828178,
+  "tol": 0.002,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "breakdown 110 GHz 760 Torr: E_rms at threshold (kV/cm)",
+  "got": 23.1049461910411,
+  "want": 23.10656995612259,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "breakdown 110 GHz 100 Torr: E_rms at threshold (kV/cm)",
+  "got": 5.603644641364336,
+  "want": 5.601839912202504,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "breakdown 110 GHz 10 Torr: E_rms at threshold (kV/cm)",
+  "got": 9.326593057735371,
+  "want": 9.321380195393033,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "breakdown 110 GHz 1 Torr: E_rms at threshold (kV/cm)",
+  "got": 22.01140843793974,
+  "want": 22.000694451313027,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "breakdown 303 GHz 760 Torr: E_rms at threshold (kV/cm)",
+  "got": 25.19077811194199,
+  "want": 25.189365793294165,
+  "tol": 0.01,
+  "ok": true,
+  "note": ""
+ },
+ {
+  "name": "Taylor threshold 303 GHz 1 atm, amplitude (kV/cm) vs published 37",
+  "got": 35.62563937545866,
+  "want": 37.0,
+  "tol": 0.05,
+  "ok": true,
+  "note": ""
+ }
+]

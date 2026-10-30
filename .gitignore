@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 tests/energy-deposition/eul_src.js
+tests/microwave-beam/beam_src.js
+tests/solver-accuracy/eul_src.js

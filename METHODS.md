@@ -149,7 +149,25 @@ The nose is the mean position of the most upstream solid cells. Power is set as 
 
 The heated gas is hotter and faster than anything in the free stream, so the time step is bounded the same way as for a hot exhaust. That bound comes from the total enthalpy of a parcel crossing the spot's centre at half the free-stream speed.
 
-The power is fixed: the beam isn't modelled. Whether a microwave beam reaches the spot through the shock layer's plasma, and where it would be absorbed, needs the electron density. That isn't in the gas model yet.
+With Source set to Spot, the power is fixed and goes where it's put. Set to Microwave beam, the beam is traced and the gas decides where it goes.
+
+#### Microwave beam
+
+A Gaussian beam leaves an emitter at the nose and travels upstream along the flight axis, with power, frequency, waist and focus distance as inputs. Every frame, each ray in the beam's column marches cell by cell from the emitter to the far boundary. In each cell it reads the gas state and does the following:
+
+- **Electron density and temperature** come from a second Cantera table over the same density and energy axes as the real-gas table. This holds equilibrium 11-species air, so ionisation is equilibrium.
+- **Collision frequency** is electron–neutral plus electron–ion: ν = n·1e-19 m²·√(8kT/πm) + 2.91e-11·nₑ·T_eV^-1.5.
+- **Permittivity** is cold-plasma Drude, ε = 1 − ωp²/(ω² + ν²) + i·ωp²ν/(ω(ω² + ν²)), giving the attenuation α = 2(ω/c)·Im√ε. The power absorbed in the cell goes into the energy equation.
+- **Cut-off.** When Re ε < 0 and ν < ω, the plasma is above the critical density, 1.24e16·f² m⁻³ with f in GHz. The beam is reflected there, and the reflected part is tallied and not traced further.
+- **Breakdown.** Where the beam's rms field beats the threshold for air, the gas breaks down. The model takes the threshold from Taylor et al., as used by Cook et al. (2010) at 110 GHz: E = p·√(1+ω²/ν_c²)·3.75·[D/(pΛ²) + 6.4e4]^(3/16) V/cm. Here ν_c = 5.3e9·p s⁻¹, p is in Torr, D is free-electron diffusion at 2 eV, and Λ is the local beam radius / π. A broken-down cell is set to at least the critical density, so it absorbs strongly or reflects.
+
+The panel shows where the power went: absorbed at breakdown, absorbed in hot gas, reflected by plasma, passed upstream, or hit the body.
+
+**Limits:**
+- Rays travel straight. There's no refraction, diffraction or interference.
+- Reflected power is dropped rather than followed.
+- Breakdown is a threshold switch. It doesn't model avalanche growth or the filament arrays seen in experiments.
+- Ionisation is equilibrium. At high altitude that overestimates electrons; see the RAM-C check in tests/VALIDATION.md.
 
 Check, run with the app's own solver kernels: a cylinder at Mach 4, inviscid, 8 cells to the radius, with the spot 1.5 radii ahead and 2.5 cells in radius.
 - Without the spot: the shock stands 0.62 R off, against 0.52 R from Billig's correlation, which is within a cell. The drag coefficient is 1.42.

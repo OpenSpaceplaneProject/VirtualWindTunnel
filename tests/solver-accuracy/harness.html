@@ -1,0 +1,148 @@
+<!doctype html><meta charset=utf-8><script src="eul_src.js"></script><script>
+// The app's compressible solver kernels (EULER_WGSL: ghost-cell immersed boundary, MUSCL, HLLC/HLLE,
+// SSP-RK2) on a sphere or a cylinder, with an optional energy spot ahead of it. Same per-step sequence
+// as the app: ghosts in A, stage A→B, ghosts in B, stage B→A.
+const f16 = (v) => { const f = new Float32Array(1), u = new Uint32Array(f.buffer); f[0] = v; const x = u[0], s = (x >>> 16) & 0x8000; let e = ((x >>> 23) & 0xff) - 127 + 15, m = x & 0x7fffff; if (e <= 0) return s; if (e >= 31) return s | 0x7c00; return s | (e << 10) | (m >>> 13); };
+const snorm8 = (v) => (Math.round(Math.max(-1, Math.min(1, v)) * 127) & 0xff);
+async function run(cfg) {
+  const { NX, NY, NZ, R0, M, dep } = cfg;
+  const g = cfg.gamma || 1.4, N = NX * NY * NZ, pinf = 1 / (g * M * M);
+  const ad = await navigator.gpu.requestAdapter();
+  const dev = await ad.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: ad.limits.maxStorageBufferBindingSize, maxStorageBuffersPerShaderStage: ad.limits.maxStorageBuffersPerShaderStage } });
+  const mod = dev.createShaderModule({ code: EULER_WGSL });
+  const info = await mod.getCompilationInfo(); const errs = info.messages.filter((m) => m.type === "error"); if (errs.length) return { err: errs.map((e) => e.lineNum + ": " + e.message).join("\n") };
+  const BU = GPUBufferUsage, sb = (bytes, usage = BU.STORAGE | BU.COPY_DST | BU.COPY_SRC) => dev.createBuffer({ size: Math.max(16, bytes), usage });
+  const A = sb(5 * N * 4), B = sb(5 * N * 4), F = sb(N * 4), NR = sb(N * 8), EQ = sb(cfg.eqt ? cfg.eqt.length * 4 : 64), PAR = sb(16), QB = sb(N * 4); // QB: beam heating, zero here
+  if (cfg.eqt) dev.queue.writeBuffer(EQ, 0, new Float32Array(cfg.eqt));
+  // body: centre 30 + R cells from the inflow face; signed distance in cells
+  const cx = cfg.cx || 30 + R0, cy = NY / 2, cz = NZ / 2;
+  const sd = (x, y, z) => (cfg.cyl ? Math.hypot(x - cx, y - cy) : Math.hypot(x - cx, y - cy, z - cz)) - R0;
+  const fl = new Uint32Array(N), nr = new Uint32Array(2 * N);
+  for (let z = 0; z < NZ; z++) for (let y = 0; y < NY; y++) for (let x = 0; x < NX; x++) {
+    const n = x + NX * (y + NY * z), px = x + 0.5, py = y + 0.5, pz = z + 0.5, d = sd(px, py, pz);
+    if (d < 0) {
+      fl[n] = 1;
+      if (d > -3.5) {
+        const v = cfg.cyl ? [px - cx, py - cy, 0] : [px - cx, py - cy, pz - cz], l = Math.hypot(...v) || 1;
+        nr[2 * n] = snorm8(v[0] / l) | (snorm8(v[1] / l) << 8) | (snorm8(v[2] / l) << 16);
+        if (nr[2 * n] === 0) nr[2 * n] = 1;
+        nr[2 * n + 1] = (f16(0) | (f16(d) << 16)) >>> 0;
+      }
+    }
+  }
+  dev.queue.writeBuffer(F, 0, fl); dev.queue.writeBuffer(NR, 0, nr);
+  const Afront = cfg.cyl ? 2 * R0 * NZ : Math.PI * R0 * R0;
+  // sources
+  const eab = new ArrayBuffer(16 + 128 * 16), ef = new Float32Array(eab), eu = new Uint32Array(eab);
+  const c0 = (1 / M) * Math.sqrt(1 + 0.5 * (g - 1) * M * M);
+  let dt = 0.4 / (Math.sqrt(3) * Math.sqrt(1 + 2 / ((g - 1) * M * M)) + 3 * c0);
+  if (cfg.rg) dt *= 0.8;
+  let q0 = 0;
+  if (dep) {
+    const r0 = dep.r0;
+    q0 = (dep.P * 0.5 * Afront) / (Math.pow(Math.PI, 1.5) * r0 ** 3);
+    ef.set([cx - R0 - dep.d, cy, cz, r0, 0, 0, 0, 3 * r0, q0, 0, 0, 0, 0, 3, 0, 0], 4); eu[0] = 1;
+    const H = 0.5 + 1 / ((g - 1) * M * M) + 2 * q0 * Math.sqrt(Math.PI) * r0;
+    dt = Math.min(dt, 0.4 / (Math.sqrt(3) * Math.sqrt(2 * H) + 3 * Math.max(Math.sqrt((g - 1) * H), c0)));
+  }
+  const EN = dev.createBuffer({ size: eab.byteLength, usage: BU.UNIFORM | BU.COPY_DST }); dev.queue.writeBuffer(EN, 0, eab);
+  const mkU = (a, b) => {
+    const ab = new ArrayBuffer(112), f = new Float32Array(ab), u = new Uint32Array(ab);
+    u[0] = NX; u[1] = NY; u[2] = NZ; u[3] = N; f[4] = g; f[5] = dt; f[6] = a; f[7] = b; f[8] = pinf; f[9] = cfg.ghost === false ? 0 : 1; f[10] = 1; f[11] = cfg.minmod ? 1 : 0;
+    if (cfg.rg) f.set(cfg.rg, 16);
+    const buf = dev.createBuffer({ size: 112, usage: BU.UNIFORM | BU.COPY_DST }); dev.queue.writeBuffer(buf, 0, ab); return buf;
+  };
+  const U1 = mkU(0, 1), U2 = mkU(0.5, 0.5);
+  const S = (type) => ({ buffer: { type } });
+  const bgl = dev.createBindGroupLayout({ entries: [[0, "uniform"], [1, "read-only-storage"], [2, "storage"], [3, "read-only-storage"], [4, "read-only-storage"], [5, "uniform"], [6, "read-only-storage"], [7, "read-only-storage"], [8, "read-only-storage"]].map(([binding, type]) => ({ binding, visibility: GPUShaderStage.COMPUTE, ...S(type) })) });
+  const pl = dev.createPipelineLayout({ bindGroupLayouts: [bgl] });
+  const pipe = (entryPoint) => dev.createComputePipeline({ layout: pl, compute: { module: mod, entryPoint } });
+  const pInit = pipe("init"), pStage = pipe("stage"), pGhost = pipe("ghost");
+  const bg = (U, s, d) => dev.createBindGroup({ layout: bgl, entries: [[0, U], [1, s], [2, d], [3, F], [4, NR], [5, EN], [6, EQ], [7, PAR], [8, QB]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+  const bInitA = bg(U1, B, A), bAB = bg(U1, A, B), bBA = bg(U2, B, A), bGB = bg(U1, A, B);
+  const X = Math.min(Math.ceil(N / 64), 65535), Y = Math.ceil(Math.ceil(N / 64) / X);
+  dev.pushErrorScope("validation");
+  { const e = dev.createCommandEncoder(); const p = e.beginComputePass(); p.setPipeline(pInit); p.setBindGroup(0, bInitA); p.dispatchWorkgroups(X, Y); p.end(); dev.queue.submit([e.finish()]); }
+  // pressure (perfect gas, or the table's γ̃ when real gas is on: p = (γ̃ − 1)ρe)
+  const eqLook = cfg.eqt ? makeEq(cfg.eqt, cfg.rg) : null;
+  const prOf = (U, n) => { const r = U[n], u = U[N + n] / r, v = U[2 * N + n] / r, w = U[3 * N + n] / r, e = (U[4 * N + n] - 0.5 * r * (u * u + v * v + w * w)) / r; return ((eqLook ? eqLook(r, e) : g) - 1) * r * e; };
+  const rdS = sb(5 * N * 4, BU.MAP_READ | BU.COPY_DST);
+  const grab = async () => { const e = dev.createCommandEncoder(); e.copyBufferToBuffer(A, 0, rdS, 0, 5 * N * 4); dev.queue.submit([e.finish()]); await rdS.mapAsync(GPUMapMode.READ); const U = new Float32Array(rdS.getMappedRange().slice(0)); rdS.unmap(); return U; };
+  // drag by faces (as the app reports it) and by the true surface (pressure sampled 1 cell off the wall)
+  const tri = (U, f, x, y, z) => {
+    const bx = x - 0.5, by = y - 0.5, bz = z - 0.5, i0 = Math.floor(bx), j0 = Math.floor(by), k0 = Math.floor(bz);
+    let s = 0, w = 0;
+    for (let o = 0; o < 8; o++) {
+      const i = i0 + (o & 1), j = j0 + ((o >> 1) & 1), k = k0 + ((o >> 2) & 1);
+      if (i < 0 || j < 0 || k < 0 || i >= NX || j >= NY || k >= NZ) continue;
+      const n = i + NX * (j + NY * k); if (fl[n]) continue;
+      const wt = (o & 1 ? bx - i0 : 1 - (bx - i0)) * ((o >> 1) & 1 ? by - j0 : 1 - (by - j0)) * ((o >> 2) & 1 ? bz - k0 : 1 - (bz - k0));
+      s += wt * f(n); w += wt;
+    }
+    return w > 1e-6 ? s / w : NaN;
+  };
+  const cdOf = (U) => {
+    const pr = (n) => prOf(U, n);
+    let Ff = 0; const nb = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+    const zs = cfg.cyl ? [1, NZ - 1] : [1, NZ - 1];
+    for (let z = zs[0]; z < zs[1]; z++) for (let y = 1; y < NY - 1; y++) for (let x = 1; x < NX - 1; x++) {
+      const n = x + NX * (y + NY * z); if (fl[n]) continue;
+      for (const [a, b, c] of nb) { const m = n + a + NX * (b + NY * c); if (fl[m]) Ff += (pr(n) - pinf) * a; }
+    }
+    const span = cfg.cyl ? NZ - 2 : 0;
+    const cdF = Ff / (0.5 * (cfg.cyl ? 2 * R0 * span : Math.PI * R0 * R0));
+    // true surface
+    let Fs = 0; const off = 1.0;
+    if (cfg.cyl) {
+      const K = 180;
+      for (let i = 0; i < K; i++) { const t = (i + 0.5) / K * 2 * Math.PI, nx = -Math.cos(t), ny = Math.sin(t); const p = tri(U, pr, cx + nx * (R0 + off), cy + ny * (R0 + off), cz); if (isFinite(p)) Fs += (p - pinf) * (-nx) * R0 * (2 * Math.PI / K); }
+      Fs /= 0.5 * 2 * R0;
+    } else {
+      const K = 48;
+      for (let i = 0; i < K; i++) for (let j = 0; j < 2 * K; j++) {
+        const th = (i + 0.5) / K * Math.PI, ph = (j + 0.5) / (2 * K) * 2 * Math.PI, nx = -Math.cos(th), ny = Math.sin(th) * Math.cos(ph), nz = Math.sin(th) * Math.sin(ph);
+        const p = tri(U, pr, cx + nx * (R0 + off), cy + ny * (R0 + off), cz + nz * (R0 + off));
+        if (isFinite(p)) Fs += (p - pinf) * (-nx) * R0 * R0 * Math.sin(th) * (Math.PI / K) * (Math.PI / K);
+      }
+      Fs /= 0.5 * Math.PI * R0 * R0;
+    }
+    return [+cdF.toFixed(4), +Fs.toFixed(4)];
+  };
+  const T = cfg.T, total = Math.ceil(T / dt / 10) * 10, every = Math.max(10, Math.round(total / 8 / 10) * 10), hist = [];
+  const t0 = performance.now();
+  for (let s = 0; s < total; s += 10) {
+    const e = dev.createCommandEncoder(); const p = e.beginComputePass();
+    for (let k = 0; k < 10; k++) {
+      p.setPipeline(pGhost); p.setBindGroup(0, bInitA); p.dispatchWorkgroups(X, Y);
+      p.setPipeline(pStage); p.setBindGroup(0, bAB); p.dispatchWorkgroups(X, Y);
+      p.setPipeline(pGhost); p.setBindGroup(0, bGB); p.dispatchWorkgroups(X, Y);
+      p.setPipeline(pStage); p.setBindGroup(0, bBA); p.dispatchWorkgroups(X, Y);
+    }
+    p.end(); dev.queue.submit([e.finish()]); await dev.queue.onSubmittedWorkDone();
+    if (s > 0 && s % every === 0) hist.push([+(s * dt).toFixed(1), ...cdOf(await grab())]);
+  }
+  const ve = await dev.popErrorScope(); if (ve) return { err: ve.message };
+  const U = await grab();
+  const [cdF, cdS] = cdOf(U);
+  // stagnation line: shock where density first passes halfway to the normal-shock value; stagnation
+  // pressure from the line extrapolated to the wall
+  const row = NX * (Math.floor(cy) + NY * Math.floor(cz)), nose = cx - R0;
+  const r2 = cfg.rg ? null : ((g + 1) * M * M) / ((g - 1) * M * M + 2), half = cfg.rg ? null : 0.5 * (1 + r2);
+  let xs = null; const rho = (x) => U[row + x];
+  const thr = half || 1.5;
+  for (let x = 1; x < nose - 1; x++) if (rho(x) >= thr) { const a = rho(x - 1), b = rho(x); xs = x - 1 + 0.5 + (thr - a) / Math.max(b - a, 1e-9); break; }
+  const pW = tri(U, (n) => prOf(U, n), nose - 0.75, cy, cz);
+  let Tmax = 0, rmin = 1e9; for (let x = 1; x < nose; x++) { rmin = Math.min(rmin, rho(x)); Tmax = Math.max(Tmax, prOf(U, row + x) / rho(x) / pinf); }
+  return { hist, steps: total, dt: +dt.toFixed(4), cdFaces: cdF, cdSurface: cdS, standoffR: xs == null ? null : +((nose - xs) / R0).toFixed(3), cpStag: +((pW - pinf) / 0.5).toFixed(4), rhoStag: +tri(U, (n) => U[n], nose - 0.75, cy, cz).toFixed(3), rhoMinAxis: +rmin.toFixed(3), TmaxOverTinf: +Tmax.toFixed(2), ms: Math.round(performance.now() - t0), nan: U.some((v) => !isFinite(v)) };
+}
+function makeEq(tab, rg) {
+  const NR = 40, NE = 64, LR0 = -8.0, LR1 = 1.5, LE0 = 5.079181, LE1 = 7.90309;
+  return (r, e) => {
+    const lr = Math.log10(Math.max(r, 1e-12)) + rg[1], le = Math.log10(Math.max(e, 1e-12)) + rg[2];
+    const fr = Math.min(Math.max((lr - LR0) / (LR1 - LR0) * (NR - 1), 0), NR - 1.001), fe = Math.min(Math.max((le - LE0) / (LE1 - LE0) * (NE - 1), 0), NE - 1.001);
+    const i = Math.floor(fr), j = Math.floor(fe), a = fr - i, b = fe - j, at = (ii, jj) => tab[2 * (ii * NE + jj)];
+    return (at(i, j) * (1 - b) + at(i, j + 1) * b) * (1 - a) + (at(i + 1, j) * (1 - b) + at(i + 1, j + 1) * b) * a;
+  };
+}
+window.run = run;
+</script>

@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><script src="beam_src.js"></script><script>
+let dev;
+async function run(c) {
+  if (!dev) dev = await (await navigator.gpu.requestAdapter()).requestDevice();
+  const [nx, ny, nz] = c.dims, N = nx * ny * nz;
+  const mk = (data, usage) => { const b = dev.createBuffer({ size: Math.max(16, data.byteLength), usage: usage | GPUBufferUsage.COPY_DST }); dev.queue.writeBuffer(b, 0, data); return b; };
+  const S = GPUBufferUsage.STORAGE, U = GPUBufferUsage.UNIFORM, CS = GPUBufferUsage.COPY_SRC;
+  const st = new Float32Array(5 * N); st.fill(c.rs, 0, N); st.fill(c.rs * c.es, 4 * N, 5 * N);
+  const flg = new Uint32Array(N);
+  if (c.solidX != null) for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) for (let x = 0; x <= c.solidX; x++) flg[x + nx * (y + ny * z)] = 1;
+  const ne = new Float32Array(40 * 64 * 2); for (let i = 0; i < 40 * 64; i++) { ne[2 * i] = Math.log10(c.ne); ne[2 * i + 1] = c.T; }
+  const eq = new Float32Array(40 * 64 * 2).fill(1.4);
+  const ub = new ArrayBuffer(80); new Uint32Array(ub, 0, 4).set([nx, ny, nz, N]); new Float32Array(ub, 16, 16).set([...c.ax, ...c.bm, ...c.ph, ...c.rg]);
+  const bufs = [mk(ub, U), mk(st, S), mk(flg, S), mk(ne, S), mk(new Float32Array(N), S | CS), mk(new Uint32Array(8), S | CS), mk(eq, S)];
+  const mod = dev.createShaderModule({ code: BEAM_WGSL });
+  const info = await mod.getCompilationInfo(); const errs = info.messages.filter(m => m.type === 'error'); if (errs.length) return { err: errs.map(m => m.message).join('\n') };
+  const pipe = dev.createComputePipeline({ layout: 'auto', compute: { module: mod, entryPoint: 'main' } });
+  const bg = dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: bufs.map((buffer, binding) => ({ binding, resource: { buffer } })) });
+  const enc = dev.createCommandEncoder(); const pass = enc.beginComputePass(); pass.setPipeline(pipe); pass.setBindGroup(0, bg);
+  const span = Math.ceil(2 * c.ax[3] + 2); pass.dispatchWorkgroups(Math.ceil(span / 8), Math.ceil(span / 8)); pass.end();
+  const rq = dev.createBuffer({ size: N * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }), rt = dev.createBuffer({ size: 32, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  enc.copyBufferToBuffer(bufs[4], 0, rq, 0, N * 4); enc.copyBufferToBuffer(bufs[5], 0, rt, 0, 32); dev.queue.submit([enc.finish()]);
+  await rq.mapAsync(GPUMapMode.READ); await rt.mapAsync(GPUMapMode.READ);
+  const q = new Float32Array(rq.getMappedRange()), t = new Uint32Array(rt.getMappedRange());
+  const yc = Math.floor(c.ax[1]), zc = Math.floor(c.ax[2]);
+  const axis = []; for (let x = 0; x < nx; x++) axis.push(q[x + nx * (yc + ny * zc)]);
+  let qsum = 0; for (let i = 0; i < N; i++) qsum += q[i];
+  bufs.forEach(b => b.destroy());
+  return { tally: [...t].map(v => v / 1e6), axis, qsum };
+}
+</script>
