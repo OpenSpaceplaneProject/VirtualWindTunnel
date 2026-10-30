@@ -194,6 +194,7 @@ The Engine bench runs a rotating detonation chamber of your own geometry: inner 
 - When the delay runs out, the reactants convert.
 - The delay and the conversion each take half a cell's transit behind the lead shock, so the burn is close to instant once the gate opens. That is Q2D's approach on coarse grids.
 - Gas below the gate never ignites.
+- Because ignition only happens behind shocks, the model cannot split one wave into several the way hot spots and contact-surface burning do in a real engine. The wave count is set at the start by the number of igniters, spaced evenly round the ring; a run then shows whether the design holds that count or collapses to fewer.
 - The gas must also be above a pressure gate, 0.06 × the mixture's CJ pressure ratio × the plenum pressure: about 2.0 × plenum for ethylene, 1.8 for methane and 1.1 for hydrogen. A fixed 2 × plenum stopped hydrogen, whose detonation compresses only about 19 times, from relighting once the start-up overdrive had decayed.
 
 The gate stops fresh propellant from burning where the numerics smear it into hot products. That happened at the injector between waves with a one-step Arrhenius rate.

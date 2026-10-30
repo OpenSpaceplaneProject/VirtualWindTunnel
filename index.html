@@ -644,6 +644,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           </div>
           <div class="row3">
             <label class="field" title="Area of a 2 mm contraction at the end of the annulus, as a fraction of the annulus area (1 for none)"><span class="k">Exit throat</span><input type="number" id="rdeThroat" min="0.2" max="1" step="0.05"></label>
+            <label class="field" title="Waves lit at the start, evenly round the ring. The model only ignites behind shocks, so it cannot split one wave into several the way hot spots do in a real engine: start with the count you want and see whether the design holds it."><span class="k">Igniters</span><input type="number" id="rdeIgn" min="1" max="8" step="1"></label>
           </div>
           <div class="row2">
             <button class="btn" id="rdeRun" type="button">Run</button>
@@ -3492,7 +3493,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, sweepT: 0.5 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, ign: 1, sweepT: 0.5 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -8428,10 +8429,12 @@ async function rdeCreate(dev, cfg) {
   const cv = (y) => y * G.R1 / (G.gam1 - 1) + (1 - y) * G.R2 / (G.gam2 - 1), R = (y) => y * G.R1 + (1 - y) * G.R2;
   const U = new Float32Array(6 * N), I = cfg.init;
   const put = (n, r, u, v, p, y) => { const T = p / (r * R(y)); U[n] = r; U[N + n] = r * u; U[2 * N + n] = r * v; U[3 * N + n] = r * (cv(y) * T + y * G.q + 0.5 * (u * u + v * v)); U[4 * N + n] = r * y; U[5 * N + n] = y > 0.5 ? 0 : r; };
+  // k igniters evenly round the ring, each with its own stretch of fresh layer ahead of it
+  const k = Math.max(1, I.n | 0), Lp = cfg.L / k, wI = Math.min(I.wIgn, 0.3 * Lp), bk = (I.back || I.wIgn) / k;
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-    const x = (i + 0.5) * dx, y = (j + 0.5) * dy, n = i + nx * j;
-    if (y < I.h && x > I.wIgn && x < cfg.L - (I.back || I.wIgn)) put(n, I.pFresh / (G.R1 * cfg.T0), 0, 0, I.pFresh, 1);                // fresh layer
-    else if (y < I.h && x <= I.wIgn) put(n, I.pIgn / (G.R2 * I.TIgn), I.uIgn || 0, 0, I.pIgn, 0);                                    // igniter
+    const x = ((i + 0.5) * dx) % Lp, y = (j + 0.5) * dy, n = i + nx * j;
+    if (y < I.h && x > wI && x < Lp - bk) put(n, I.pFresh / (G.R1 * cfg.T0), 0, 0, I.pFresh, 1);                // fresh layer
+    else if (y < I.h && x <= wI) put(n, I.pIgn / (G.R2 * I.TIgn), I.uIgn || 0, 0, I.pIgn, 0);                                    // igniter
     else { const pb = I.pBurn || Math.max(cfg.pa, I.pFresh); put(n, pb / (G.R2 * I.TBurn), 0, 0, pb, 0); }                                                                // burnt gas
   }
   // plenum: initial pressure p0 at T0, necks at the steady orifice flux into the fill pressure
@@ -8534,7 +8537,7 @@ function rdeConfig() {
   const area = (y) => (y <= Lc ? (y > Lc - 2e-3 ? Ac * Math.min(1, R.throat) : Ac) : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
   const plenum = { on: R.feed === "res", mdot: R.mdot / 1000, V: R.Vp * 1e-6, neck: R.neck / 1000, Cd: 0.7 };
   return { key: R.prop, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 0.06 * m.pr * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
-    Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
+    Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { n: R.ign || 1, h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }
 async function rdeToggle() {
@@ -8847,7 +8850,7 @@ function rdeDrawSweep(done) {
 const RDE_WREF = { n: 3, Dm: 63.7, AtAw: 0.12, p0: 0.85, mdot: 125, w: 3.2 }, RDE_WMAX = 6;
 function rdeWavesFor(n) {
   const R = st.rde, W = RDE_WREF;
-  return { teeth: n, depth: R.teeth > 0 && R.depth > 0 ? R.depth : 0.5,
+  return { ign: n, teeth: n, depth: R.teeth > 0 && R.depth > 0 ? R.depth : 0.5,
     p0: +Math.min(5, Math.max(0.15, W.p0 * (n / W.n) * (W.Dm / (R.Di + R.w)) * (W.AtAw / R.AtAw))).toFixed(2),
     mdot: Math.max(5, Math.round(W.mdot * (n / W.n) * (R.w / W.w))) };
 }
@@ -8858,11 +8861,11 @@ function rdeWavesNow() {
 function syncWaves() {
   const n = rdeWavesNow(), R = st.rde, tr = $("#engWavesTrack"); if (!tr) return;
   $("#engWavesThumb").style.left = `${4 + (92 * (n - 1)) / (RDE_WMAX - 1)}%`; $("#engWavesN").textContent = n; tr.setAttribute("aria-valuenow", n);
-  $("#engWavesSet").textContent = `teeth ${R.teeth} · ${R.feed === "res" ? R.mdot + " g/s" : R.p0 + " MPa"}`;
+  $("#engWavesSet").textContent = `${R.ign} lit · teeth ${R.teeth} · ${R.feed === "res" ? R.mdot + " g/s" : R.p0 + " MPa"}`;
 }
 function rdeWavesSet(n, commit) {
   n = Math.min(RDE_WMAX, Math.max(1, Math.round(n)));
-  const v = rdeWavesFor(n), ids = { teeth: "#rdeTeeth", depth: "#rdeDepth", p0: "#rdeP0", mdot: "#rdeMdot" }, moved = [];
+  const v = rdeWavesFor(n), ids = { ign: "#rdeIgn", teeth: "#rdeTeeth", depth: "#rdeDepth", p0: "#rdeP0", mdot: "#rdeMdot" }, moved = [];
   for (const k in v) if (st.rde[k] !== v[k]) { st.rde[k] = v[k]; moved.push($(ids[k])); }
   syncRdeUI();
   moved.forEach((el, i) => { el.classList.remove("setflash"); void el.offsetWidth; el.classList.add("setflash"); if (!i) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); });
@@ -8887,14 +8890,14 @@ function wireWaves() {
 function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
   syncWaves();
-  $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat;
+  $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat; $("#rdeIgn").value = R.ign;
   document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
   $("#rdeFromDesign").hidden = !(st.preset === "builder" && BLD && ["hydrolox", "ghydrox", "methalox", "gmethox", "ethox"].includes(engKey(BLD)));
   $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeShow").value = R.show;
 }
 function wireRde() {
   const restart = () => { if (rdeSim.run) { rdeStop(); rdeToggle(); } };
-  for (const [id, k, lo] of [["#rdeOF", "of", 0.2], ["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdePa", "pa", 0.1], ["#rdeNx", "nx", 50], ["#rdeMdot", "mdot", 1], ["#rdeVp", "Vp", 1], ["#rdeNeck", "neck", 0.5], ["#rdeTeeth", "teeth", 0], ["#rdeDepth", "depth", 0], ["#rdeThroat", "throat", 0.2]])
+  for (const [id, k, lo] of [["#rdeOF", "of", 0.2], ["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdePa", "pa", 0.1], ["#rdeNx", "nx", 50], ["#rdeMdot", "mdot", 1], ["#rdeVp", "Vp", 1], ["#rdeNeck", "neck", 0.5], ["#rdeTeeth", "teeth", 0], ["#rdeDepth", "depth", 0], ["#rdeThroat", "throat", 0.2], ["#rdeIgn", "ign", 1]])
     $(id).addEventListener("change", (e) => { st.rde[k] = Math.max(lo, +e.target.value || 0); syncWaves(); restart(); });
   $("#rdeProp").addEventListener("change", (e) => { st.rde.prop = e.target.value; st.rde.of = +(RDE_STOICH[st.rde.prop] / 1.1).toFixed(2); syncRdeUI(); restart(); });
   $("#rdeFeed").addEventListener("change", (e) => { st.rde.feed = e.target.value; syncRdeUI(); restart(); });
@@ -8906,7 +8909,7 @@ function wireRde() {
     const k = { hydrolox: "ghydrox", ghydrox: "ghydrox", methalox: "gmethox", gmethox: "gmethox", ethox: "ethox" }[engKey(BLD)];
     if (!k) return; const c = engChem(BLD); st.rde.prop = k; if (c.of) st.rde.of = +(+c.of).toFixed(2); syncRdeUI(); if (rdeSim.run) { rdeStop(); rdeToggle(); }
   });
-  $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, mdot: 125, teeth: 0, throat: 1 }); syncRdeUI(); restart(); });
+  $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, mdot: 125, teeth: 0, throat: 1, ign: 1 }); syncRdeUI(); restart(); });
   wireWaves(); syncRdeUI();
 }
 
