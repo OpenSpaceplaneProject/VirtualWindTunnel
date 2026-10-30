@@ -8113,9 +8113,10 @@ function idealExpandedF(pr, At, pa, epsMax, thr = 1) {
 // Gas: two-γ premixed model (Schwer & Kailasanath, NRL). Reactants (γ1, R1) carry chemical energy q per
 // kg; products (γ2, R2) take the equilibrium γ and molar mass of the CJ state, and q is set so the
 // model's CJ speed equals the equilibrium one (tools/cj.py).
-// Chemistry: induction-parameter model, as NRL uses. Each parcel carries its induction progress z,
-// growing at 1/τ(T) with τ = τ_vN exp(θ (T_vN/T − 1)) above an ignition temperature (none below, as in
-// Q2D); once z ≥ 1 its reactants convert at rate k. The ignition temperature and θ keep fresh propellant that touches hot products in the
+// Chemistry: induction-parameter model. Each parcel carries its induction progress z, growing at
+// 1/τ(T), τ = τ_vN exp(θ (T_vN/T − 1)), only above an ignition temperature (as Q2D gates its reaction);
+// once z ≥ 1 its reactants convert at rate k. The app runs θ = 0 with the gate at 0.65 T_vN: any θ > 0
+// let the lead shock decouple on these grids (tests/rde). The gate keeps fresh propellant that touches hot products in the
 // numerically mixed cells from burning before the wave reaches it, the failure a one-step Arrhenius
 // rate shows in RDEs. τ_vN and 1/k are each about one cell's transit behind the lead shock.
 // Scheme: MUSCL (minmod) + HLLE, SSP-RK2, f32. Injector face: each cell takes premixed gas from the
@@ -8352,7 +8353,7 @@ function rdeConfig() {
   const TvN = (T0 * (2 * g1 * Mn * Mn - (g1 - 1)) * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) ** 2 * Mn * Mn);
   const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn);
   const area = (y) => (y <= Lc ? Ac : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
-  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 8, TvN, tau: dx / uvN, k: uvN / dx, Tign: 0.6 * TvN }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
+  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (2 * dx) / uvN, k: uvN / (2 * dx), Tign: 0.65 * TvN }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
     Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }

@@ -46,7 +46,7 @@ async function prof(c) {
   const G = c.gas, R = (y) => y * G.R1 + (1 - y) * G.R2, cv = (y) => y * G.R1 / (G.gam1 - 1) + (1 - y) * G.R2 / (G.gam2 - 1);
   for (let k = 0; k < c.samples; k++) {
     s.step(c.every); const q = await s.read(), N = s.N, nx = c.nx; const row = [];
-    for (let i = 0; i < nx; i += c.stride) { const n = i + nx; const r = q[n], u = q[N + n] / r, y = q[4 * N + n] / r, e = q[3 * N + n] / r - 0.5 * u * u; const T = (e - y * G.q) / cv(y); row.push([+(r * R(y) * T / 101325).toFixed(1), Math.round(T), +y.toFixed(2)]); }
+    for (let i = 0; i < nx; i += c.stride) { const n = i + nx; const r = q[n], u = q[N + n] / r, y = q[4 * N + n] / r, e = q[3 * N + n] / r - 0.5 * u * u; const T = (e - y * G.q) / cv(y); row.push([+(r * R(y) * T / 101325).toFixed(1), Math.round(T), +y.toFixed(2), +(q[5 * N + n] / r).toFixed(2)]); }
     out.push({ t: s.t, row });
   }
   s.destroy(); return out;

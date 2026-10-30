@@ -189,12 +189,19 @@ Engines › Nozzle › Rotating detonation runs a detonation chamber of your own
 
 `tools/cj.py` computes those CJ speeds. They agree with the Caltech detonation database to within 0.1%: H₂–air 1969 m/s, C₂H₄–O₂ 2374 m/s, CH₄–O₂ 2390 m/s.
 
-**Chemistry.** It is an induction-parameter model, as NRL uses:
-- Each parcel carries its ignition-delay progress, which grows at 1/τ(T), with τ = τ_vN·exp(θ(T_vN/T − 1)) and θ = 20. T_vN is the temperature just behind the lead shock.
-- Once the delay is used up, the reactants convert.
-- τ_vN and the conversion time are each about one cell's transit behind the shock.
+**Chemistry.** It is an ignition-delay model with a temperature gate, the way NASA's Q2D code gates its reaction:
+- Gas hotter than 0.65 of the post-shock temperature counts down a fixed ignition delay.
+- When the delay runs out, the reactants convert.
+- The delay and the conversion each take about two cells' transit behind the lead shock.
+- Gas below the gate never ignites.
 
-A one-step Arrhenius rate failed here. Fresh propellant entering behind the wave meets hot products in the numerically mixed cells next to the injector, and it burned there before the next wave arrived. The steep ignition delay stops that.
+The gate stops fresh propellant from burning where the numerics smear it into hot products. That happened at the injector between waves with a one-step Arrhenius rate.
+
+A delay that also shortens with temperature, the usual induction model, decoupled the lead shock on these grids at every steepness tried (θ = 3–20), and the wave fell to 60% of CJ. A gate at 0.75 failed the same way.
+
+1D check (`tests/rde/run1d.py`), C₂H₄–O₂ at 1 atm:
+- 4.5% below CJ on the 0.4 mm grid.
+- 1.2% below CJ on the 0.2 mm grid.
 
 **Reaction zone.** Real reaction zones are tenths of a millimetre, so detonations here are thicker than real ones. The cells must be small against the fresh-propellant layer the wave runs through, a few millimetres in small rigs.
 

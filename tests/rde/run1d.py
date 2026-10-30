@@ -4,7 +4,8 @@ from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 subprocess.run(['node', os.path.join(HERE, 'gen.js')], check=True)
 CJ = json.load(open(os.path.join(HERE, '../../tools/cj.json')))
-THETA = 8.0
+THETA = float(os.environ.get('THETA', 0)); NI = float(os.environ.get('NI', 2)); NR = float(os.environ.get('NR', 2)); TIGN = float(os.environ.get('TIGN', 0.65))
+ONLY = os.environ.get('ONLY')
 FLAGS = ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface', '--ignore-gpu-blocklist']
 def model(name, dx, cells_rz=4, EaRT=8.0):
     c = CJ[name]; m = c['model']; D = c['cj']['D']; T0, p1 = 300.0, 101325.0
@@ -14,13 +15,14 @@ def model(name, dx, cells_rz=4, EaRT=8.0):
     # particle speed behind the lead shock (shock frame) sets the reaction length: L = u_vN · τ
     uvN = D * ((g1 - 1) * M * M + 2) / ((g1 + 1) * M * M)
     k = uvN / (cells_rz * dx) * math.exp(EaRT)
-    return dict(gas=m, chem=dict(theta=THETA, TvN=TvN, tau=dx / uvN, k=uvN / dx, Tign=0.6 * TvN), Dcj=D, TvN=TvN)
+    return dict(gas=m, chem=dict(theta=THETA, TvN=TvN, tau=NI * dx / uvN, k=uvN / (NR * dx), Tign=TIGN * TvN), Dcj=D, TvN=TvN)
 res = {}
 with sync_playwright() as pw:
     b = pw.chromium.launch(args=FLAGS); pg = b.new_page(); pg.set_default_timeout(3600000)
     pg.goto('file://' + os.path.join(HERE, 'r.html'))
     for name in ['C2H4-O2 stoich', 'H2-air stoich']:
         for dx in [0.4e-3, 0.2e-3, 0.1e-3]:
+            if ONLY and f'{name}|{dx}' not in ONLY: continue
             M = model(name, dx); L = 0.24; nx = int(round(L / dx)); D = M['Dcj']
             dt = 0.3 * dx / (1.8 * D); tEnd = 0.4 * L / D; every = max(1, int(tEnd / dt / 24))
             cfg = dict(nx=nx, ny=2, L=L, H=2 * dx, areaDef=dict(type='const', Ac=1.0), gas=M['gas'], chem=M['chem'], AtAw=0.1, p0=0.0, T0=300.0, pa=101325.0, closed=True, Dcj=D, dt=dt,
