@@ -14,6 +14,15 @@ Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent 
 
 **Shells.** Display › Show › Shells draws nested level surfaces of the flow, CT-scan style. In the compressible solver they are density over freestream at 1.3, 2.5 and 4.5 (shock layer and expansion); in the low-speed solver, speed over freestream at 0.35, 0.8 and 1.2 (wake and the fast flow over the body). Each is drawn where the render march crosses its level and is shaded by the field's gradient, denser where it turns away so its edges read as outlines. In line art they become bone ink. Display only.
 
+**Engine stand.** The Engine mode, next to Build and Test, runs a rotating detonation engine of your own geometry on the GPU. It has a 3D view of the chamber and plug and the unrolled annulus beside it. The feed is either a fixed pressure or a resonant plenum, and you can add injector teeth and an exit throat. Its outputs are thrust, Isp, the azimuthal mode spectrum with the cavity frequencies marked, and a lock-range sweep that maps which mode the engine settles into as the feed changes. METHODS.md › Rotating detonation engine has the model and its limits.
+
+**VR.** In a WebXR browser (Quest Browser, or Chrome with a PC headset), a VR button appears beside the modes. In the headset:
+- The model stands in front of you, coloured by surface pressure and refreshed every two seconds. Squeeze to grab and turn it; squeeze with both hands to scale it.
+- A panel on the left sets airspeed, altitude, angle of attack, sideslip and model size: point at it and pull the trigger.
+- A readout of Mach, airspeed, altitude, CL, CD and L/D follows your view.
+
+The solver keeps running on WebGPU. The headset scene is WebGL2 (three.js, loaded when you enter VR), because Quest can't present WebGPU frames in WebXR yet. Use the site, not an embedded copy: frames usually can't open immersive sessions.
+
 **Phones, tablets and slow PCs.** Lite mode starts on the coarse grid at half resolution, takes longer render steps and reads surface heating from the solver's cells instead of per pixel. It switches on by itself for touch devices and machines with 4 or fewer cores or 4 GB or less of memory. Add `?lite=1` or `?lite=0` to the address to force it, or toggle it under Display. Auto resolution, on by default, lowers the render resolution while frames take over 40 ms and restores it when they speed up. Without WebGPU the Build screen still works; Test needs WebGPU.
 
 ## What's inside

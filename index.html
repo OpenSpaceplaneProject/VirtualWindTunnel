@@ -482,6 +482,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
       <button class="mode" data-mode="build" aria-pressed="false">Build</button>
       <button class="mode" data-mode="test" aria-pressed="true">Test</button>
       <button class="mode" data-mode="engine" aria-pressed="false">Engine</button>
+      <button class="mode" id="vrBtn" type="button" hidden title="View and fly the model in a VR headset">VR</button>
     </nav>
     <aside class="panel" id="panel">
       <div class="hl" id="headline" aria-live="off">
@@ -3984,7 +3985,9 @@ function governRes(now) {
   if (Math.abs(st.rq - was) > 1e-3) { const o = $("#oRq"); if (o) o.textContent = `${Math.round(st.rq * 100)}% auto`; }
 }
 function frame(now) {
-  requestAnimationFrame(frame);
+  frame.last = performance.now();
+  // one pending callback at most: in VR the headset's loop also calls frame() while the page's is paused
+  if (!frame.pending) { frame.pending = true; requestAnimationFrame((t) => { frame.pending = false; frame(t); }); }
   if (!R) return;
   livUpload();
   if (st.mode === "build") { rqGov.last = 0; return; }   // Build draws the design in 2D; the GPU view and solvers rest
@@ -5687,7 +5690,7 @@ function setMode(m) {
   if ((m === "build" || m === "engine") && window.matchMedia("(max-width: 760px)").matches) $("#panel").classList.remove("collapsed");
   st.mode = m;
   document.body.dataset.mode = m;
-  document.querySelectorAll("#modes .mode").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+  document.querySelectorAll("#modes .mode[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
   const tabsPane = (t) => document.querySelectorAll(".pane[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== t; });
   if (m === "engine") {
     if (OPT.on) optStop("Stopped: engine stand.");
@@ -11253,7 +11256,7 @@ function buildUI() {
   $("#libBody").addEventListener("click", () => setLibrary("body"));
   $("#libEng").addEventListener("click", () => setLibrary("engine"));
   st.mode = "test"; document.body.dataset.mode = "test";
-  document.querySelectorAll("#modes .mode").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  document.querySelectorAll("#modes .mode[data-mode]").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   $("#btnToBuild").addEventListener("click", () => setMode("build"));
   wireDuct();
   $("#btnGridChk").addEventListener("click", () => { if (dev && R) startGridCheck(); });
@@ -11345,7 +11348,7 @@ function buildUI() {
   $("#btnAddEv").addEventListener("click", () => { st.tl.events.push({ when: "mach", v: 5, bank: 0, aoa: null, name: "" }); if (st.tl.profile !== "custom") { st.tl.profile = "custom"; } buildTimelineUI(); computeEntry(); });
   $("#btnPlayEntry").addEventListener("click", () => { if (entryPlay.on) stopManoeuvre(); else playEntry(); });
   setProfile(profileFor(st.preset));
-  wireEngines(); wireRde();
+  wireEngines(); wireRde(); vrInit();
   $("#btnMan").addEventListener("click", () => (fly.man ? stopManoeuvre() : playManoeuvre()));
   $("#btnHome").addEventListener("click", () => {
     stopFlying(); stopManoeuvre();
@@ -11587,4 +11590,223 @@ function buildUI() {
 })();
 
 init().catch((e) => { console.error(e); fatal("Could not start", String(e.message || e)); });
+
+// ── VR ──
+// WebXR on headsets (Quest Browser and other WebXR browsers). The solver keeps running on WebGPU; the
+// headset scene is WebGL2 (three.js, loaded on demand), because WebGPU can't present to WebXR on
+// Quest yet. It shows the model as a surface built from the solver's grid, coloured by surface pressure
+// (read back every two seconds), which can be grabbed and turned with either hand and scaled with
+// both; a large parameter panel worked by pointing; and a heads-up readout of Mach, airspeed,
+// altitude and the force coefficients that follows the view.
+const VR = { on: false, T: null, three: null };
+async function vrInit() {
+  const b = $("#vrBtn"); if (!b || !navigator.xr) return;
+  try { if (!(await navigator.xr.isSessionSupported("immersive-vr"))) return; } catch (e) { return; }
+  b.hidden = false; b.addEventListener("click", vrEnter);
+}
+// Surface nets on the solid occupancy, box-smoothed so the steps don't show: one vertex per cube that
+// the 0.5 level crosses, quads across each crossed edge.
+function vrMesh(fl, dims) {
+  const [nx, ny, nz] = dims, N = nx * ny * nz, occ = new Float32Array(N);
+  for (let v = 0; v < N; v++) occ[v] = fl[v] === 1 ? 1 : 0;
+  const tmp = new Float32Array(N);
+  const blur = (a, b, st, n) => { for (let v = 0; v < N; v++) { const c = Math.floor(v / st) % n; b[v] = (a[v] * 2 + (c > 0 ? a[v - st] : a[v]) + (c < n - 1 ? a[v + st] : a[v])) / 4; } };
+  blur(occ, tmp, 1, nx); blur(tmp, occ, nx, ny); blur(occ, tmp, nx * ny, nz); occ.set(tmp);
+  const id = new Int32Array(N).fill(-1), P = [], Nn = [], src = [];
+  const at = (x, y, z) => occ[x + nx * (y + ny * z)];
+  for (let z = 0; z < nz - 1; z++) for (let y = 0; y < ny - 1; y++) for (let x = 0; x < nx - 1; x++) {
+    let mask = 0, k = 0; const c = [];
+    for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) { const f = at(x + dx, y + dy, z + dz) - 0.5; c.push(f); if (f > 0) mask |= 1 << k; k++; }
+    if (mask === 0 || mask === 255) continue;
+    let sx = 0, sy = 0, sz = 0, n = 0;
+    const E = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+    for (const [a, b2] of E) { if ((c[a] > 0) === (c[b2] > 0)) continue; const t = c[a] / (c[a] - c[b2]); const pa = [a & 1, (a >> 1) & 1, a >> 2], pb = [b2 & 1, (b2 >> 1) & 1, b2 >> 2]; sx += pa[0] + t * (pb[0] - pa[0]); sy += pa[1] + t * (pb[1] - pa[1]); sz += pa[2] + t * (pb[2] - pa[2]); n++; }
+    const v = x + nx * (y + ny * z); id[v] = P.length / 3;
+    P.push(x + sx / n + 0.5, y + sy / n + 0.5, z + sz / n + 0.5);
+    const gx = (c[1] + c[3] + c[5] + c[7]) - (c[0] + c[2] + c[4] + c[6]), gy = (c[2] + c[3] + c[6] + c[7]) - (c[0] + c[1] + c[4] + c[5]), gz = (c[4] + c[5] + c[6] + c[7]) - (c[0] + c[1] + c[2] + c[3]), gl = Math.hypot(gx, gy, gz) || 1;
+    Nn.push(-gx / gl, -gy / gl, -gz / gl);
+    // the fluid corner nearest outward carries the surface pressure
+    let best = v; for (let k2 = 0; k2 < 8; k2++) { const w = x + (k2 & 1) + nx * (y + ((k2 >> 1) & 1) + ny * (z + (k2 >> 2))); if (fl[w] !== 1) { best = w; break; } }
+    src.push(best);
+  }
+  const I = [];
+  for (let z = 1; z < nz - 1; z++) for (let y = 1; y < ny - 1; y++) for (let x = 1; x < nx - 1; x++) {
+    const v = x + nx * (y + ny * z), inside = at(x, y, z) > 0.5;
+    // edges from this sample along +x, +y, +z, each shared by four cubes
+    const quads = [[at(x + 1, y, z) > 0.5, [[0, -1, -1], [0, 0, -1], [0, 0, 0], [0, -1, 0]]], [at(x, y + 1, z) > 0.5, [[-1, 0, -1], [0, 0, -1], [0, 0, 0], [-1, 0, 0]].reverse()], [at(x, y, z + 1) > 0.5, [[-1, -1, 0], [0, -1, 0], [0, 0, 0], [-1, 0, 0]]]];
+    for (const [other, q] of quads) {
+      if (other === inside) continue;
+      const ids = q.map(([a, b2, c2]) => id[x + a + nx * (y + b2 + ny * (z + c2))]);
+      if (ids.some((i2) => i2 < 0)) continue;
+      if (inside) I.push(ids[0], ids[1], ids[2], ids[0], ids[2], ids[3]); else I.push(ids[0], ids[2], ids[1], ids[0], ids[3], ids[2]);
+    }
+  }
+  return { P: new Float32Array(P), N: new Float32Array(Nn), I: new Uint32Array(I), src: new Uint32Array(src) };
+}
+async function vrRead(withFlags) {
+  const [nx, ny, nz] = R.dims, N = R.N;
+  const sF = withFlags ? dev.createBuffer({ size: 4 * N, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }) : null;
+  const sT = dev.createBuffer({ size: 8 * N, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  const enc = dev.createCommandEncoder();
+  if (sF) enc.copyBufferToBuffer(R.flags, 0, sF, 0, 4 * N);
+  enc.copyTextureToBuffer({ texture: R.field }, { buffer: sT, bytesPerRow: nx * 8, rowsPerImage: ny }, [nx, ny, nz]);
+  dev.queue.submit([enc.finish()]);
+  await Promise.all([sF && sF.mapAsync(GPUMapMode.READ), sT.mapAsync(GPUMapMode.READ)]);
+  const fl = sF ? new Uint32Array(sF.getMappedRange().slice(0)) : null, fd = new Uint16Array(sT.getMappedRange().slice(0));
+  if (sF) { sF.unmap(); sF.destroy(); } sT.unmap(); sT.destroy();
+  return { fl, fd, dims: [nx, ny, nz] };
+}
+function vrCss(name) { const c = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); const T = VR.three; try { return new T.Color(c || "#888"); } catch (e) { return new T.Color("#888"); } }
+function vrColour(mesh, fd) {
+  const T = VR.three, col = mesh.geometry.attributes.color, lo = st.cpmin, hi = st.cpmax, warm = vrCss("--warm"), mid = vrCss("--mid"), cold = vrCss("--cold"), c = new T.Color();
+  for (let i = 0; i < mesh.userData.src.length; i++) {
+    const cp = h2f(fd[4 * mesh.userData.src[i]]);
+    if (!isFinite(cp)) { c.set(0x777777); } else if (cp >= 0) c.copy(mid).lerp(warm, Math.min(1, cp / Math.max(hi, 1e-3))); else c.copy(mid).lerp(cold, Math.min(1, cp / Math.min(lo, -1e-3)));
+    col.setXYZ(i, c.r, c.g, c.b);
+  }
+  col.needsUpdate = true;
+}
+// a canvas drawn as a texture on a plane in the scene
+function vrPlane(w, h, px) {
+  const T = VR.three, cv = document.createElement("canvas"); cv.width = px; cv.height = Math.round((px * h) / w);
+  const tex = new T.CanvasTexture(cv); tex.colorSpace = T.SRGBColorSpace;
+  const m = new T.Mesh(new T.PlaneGeometry(w, h), new T.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+  m.renderOrder = 10; m.userData = { cv, tex, w, h };
+  return m;
+}
+// Parameter panel: rows of sliders worked with the controller ray (or a pinch on hands)
+const VR_ROWS = [
+  { k: "V", label: "Airspeed", unit: "m/s", lo: 0, hi: 8000, get: () => (st.spd.set ? st.spd.V : 0), set: (v) => setSpeed(v, st.spd.h), f: (v) => v.toFixed(0) },
+  { k: "h", label: "Altitude", unit: "km", lo: 0, hi: 120, get: () => st.spd.h, set: (v) => (st.spd.set ? setSpeed(st.spd.V, v) : setAltitude(v)), f: (v) => v.toFixed(1) },
+  { k: "aoa", label: "Angle of attack", unit: "°", lo: -30, hi: 60, get: () => st.aoa, set: (v) => vrRange("aoa", v), f: (v) => v.toFixed(1) },
+  { k: "beta", label: "Sideslip", unit: "°", lo: -30, hi: 30, get: () => st.beta, set: (v) => vrRange("beta", v), f: (v) => v.toFixed(1) },
+  { k: "size", label: "Model size", unit: "", lo: 0.3, hi: 2.5, get: () => st.size, set: (v) => vrRange("size", v), f: (v) => v.toFixed(2) },
+];
+function vrRange(id, v) { const el = $("#" + id); if (!el) return; const step = +el.step || 0.1; el.value = Math.round(v / step) * step; el.dispatchEvent(new Event("input", { bubbles: true })); }
+const VRP = { W: 1.1, H: 0.72, top: 0.16, rowH: 0.105, x0: 0.06, x1: 1.04 };
+function vrDrawPanel() {
+  const m = VR.panel, { cv, tex, w } = m.userData, g = cv.getContext("2d"), s = cv.width / w;
+  g.clearRect(0, 0, cv.width, cv.height);
+  g.fillStyle = "rgba(11,11,12,0.92)"; g.strokeStyle = "rgba(214,206,189,0.35)"; g.lineWidth = 3;
+  g.beginPath(); g.roundRect(2, 2, cv.width - 4, cv.height - 4, 24); g.fill(); g.stroke();
+  g.fillStyle = "#d6cebd"; g.font = `700 ${0.05 * s}px Archivo, system-ui, sans-serif`; g.fillText((st.preset === "builder" && BLD ? BLD.name : (typeof PRESETS !== "undefined" && PRESETS[st.preset] && PRESETS[st.preset].name)) || "Model", VRP.x0 * s, 0.085 * s);
+  g.font = `${0.03 * s}px Archivo, system-ui, sans-serif`; g.fillStyle = "rgba(214,206,189,0.6)"; g.fillText("point and pull the trigger · squeeze to grab the model", VRP.x0 * s, 0.125 * s);
+  VR_ROWS.forEach((r, i) => {
+    const y = (VRP.top + i * VRP.rowH) * s, v = r.get(), a = Math.max(0, Math.min(1, (v - r.lo) / (r.hi - r.lo)));
+    g.fillStyle = "#d6cebd"; g.font = `${0.034 * s}px Archivo, system-ui, sans-serif`; g.fillText(r.label, VRP.x0 * s, y + 0.032 * s);
+    g.textAlign = "right"; g.fillText(`${r.f(v)} ${r.unit}`, VRP.x1 * s, y + 0.032 * s); g.textAlign = "left";
+    const ty = y + 0.062 * s; g.fillStyle = "rgba(214,206,189,0.2)"; g.fillRect(VRP.x0 * s, ty, (VRP.x1 - VRP.x0) * s, 0.012 * s);
+    g.fillStyle = "#f29c4f"; g.fillRect(VRP.x0 * s, ty, a * (VRP.x1 - VRP.x0) * s, 0.012 * s);
+    g.beginPath(); g.arc((VRP.x0 + a * (VRP.x1 - VRP.x0)) * s, ty + 0.006 * s, 0.018 * s, 0, 7); g.fill();
+  });
+  tex.needsUpdate = true;
+}
+function vrDrawHud() {
+  const m = VR.hud, { cv, tex } = m.userData, g = cv.getContext("2d"), W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "rgba(11,11,12,0.72)"; g.beginPath(); g.roundRect(0, 0, W, H, 18); g.fill();
+  const txt = (id) => ($(id) ? $(id).textContent : "—");
+  const cells = [["Mach", txt("#hlMach")], ["Airspeed", txt("#hlSpd")], ["Altitude", txt("#hlAlt")], ["CL", txt("#cl")], ["CD", txt("#cd")], ["L/D", txt("#ld")]];
+  cells.forEach(([k, v], i) => {
+    const x = 18 + (i % 3) * (W - 36) / 3, y = i < 3 ? 46 : 112;
+    g.fillStyle = "rgba(214,206,189,0.6)"; g.font = "22px Archivo, system-ui, sans-serif"; g.fillText(k, x, y);
+    g.fillStyle = "#d6cebd"; g.font = "700 34px Archivo, system-ui, sans-serif"; g.fillText(v, x, y + 34);
+  });
+  tex.needsUpdate = true;
+}
+async function vrEnter(opts = {}) {
+  if (VR.on) { VR.session && VR.session.end(); return; }
+  const preview = !!opts.preview;   // the headset scene on the page, for checking without a headset
+  if (!R || st.mode !== "test") setMode("test");
+  const T = VR.three || (VR.three = await import("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"));
+  const renderer = new T.WebGLRenderer({ antialias: true, alpha: false }); renderer.xr.enabled = true; renderer.setPixelRatio(1);
+  if (preview) { renderer.setSize(opts.w || 900, opts.h || 600); Object.assign(renderer.domElement.style, { position: "fixed", left: "0", top: "0", zIndex: 50 }); } else renderer.domElement.style.display = "none";
+  document.body.appendChild(renderer.domElement);
+  const scene = new T.Scene(); scene.background = new T.Color(0x0b0b0c);
+  const cam = new T.PerspectiveCamera(70, 1, 0.02, 50); scene.add(cam);
+  scene.add(new T.HemisphereLight(0xffffff, 0x222233, 1.1)); const dl = new T.DirectionalLight(0xffffff, 0.8); dl.position.set(1, 3, 2); scene.add(dl);
+  const floor = new T.Mesh(new T.CircleGeometry(4, 64), new T.MeshBasicMaterial({ color: 0x141416 })); floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  const grid = new T.PolarGridHelper(4, 16, 8, 64, 0x2a2a2e, 0x2a2a2e); scene.add(grid);
+  // model
+  const holder = new T.Group(); holder.position.set(0, 1.2, -0.9); scene.add(holder);
+  const { fl, fd, dims } = await vrRead(true), mm = vrMesh(fl, dims);
+  const geo = new T.BufferGeometry();
+  geo.setAttribute("position", new T.BufferAttribute(mm.P, 3)); geo.setAttribute("normal", new T.BufferAttribute(mm.N, 3)); geo.setAttribute("color", new T.BufferAttribute(new Float32Array(mm.P.length), 3)); geo.setIndex(new T.BufferAttribute(mm.I, 1));
+  geo.computeBoundingBox(); const bb = geo.boundingBox, ctr = new T.Vector3(), size = new T.Vector3(); bb.getCenter(ctr); bb.getSize(size);
+  const model = new T.Mesh(geo, new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05, side: T.DoubleSide }));
+  model.userData.src = mm.src;
+  // grid x runs downstream, y up across the tunnel, z sideways: nose towards -z in the room, upright
+  model.position.copy(ctr).multiplyScalar(-1);
+  const orient = new T.Group(); orient.add(model); orient.rotation.y = Math.PI / 2; const sc = 0.9 / Math.max(size.x, size.y, size.z); orient.scale.setScalar(sc);
+  holder.add(orient); vrColour(model, fd);
+  VR.model = model; VR.holder = holder;
+  // panel to the left, HUD following the view
+  VR.panel = vrPlane(VRP.W, VRP.H, 1100); VR.panel.position.set(-0.95, 1.35, -0.75); VR.panel.rotation.y = 0.55; scene.add(VR.panel);
+  VR.hud = vrPlane(0.5, 0.17, 700); scene.add(VR.hud);
+  vrDrawPanel(); vrDrawHud();
+  // controllers: rays, trigger works the panel, squeeze grabs the model (both squeezing: scale)
+  const ray = new T.Raycaster(), ctl = [0, 1].map((i) => {
+    const c = renderer.xr.getController(i); scene.add(c);
+    const line = new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(), new T.Vector3(0, 0, -1)]), new T.LineBasicMaterial({ color: 0xf29c4f })); line.scale.z = 2; c.add(line);
+    c.userData = { line, drag: null, grab: false };
+    c.addEventListener("selectstart", () => { const h = hitPanel(c); if (h) { c.userData.drag = h.row; setRow(h); } });
+    c.addEventListener("selectend", () => { c.userData.drag = null; });
+    c.addEventListener("squeezestart", () => { c.userData.grab = true; grabUpdate(); });
+    c.addEventListener("squeezeend", () => { c.userData.grab = false; grabUpdate(); });
+    return c;
+  });
+  const hitPanel = (c) => {
+    const m = new T.Matrix4().extractRotation(c.matrixWorld); ray.ray.origin.setFromMatrixPosition(c.matrixWorld); ray.ray.direction.set(0, 0, -1).applyMatrix4(m);
+    const hit = ray.intersectObject(VR.panel)[0]; if (!hit) return null;
+    const u = hit.uv.x * VRP.W, v = (1 - hit.uv.y) * VRP.H, row = Math.floor((v - VRP.top) / VRP.rowH);
+    return { u, row: row >= 0 && row < VR_ROWS.length ? row : null, dist: hit.distance };
+  };
+  const setRow = (h) => { if (h.row == null) return; const r = VR_ROWS[h.row], a = Math.max(0, Math.min(1, (h.u - VRP.x0) / (VRP.x1 - VRP.x0))); r.set(r.lo + a * (r.hi - r.lo)); };
+  let grabbers = [], base = null;
+  const grabUpdate = () => {
+    const now = ctl.filter((c) => c.userData.grab);
+    scene.attach(holder);
+    if (now.length === 1) now[0].attach(holder);
+    if (now.length === 2) base = { d: now[0].position.distanceTo(now[1].position), s: holder.scale.x };
+    grabbers = now;
+  };
+  renderer.xr.addEventListener("sessionend", () => { VR.on = false; renderer.setAnimationLoop(null); renderer.dispose(); renderer.domElement.remove(); $("#vrBtn").textContent = "VR"; });
+  if (preview) { cam.aspect = (opts.w || 900) / (opts.h || 600); cam.updateProjectionMatrix(); cam.position.set(-0.25, 1.55, 0.35); cam.lookAt(-0.35, 1.25, -0.9); VR.renderer = renderer; }
+  else {
+    const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor", "hand-tracking"] });
+    renderer.xr.setReferenceSpaceType("local-floor"); await renderer.xr.setSession(session);
+    VR.session = session; $("#vrBtn").textContent = "Exit VR";
+  }
+  VR.on = true;
+  let tCol = 0, tPanel = 0, geoKey = R.N + ":" + st.aoa + ":" + st.beta + ":" + st.size, rebuilding = false;
+  const tmp = new T.Vector3(), fwd = new T.Vector3();
+  renderer.setAnimationLoop(async (t) => {
+    // the page's own loop pauses in an immersive session on some headsets: drive the solver from here
+    if (!frame.last || performance.now() - frame.last > 60) frame(t);
+    for (const c of ctl) {
+      if (c.userData.drag != null) { const h = hitPanel(c); if (h && h.row === c.userData.drag) setRow(h); }
+      const h = hitPanel(c); c.userData.line.scale.z = h ? h.dist : 2;
+    }
+    if (grabbers.length === 2 && base) { const d = grabbers[0].position.distanceTo(grabbers[1].position); holder.scale.setScalar(Math.max(0.2, Math.min(8, (base.s * d) / Math.max(base.d, 1e-3)))); }
+    // HUD: lazily follows the view, 1.1 m out and a little low, always facing you
+    const xc = renderer.xr.isPresenting ? renderer.xr.getCamera() : cam; xc.getWorldPosition(tmp); xc.getWorldDirection(fwd); fwd.y = Math.min(fwd.y, 0.2);
+    const target = tmp.clone().add(fwd.multiplyScalar(1.1)); target.y -= 0.32;
+    VR.hud.position.lerp(target, 0.08); VR.hud.lookAt(tmp);
+    if (t - tPanel > 250) { tPanel = t; vrDrawPanel(); vrDrawHud(); }
+    if (t - tCol > 2000 && !rebuilding && R) {
+      tCol = t; rebuilding = true;
+      const key = R.N + ":" + st.aoa + ":" + st.beta + ":" + st.size, newGeo = key !== geoKey && !geoDirty;
+      vrRead(newGeo).then(({ fl, fd, dims }) => {
+        if (newGeo) {   // attitude or size changed: rebuild the surface
+          geoKey = key; const m2 = vrMesh(fl, dims), g2 = model.geometry;
+          g2.setAttribute("position", new T.BufferAttribute(m2.P, 3)); g2.setAttribute("normal", new T.BufferAttribute(m2.N, 3)); g2.setAttribute("color", new T.BufferAttribute(new Float32Array(m2.P.length), 3)); g2.setIndex(new T.BufferAttribute(m2.I, 1));
+          model.userData.src = m2.src;
+        }
+        vrColour(model, fd);
+      }).catch(() => {}).finally(() => { rebuilding = false; });
+    }
+    renderer.render(scene, cam);
+  });
+}
+// ── end VR ──
 </script>
