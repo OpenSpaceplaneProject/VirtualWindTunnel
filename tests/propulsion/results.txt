@@ -1,0 +1,17 @@
+Interpolation against direct CEA (36 random off-grid points per propellant x 2 quantities):
+  PASS hydrolox: worst error 0.20% (limit 1%)
+  PASS kerolox: worst error 0.30% (limit 1%)
+  PASS methalox: worst error 0.17% (limit 1%)
+  PASS storable: worst error 0.61% (limit 1%)
+  PASS amlox: worst error 0.38% (limit 1%)
+  PASS ethox: worst error 0.94% (limit 1%)
+
+Measured engines: vacuum Isp, measured / ideal shifting equilibrium (expected 0.92–0.99):
+  PASS RS-25: app ideal 462.7 s, measured 452.3 s (NASA RS-25 fact sheet) -> 0.978
+  PASS RL10B-2: app ideal 481.2 s, measured 465.5 s (Aerojet Rocketdyne data sheet) -> 0.967
+  PASS RD-180: app ideal 359.2 s, measured 338.4 s (NPO Energomash) -> 0.942
+  PASS Merlin 1D Vacuum: app ideal 372.5 s, measured 348 s (SpaceX (published)) -> 0.934
+  PASS AJ10-190 (OMS): app ideal 334.6 s, measured 316 s (NASA Shuttle OMS) -> 0.944
+  FAIL XLR99: app ideal 314.9 s, measured 276 s (Astronautix (Pc 40.8 bar, ε 9.8; O/F assumed)) -> 0.877
+
+SOME FAILED
