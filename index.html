@@ -8845,9 +8845,10 @@ function rdeDrawSweep(done) {
 }
 // Waves: one control for how many detonation waves to design for. It moves the variables that set the
 // count, in the panel, so you see what each does: the injector teeth (n lobes for n waves to mesh with)
-// and the feed, scaled from the Goto et al. rig (3 waves at 0.85 MPa, 125 g/s) so that each wave meets
-// the same height of fresh propellant: flux per unit area ∝ n / mean diameter.
-const RDE_WREF = { n: 3, Dm: 63.7, AtAw: 0.12, p0: 0.85, mdot: 125, w: 3.2 }, RDE_WMAX = 6;
+// and the feed, scaled so that each wave meets the same height of fresh propellant (flux per unit area
+// ∝ n / mean diameter). The reference is what this model sustains, one wave on the Goto et al. rig at
+// 0.85 MPa, not the rig's measured three: on these grids a wave needs about three times the real layer.
+const RDE_WREF = { n: 1, Dm: 63.7, AtAw: 0.12, p0: 0.85, mdot: 125, w: 3.2 }, RDE_WMAX = 6;
 function rdeWavesFor(n) {
   const R = st.rde, W = RDE_WREF;
   return { ign: n, teeth: n, depth: R.teeth > 0 && R.depth > 0 ? R.depth : 0.5,
