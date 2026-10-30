@@ -8115,8 +8115,9 @@ function idealExpandedF(pr, At, pa, epsMax, thr = 1) {
 // model's CJ speed equals the equilibrium one (tools/cj.py).
 // Chemistry: induction-parameter model. Each parcel carries its induction progress z, growing at
 // 1/τ(T), τ = τ_vN exp(θ (T_vN/T − 1)), only above an ignition temperature (as Q2D gates its reaction);
-// once z ≥ 1 its reactants convert at rate k. The app runs θ = 0 with the gate at 0.65 T_vN: any θ > 0
-// let the lead shock decouple on these grids (tests/rde). The gate keeps fresh propellant that touches hot products in the
+// once z ≥ 1 its reactants convert at rate k. The app runs θ = 0 with the gate at 0.65 T_vN and above
+// twice the plenum pressure, so only shock-compressed propellant ignites: any θ > 0 let the lead shock
+// decouple on these grids (tests/rde). The gate keeps fresh propellant that touches hot products in the
 // numerically mixed cells from burning before the wave reaches it, the failure a one-step Arrhenius
 // rate shows in RDEs. τ_vN and 1/k are each about one cell's transit behind the lead shock.
 // Scheme: MUSCL (minmod) + HLLE, SSP-RK2, f32. Injector face: each cell takes premixed gas from the
@@ -8126,7 +8127,7 @@ const RDE_WGSL = /* wgsl */`
 struct P {
   dims: vec4u,     // nx, ny, n, stage (0 or 1)
   g: vec4f,        // dx, dy, dt, ambient p
-  r1: vec4f,       // γ1, R1, q, -
+  r1: vec4f,       // γ1, R1, q, ignition pressure (no induction below)
   r2: vec4f,       // γ2, R2, k (1/s), At/Aw
   inj: vec4f,      // plenum p0, T0, closed outlet (> 0.5), -
   ch: vec4f,       // θ·T_vN, θ, 1/τ_vN, ignition temperature (no induction below)
@@ -8237,7 +8238,7 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   var src = array<f32, 6>(0.0, 0.0, c0.p * (At - Ab) / (Ac * dy), 0.0, 0.0, 0.0);
   // induction, then reaction
   let T = c0.p / (c0.r * gasR(c0.y));
-  if (c0.y > 1e-4 && c0.z < 1.0 && T > C.ch.w) { src[5] = c0.r * C.ch.z * exp(min(C.ch.y - C.ch.x / max(T, 1.0), 30.0)); }
+  if (c0.y > 1e-4 && c0.z < 1.0 && T > C.ch.w && c0.p > C.r1.w) { src[5] = c0.r * C.ch.z * exp(min(C.ch.y - C.ch.x / max(T, 1.0), 30.0)); }
   if (c0.z >= 1.0) { src[4] = -min(C.r2.z * c0.r * c0.y, c0.r * c0.y / dt); }
   let a = select(0.5, 1.0, C.dims.w == 0u);
   var q: array<f32, 6>;
@@ -8281,7 +8282,7 @@ async function rdeCreate(dev, cfg) {
   const pipe = dev.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "step" } });
   let dt = cfg.dt || 0.3 * Math.min(dx, dy) / (1.8 * cfg.Dcj);
   const X = cfg.chem;
-  const uni = (stage) => { const ab = new ArrayBuffer(96), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]); f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, 0, G.gam2, G.R2, X.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0, X.theta * X.TvN, X.theta, 1 / X.tau, X.Tign || 0], 4); return ab; };
+  const uni = (stage) => { const ab = new ArrayBuffer(96), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]); f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, X.pign || 0, G.gam2, G.R2, X.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0, X.theta * X.TvN, X.theta, 1 / X.tau, X.Tign || 0], 4); return ab; };
   const UB = [0, 1].map(() => dev.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | CD }));
   const writeU = () => { dev.queue.writeBuffer(UB[0], 0, uni(0)); dev.queue.writeBuffer(UB[1], 0, uni(1)); };
   writeU();
@@ -8353,7 +8354,7 @@ function rdeConfig() {
   const TvN = (T0 * (2 * g1 * Mn * Mn - (g1 - 1)) * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) ** 2 * Mn * Mn);
   const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn);
   const area = (y) => (y <= Lc ? Ac : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
-  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
+  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 2 * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
     Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }

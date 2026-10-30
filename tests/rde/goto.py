@@ -19,7 +19,7 @@ def cfg(test, p0, dx, t_end, AtAw=0.12, EaRT=8.0, cells_rz=2):
     uvN = D * ((g1 - 1) * M * M + 2) / ((g1 + 1) * M * M)
     L = math.pi * (Di + De); H = Lc + Lp; nx = int(round(L / dx)); ny = int(round(H / dx))
     dt = 0.3 * dx / (1.8 * D); every = 40; samples = int(t_end / dt / every)
-    return dict(nx=nx, ny=ny, L=L, H=H, areaDef=dict(type='plug', Ac=Ac, Lc=Lc, Do=Do, Di=Di, half=half), gas=m, chem=dict(theta=0.0, TvN=TvN, tau=0.5 * dx / uvN, k=uvN / (0.5 * dx), Tign=0.65 * TvN),
+    return dict(nx=nx, ny=ny, L=L, H=H, areaDef=dict(type='plug', Ac=Ac, Lc=Lc, Do=Do, Di=Di, half=half), gas=m, chem=dict(theta=0.0, TvN=TvN, tau=0.5 * dx / uvN, k=uvN / (0.5 * dx), Tign=0.65 * TvN, pign=2 * p0),
                 AtAw=AtAw, p0=p0, T0=T0, pa=101325.0, closed=False, Dcj=D, dt=dt, probeY=40e-3,
                 init=dict(h=10e-3, pFresh=101325.0, wIgn=10e-3, back=0.3 * L, pIgn=c['cj']['p'], TIgn=c['cj']['T'], uIgn=D * (1 - c['cj']['rho1'] / c['cj']['rho2']), TBurn=2500.0),
                 samples=samples, every=every)
