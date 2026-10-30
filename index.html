@@ -327,6 +327,7 @@ body.noEnv #envPlot { display: none; }
 }
 #toast.show { opacity: 1; }
 #fatal[hidden] { display: none; }
+body.nogpu .spd, body.nogpu .velw, body.nogpu .legend, body.nogpu #probe, body.nogpu #engStage { display: none !important; }
 #fatal { position: absolute; inset: 0; display: grid; place-items: center; text-align: left; }
 #fatal > div { max-width: 46ch; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px 22px; }
 #fatal h2 { font-family: var(--f-display); font-weight: 600; font-size: 22px; margin: 0 0 8px; text-wrap: balance; }
@@ -357,6 +358,13 @@ body.noEnv #envPlot { display: none; }
   .spdMark.minor button { display: none; }
   .alt, #envPlot { display: none; }
   #velc { width: 84px; height: 84px; }
+  #engStage { left: 8px; width: calc(100% - 16px); top: 96px; height: calc(48% - 100px); gap: 6px; }
+  #eng2d { flex-basis: 38%; }
+  .brand .credit { display: none; }
+  #fatal { top: 92px; bottom: auto; padding: 0 10px; place-items: start center; }
+  #fatal > div { padding: 14px 16px; }
+  #fatal h2 { font-size: 18px; }
+  .hl { cursor: pointer; }
   .velt { text-align: right; font-size: 10.5px; }
 }
 @media (prefers-reduced-motion: reduce) { #toast, .panel, .ptoggle, .ptoggle svg, .legend, .spd { transition: none; } }
@@ -3498,7 +3506,7 @@ function fatal(title, text) {
 // the message back.
 let NO_GPU = false;
 function noGpu(title, text) {
-  NO_GPU = true;
+  NO_GPU = true; noGpu.msg = [title, text]; document.body.classList.add("nogpu");
   fatal(title, text);
   const box = $("#fatalBtns"); box.textContent = "";
   const b = document.createElement("button"); b.className = "btn primary"; b.textContent = "Open Build";
@@ -5670,7 +5678,13 @@ function bldApply(recompile = true) {
 // optimiser. Changes made in Build are analysed when Test opens.
 function setMode(m) {
   if (st.mode === m) return;
-  if (NO_GPU && $("#fatal")) $("#fatal").hidden = m === "build";
+  if (NO_GPU && $("#fatal")) {
+    $("#fatal").hidden = m === "build";
+    const [t, x] = m === "engine" ? ["No GPU adapter", "The engine stand runs its detonation solver on the GPU. Its settings work here; to run it, the browser needs WebGPU with hardware acceleration on."] : noGpu.msg || ["", ""];
+    $("#fatalT").textContent = t; $("#fatalP").textContent = x;
+  }
+  // phones: the design and the engine stand are driven from the sheet, so it opens with them
+  if ((m === "build" || m === "engine") && window.matchMedia("(max-width: 760px)").matches) $("#panel").classList.remove("collapsed");
   st.mode = m;
   document.body.dataset.mode = m;
   document.querySelectorAll("#modes .mode").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
@@ -11444,6 +11458,10 @@ function buildUI() {
   $("#ptoggle").addEventListener("click", () => setPanel(document.body.classList.contains("pclosed")));
   try { if (localStorage.getItem("bt.panel") === "0") setPanel(false); } catch {}
   if (window.matchMedia("(max-width: 760px)").matches) panel.classList.add("collapsed");
+  $("#headline").addEventListener("click", (e) => {
+    if (e.target.closest("button") || !window.matchMedia("(max-width: 760px)").matches) return;
+    panel.classList.toggle("collapsed");
+  });
   document.querySelectorAll(".tab").forEach((tb) => tb.addEventListener("click", () => {
     const already = tb.getAttribute("aria-selected") === "true";
     if (already && window.matchMedia("(max-width: 760px)").matches) { panel.classList.toggle("collapsed"); return; }
