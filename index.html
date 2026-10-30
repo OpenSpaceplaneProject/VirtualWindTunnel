@@ -601,11 +601,17 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <button class="btn" id="rdeRun" type="button">Run</button>
             <button class="btn" id="rdeGoto" type="button" title="Goto et al. (2021): 60.5 mm, 3.2 mm channel, 48 mm long, 30° plug, ethylene/oxygen at φ 1.1, sea level">Goto et al. rig</button>
           </div>
+          <div class="row2">
+            <button class="btn" id="rdeSweep" type="button" title="Run the feed at 60–140% of its setting and map which mode the engine settles into: a passively locked design holds the same mode and frequency across the range">Lock range</button>
+            <label class="field"><span class="k">Each run, ms</span><input type="number" id="rdeSweepT" min="0.1" step="0.1"></label>
+          </div>
           <dl class="kv" id="rdeInfo"></dl>
           <canvas class="chart" id="rdeHist" aria-label="Thrust against time"></canvas>
           <h3 class="grp">Modes</h3>
           <canvas class="chart" id="rdeModes" aria-label="Azimuthal mode spectrum of the injector-face pressure against time: mode number up, time across"></canvas>
           <dl class="kv" id="rdeModeInfo"></dl>
+          <canvas class="chart" id="rdeSweepChart" aria-label="Lock range: wave frequency against feed, labelled with the mode number, and thrust"></canvas>
+          <dl class="kv" id="rdeSweepInfo"></dl>
         </section>
 
         <section class="pane" data-pane="model">
@@ -3422,7 +3428,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, sweepT: 0.5 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -8691,9 +8697,57 @@ function rdeDrawHist() {
   x.fillStyle = "rgba(214,206,189,0.75)"; x.font = `${10.5 * dpr}px Archivo, system-ui, sans-serif`;
   x.fillText(`thrust, N (peak ${Math.max(...Fs).toFixed(0)})`, 8 * dpr, 12 * dpr); x.textAlign = "right"; x.fillText(`${(t1 * 1e3).toFixed(2)} ms`, W - 8 * dpr, H - 4 * dpr); x.textAlign = "left";
 }
+// Lock range: the feed (supply mass flow, or plenum pressure with a fixed feed) at 60–140 % of its
+// setting, each run long enough to settle, the second half averaged. A passively locked design keeps
+// one mode and one frequency across the range; an unlocked one drifts or jumps.
+const rdeSw = { on: false, res: [] };
+async function rdeSweep() {
+  const btn = $("#rdeSweep");
+  if (rdeSw.on) { rdeSw.on = false; return; }
+  if (!dev) return;
+  rdeStop(); rdeSw.on = true; rdeSw.res = []; btn.textContent = "Stop sweep";
+  const R = st.rde, key = R.feed === "res" ? "mdot" : "p0", base = R[key];
+  for (const k of [0.6, 0.8, 1.0, 1.2, 1.4]) {
+    if (!rdeSw.on) break;
+    R[key] = base * k; const c = rdeConfig(); R[key] = base;
+    let s; try { s = await rdeCreate(dev, c); } catch (e) { break; }
+    rdeSim.run = s; rdeSim.cfg = c; rdeSim.hist = []; const gen = ++rdeSim.gen;
+    while (rdeSw.on && s.t < R.sweepT / 1000) {
+      const cap = Math.max(4, Math.floor(c.L / (16 * 1.2 * c.Dcj * s.dt)));
+      s.step(Math.min(cap, st.rde.spf)); const q = await s.read(), d = s.diag(q); rdeSim.q = q;
+      if (d.nan) break;
+      if ((d.smax * s.dt) / Math.min(s.dx, s.dy) > 0.45) s.setDt((0.35 * Math.min(s.dx, s.dy)) / d.smax);
+      rdeSim.hist.push({ t: s.t, mIn: d.mIn, F: d.F, p: d.pProbe, pPl: d.pPl, waves: 0, peaks: [], modes: rdeModes(d.pHead, s.t) });
+      if (st.mode === "engine") { rdeDraw2d(q); rdeDraw3d(); rdeDrawModes(); }
+      $("#rdeSweepInfo").innerHTML = `<dt>Running</dt><dd>${(k * 100).toFixed(0)}% feed · ${(s.t * 1e3).toFixed(3)} of ${R.sweepT} ms</dd>`;
+      await new Promise(requestAnimationFrame);
+    }
+    const S = rdeStats(), M = rdeModeStats();
+    rdeSw.res.push({ k, feed: base * k, F: S ? S.F : NaN, isp: S ? S.isp : NaN, mdot: S ? S.mIn : NaN, n: M ? M.n : 0, f: M ? Math.abs(M.f) : NaN, held: M ? M.held : 0 });
+    rdeSim.gen++; rdeSim.run = null; s.destroy();
+    rdeDrawSweep();
+  }
+  rdeSw.on = false; btn.textContent = "Lock range"; rdeDrawSweep(true);
+}
+function rdeDrawSweep(done) {
+  const cv = $("#rdeSweepChart"), r = rdeSw.res; if (!cv || !r.length) return;
+  const dpr = devicePixelRatio || 1, W = Math.round(cv.clientWidth * dpr), H = Math.round(cv.clientHeight * dpr); if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const x = cv.getContext("2d"); x.clearRect(0, 0, W, H);
+  const fs = r.map((e) => e.f).filter(isFinite), fmax = Math.max(1, ...fs) * 1.15, X = (k) => 24 * dpr + ((W - 40 * dpr) * (k - 0.5)) / 1.0, Y = (f) => H - 18 * dpr - ((H - 34 * dpr) * f) / fmax;
+  x.font = `${10.5 * dpr}px Archivo, system-ui, sans-serif`;
+  x.strokeStyle = "rgba(214,206,189,0.25)"; x.beginPath(); r.forEach((e, i) => { if (isFinite(e.f)) (i ? x.lineTo(X(e.k), Y(e.f)) : x.moveTo(X(e.k), Y(e.f))); }); x.stroke();
+  r.forEach((e) => { if (!isFinite(e.f)) return; x.fillStyle = `rgba(242,156,79,${(0.35 + 0.65 * e.held).toFixed(2)})`; x.beginPath(); x.arc(X(e.k), Y(e.f), 6 * dpr, 0, 7); x.fill(); x.fillStyle = "#0b0b0c"; x.textAlign = "center"; x.fillText(String(e.n), X(e.k), Y(e.f) + 3.5 * dpr); });
+  x.fillStyle = "rgba(214,206,189,0.75)"; x.textAlign = "left"; x.fillText(`wave frequency, kHz (top ${(fmax / 1000).toFixed(0)}) · dot: mode n, solid when held`, 6 * dpr, 12 * dpr);
+  x.textAlign = "center"; r.forEach((e) => x.fillText(`${(e.k * 100).toFixed(0)}%`, X(e.k), H - 4 * dpr)); x.textAlign = "left";
+  if (!done) return;
+  const ns = r.filter((e) => e.n).map((e) => e.n), same = ns.length && ns.every((n) => n === ns[0]), fsS = r.filter((e) => isFinite(e.f)).map((e) => e.f);
+  const spread = fsS.length > 1 ? (Math.max(...fsS) - Math.min(...fsS)) / (fsS.reduce((a, b) => a + b, 0) / fsS.length) : NaN;
+  $("#rdeSweepInfo").innerHTML = `<dt>Lock</dt><dd>${same ? `mode ${ns[0]} held across 60–140%` : `modes ${ns.join(" → ")}`} · frequency spread ${isFinite(spread) ? (100 * spread).toFixed(0) + "%" : "—"}</dd>` +
+    `<dt>Thrust</dt><dd>${r.map((e) => (isFinite(e.F) ? e.F.toFixed(0) : "—")).join(" · ")} N</dd><dt>Isp</dt><dd>${r.map((e) => (isFinite(e.isp) ? e.isp.toFixed(0) : "—")).join(" · ")} s</dd>`;
+}
 function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
-  $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat;
+  $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat;
   document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
   $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeShow").value = R.show;
 }
@@ -8704,7 +8758,9 @@ function wireRde() {
   $("#rdeProp").addEventListener("change", (e) => { st.rde.prop = e.target.value; st.rde.of = +(RDE_STOICH[st.rde.prop] / 1.1).toFixed(2); syncRdeUI(); restart(); });
   $("#rdeFeed").addEventListener("change", (e) => { st.rde.feed = e.target.value; syncRdeUI(); restart(); });
   $("#rdeShow").addEventListener("change", (e) => { st.rde.show = e.target.value; if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
-  $("#rdeRun").addEventListener("click", rdeToggle);
+  $("#rdeRun").addEventListener("click", () => { if (rdeSw.on) rdeSw.on = false; rdeToggle(); });
+  $("#rdeSweep").addEventListener("click", rdeSweep);
+  $("#rdeSweepT").addEventListener("change", (e) => { st.rde.sweepT = Math.max(0.05, +e.target.value || 0.5); });
   $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, mdot: 125, teeth: 0, throat: 1 }); syncRdeUI(); restart(); });
   syncRdeUI();
 }
