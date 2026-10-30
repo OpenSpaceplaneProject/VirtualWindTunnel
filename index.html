@@ -529,13 +529,10 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
         <div class="hlStat mono" id="hlStat"></div>
       </div>
       <div class="tabs" role="tablist">
-        <button class="tab" role="tab" id="tab-model" data-tab="model" aria-selected="true">Model</button>
-        <button class="tab" role="tab" id="tab-flight" data-tab="flight" aria-selected="false">Flight</button>
-        <button class="tab" role="tab" id="tab-engines" data-tab="engines" aria-selected="false">Engines</button>
-        <button class="tab" role="tab" id="tab-solver" data-tab="solver" aria-selected="false">Solver</button>
+        <button class="tab" role="tab" id="tab-model" data-tab="model" aria-selected="true">Conditions</button>
         <button class="tab" role="tab" id="tab-heat" data-tab="heat" aria-selected="false">Mission</button>
-        <button class="tab" role="tab" id="tab-display" data-tab="display" aria-selected="false">Display</button>
-        <button class="tab" role="tab" id="tab-loads" data-tab="loads" aria-selected="false">Loads</button>
+        <button class="tab" role="tab" id="tab-loads" data-tab="loads" aria-selected="false">Results</button>
+        <button class="tab" role="tab" id="tab-solver" data-tab="solver" aria-selected="false">Setup</button>
       </div>
       <div class="sheet" id="sheet">
 
@@ -687,45 +684,6 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             </div>
           </details>
           </div>
-          <details id="optBox">
-            <summary>Optimise shape</summary>
-            <div class="pane">
-              <div class="row2">
-                <label class="field"><span class="k">Problem</span><select id="optProb"><option value="sp">Spaceplane, whole mission</option><option value="sh">Least wave drag body (benchmark)</option></select></label>
-                <label class="field"><span class="k">Method</span><select id="optMeth"><option value="gd">Gradient descent</option><option value="nm">Simplex</option></select></label>
-              </div>
-              <div class="row2"><button class="btn primary" id="btnOpt">Optimise shape</button><button class="btn" id="btnSens" title="Nudge each free parameter up and down and measure how every result moves: which sliders matter, and which way">Sensitivity</button></div>
-              <div id="optSpWrap">
-              <div class="row2 chips" id="optVary">
-                <label class="chk"><input type="checkbox" value="fus" checked>Fuselage</label>
-                <label class="chk"><input type="checkbox" value="wing" checked>Wing</label>
-                <label class="chk"><input type="checkbox" value="strake">Strakes</label>
-                <label class="chk"><input type="checkbox" value="tail" checked>Tail</label>
-                <label class="chk"><input type="checkbox" value="canard">Canards</label>
-              </div>
-              <div class="row2" id="optSp">
-                <label class="field"><span class="k">Priority</span><select id="optPri"><option value="bal">Balanced</option><option value="heat">Heating</option><option value="xr">Cross-range</option><option value="asc">Ascent drag</option></select></label>
-                <label class="field"><span class="k">Landing ≤ m/s</span><input type="number" id="optVl" value="110" min="40" step="1"></label>
-              </div>
-              </div>
-              <div class="row2" id="optSh" hidden><label class="field"><span class="k">Mach</span><input type="number" id="optMach" value="1.8" min="1.2" max="4" step="0.1"></label></div>
-              <p class="msg" id="optMsg"></p>
-              <canvas class="chart tall" id="optChart" aria-label="Optimiser: best shape found against the start, plan and side"></canvas>
-              <canvas class="chart" id="optHist" aria-label="Score of every candidate, and the best so far"></canvas>
-              <div class="sens" id="optSens"></div>
-              <dl class="kv" id="optInfo"></dl>
-            </div>
-          </details>
-          <details id="codeBox">
-            <summary>Edit shape as code</summary>
-            <div class="pane">
-              <textarea id="code" spellcheck="false" aria-label="Signed distance function source" title="fn sdf(p: vec3f) -> f32, negative inside; x downstream from the nose, y span, z up, unit = vehicle length. Library: sdSphere sdBox sdRoundBox sdEllipsoid sdCapsule sdCylinderX sdRoundCone sdTorus sdWing sdDeltaWing sdPlate sdTri2 sdRev sdGyroid stl opUnion opSub opInter opSmoothUnion opSmoothSub rotX rotY rotZ"></textarea>
-              <div class="row2"><button class="btn primary" id="btnCompile">Rebuild geometry</button><span class="msg" id="codeMsg"></span></div>
-            </div>
-          </details>
-        </section>
-
-        <section class="pane" data-pane="flight" hidden>
           <h3 class="grp">Attitude</h3>
           <label class="ctl"><span class="k">Angle of attack</span><output id="oAoa"></output><input type="range" id="aoa" min="-30" max="60" step="0.5"></label>
           <label class="ctl"><span class="k">Sideslip</span><output id="oBeta"></output><input type="range" id="beta" min="-30" max="30" step="0.5"></label>
@@ -739,9 +697,6 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           <div class="row2"><button class="btn primary" id="btnMan">Play</button><label class="chk"><input type="checkbox" id="manLoop">Loop</label></div>
           <dl class="kv" id="flyInfo"></dl>
           <canvas class="chart" id="flyChart" aria-label="Lift coefficient against angle of attack during the flight"></canvas>
-        </section>
-
-        <section class="pane" data-pane="engines" hidden>
           <div id="ductBox" hidden>
             <h3 class="grp">Air-breathing engine</h3>
             <div id="ductThru">
@@ -771,6 +726,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <canvas class="chart" id="ductChart" aria-label="Intake characteristic: total-pressure recovery against captured mass flow"></canvas>
           </div>
           <div id="rocketBox">
+          <h3 class="grp">Rocket engines</h3>
           <label class="chk"><input type="checkbox" id="engOn">Engines firing</label>
           <div class="row2" id="engFromBuild" hidden><span class="note" id="engFromBuildT"></span><button class="btn" id="engToBuild" type="button">Edit in Build</button></div>
           <div class="row2 eng-def">
@@ -828,7 +784,45 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="ctl" title="Radius of the heated spot (Gaussian 1/e), or the beam's waist at its focus, in body lengths; never under 1.5 grid cells"><span class="k">Spot radius</span><output id="oDepR"></output><input type="range" id="depR" min="0.005" max="0.1" step="0.005"></label>
             <dl class="kv" id="depInfo"></dl>
           </div>
+          <details id="optBox">
+            <summary>Optimise shape</summary>
+            <div class="pane">
+              <div class="row2">
+                <label class="field"><span class="k">Problem</span><select id="optProb"><option value="sp">Spaceplane, whole mission</option><option value="sh">Least wave drag body (benchmark)</option></select></label>
+                <label class="field"><span class="k">Method</span><select id="optMeth"><option value="gd">Gradient descent</option><option value="nm">Simplex</option></select></label>
+              </div>
+              <div class="row2"><button class="btn primary" id="btnOpt">Optimise shape</button><button class="btn" id="btnSens" title="Nudge each free parameter up and down and measure how every result moves: which sliders matter, and which way">Sensitivity</button></div>
+              <div id="optSpWrap">
+              <div class="row2 chips" id="optVary">
+                <label class="chk"><input type="checkbox" value="fus" checked>Fuselage</label>
+                <label class="chk"><input type="checkbox" value="wing" checked>Wing</label>
+                <label class="chk"><input type="checkbox" value="strake">Strakes</label>
+                <label class="chk"><input type="checkbox" value="tail" checked>Tail</label>
+                <label class="chk"><input type="checkbox" value="canard">Canards</label>
+              </div>
+              <div class="row2" id="optSp">
+                <label class="field"><span class="k">Priority</span><select id="optPri"><option value="bal">Balanced</option><option value="heat">Heating</option><option value="xr">Cross-range</option><option value="asc">Ascent drag</option></select></label>
+                <label class="field"><span class="k">Landing ≤ m/s</span><input type="number" id="optVl" value="110" min="40" step="1"></label>
+              </div>
+              </div>
+              <div class="row2" id="optSh" hidden><label class="field"><span class="k">Mach</span><input type="number" id="optMach" value="1.8" min="1.2" max="4" step="0.1"></label></div>
+              <p class="msg" id="optMsg"></p>
+              <canvas class="chart tall" id="optChart" aria-label="Optimiser: best shape found against the start, plan and side"></canvas>
+              <canvas class="chart" id="optHist" aria-label="Score of every candidate, and the best so far"></canvas>
+              <div class="sens" id="optSens"></div>
+              <dl class="kv" id="optInfo"></dl>
+            </div>
+          </details>
+          <details id="codeBox">
+            <summary>Edit shape as code</summary>
+            <div class="pane">
+              <textarea id="code" spellcheck="false" aria-label="Signed distance function source" title="fn sdf(p: vec3f) -> f32, negative inside; x downstream from the nose, y span, z up, unit = vehicle length. Library: sdSphere sdBox sdRoundBox sdEllipsoid sdCapsule sdCylinderX sdRoundCone sdTorus sdWing sdDeltaWing sdPlate sdTri2 sdRev sdGyroid stl opUnion opSub opInter opSmoothUnion opSmoothSub rotX rotY rotZ"></textarea>
+              <div class="row2"><button class="btn primary" id="btnCompile">Rebuild geometry</button><span class="msg" id="codeMsg"></span></div>
+            </div>
+          </details>
         </section>
+
+
 
         <section class="pane" data-pane="solver" hidden>
           <div class="seg" role="radiogroup" aria-label="Solver">
@@ -871,6 +865,57 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="field" title="Equilibrium air: vibration, dissociation and ionisation from an 11-species equilibrium table, so a hot shock layer is denser and cooler than a perfect gas would make it. Automatic switches it on once the free-stream total temperature passes 1,500 K."><span class="k">Air in the flowfield</span><select id="hAir"><option value="auto">Automatic</option><option value="equilibrium">Equilibrium air (real gas)</option><option value="perfect">Perfect gas, γ below</option></select></label>
             <label class="field" title="Ratio of specific heats for the perfect-gas model and the quick estimates. 1.4 is cold air; about 1.2 approximates hot, partly dissociated air at orbital speed. Set automatically from the airspeed."><span class="k">Gas γ</span><input type="number" id="hGamma" value="1.4" min="1.05" max="1.67" step="0.01"></label>
             <dl class="kv" id="eulInfo"></dl>
+          </div>
+          <h3 class="grp">Display</h3>
+          <button class="btn" id="vrBtn" type="button" hidden title="Show the model, a parameter panel and a heads-up readout in a WebXR headset">View in VR headset</button>
+          <label class="field hyp-only"><span class="k">Colour the surface by</span><select id="sq"><option value="0">Pressure · flow solver</option><option value="3">Pressure · quick estimate</option><option value="1">Heating rate</option><option value="2">Temperature at this moment</option><option value="4">Peak temperature and burn-through risk</option></select></label>
+          <span class="k">Show</span>
+          <div class="checks">
+            <label class="chk"><input type="checkbox" id="lS" checked>Surface</label>
+            <label class="chk"><input type="checkbox" id="lV" checked>Vortices</label>
+            <label class="chk hyp-only"><input type="checkbox" id="lK" checked>Shocks</label>
+            <label class="chk hyp-only"><input type="checkbox" id="lG">Glow</label>
+            <label class="chk"><input type="checkbox" id="lP">Slice</label>
+            <label class="chk" title="Nested surfaces of density (fast flow) or speed (low-speed flow): shock layer, expansion and wake"><input type="checkbox" id="lH">Shells</label>
+            <label class="chk" title="The flight path and the chosen point, drawn across the altitude and airspeed bars"><input type="checkbox" id="lE" checked>Flight path</label>
+          </div>
+          <label class="field" title="How the body is drawn. Line art keeps the surface colours unless you pick the plain one; it never changes the simulation."><span class="k">Render style</span><select id="rstyle"><option value="0">Shaded</option><option value="1">Line art</option><option value="2">Line art, plain</option></select></label>
+          <details>
+            <summary>Vortices</summary>
+            <div class="pane">
+              <label class="ctl" title="Higher shows only the strongest swirling cores (Q-criterion)"><span class="k">Strength threshold</span><output id="oQ"></output><input type="range" id="qthr" min="-0.5" max="2.7" step="0.02"></label>
+              <label class="ctl"><span class="k">Opacity</span><output id="oVop"></output><input type="range" id="vop" min="0.05" max="2" step="0.05"></label>
+              <label class="field"><span class="k">Colour</span><select id="vcol"><option value="0">By speed</option><option value="1">White</option></select></label>
+            </div>
+          </details>
+          <details class="hyp-only">
+            <summary>Shocks and glow</summary>
+            <div class="pane">
+              <label class="ctl" title="Lower shows weaker shocks and expansions"><span class="k">Shock threshold</span><output id="oKthr"></output><input type="range" id="kthr" min="0.02" max="1.5" step="0.01"></label>
+              <label class="ctl"><span class="k">Glow exposure</span><output id="oGexp"></output><input type="range" id="gexp" min="-3" max="3" step="0.05"></label>
+            </div>
+          </details>
+          <details>
+            <summary>Slice</summary>
+            <div class="pane">
+              <div class="row2">
+                <label class="field"><span class="k">Direction</span><select id="sax"><option value="0">Across the flow</option><option value="1">Side to side</option><option value="2">Top to bottom</option></select></label>
+                <label class="field"><span class="k">Shows</span><select id="sfield"><option value="0">Speed</option><option value="1">C<sub>p</sub></option><option value="2">Vorticity</option></select></label>
+              </div>
+              <label class="ctl"><span class="k">Position</span><output id="oSpos"></output><input type="range" id="spos" min="0.02" max="0.98" step="0.005"></label>
+            </div>
+          </details>
+          <details>
+            <summary>Pressure colour range</summary>
+            <div class="pane">
+              <label class="ctl"><span class="k">C<sub>p</sub> minimum (blue)</span><output id="oCpmin"></output><input type="range" id="cpmin" min="-4" max="-0.2" step="0.05"></label>
+              <label class="ctl"><span class="k">C<sub>p</sub> maximum (orange)</span><output id="oCpmax"></output><input type="range" id="cpmax" min="0.2" max="2" step="0.05"></label>
+            </div>
+          </details>
+          <label class="ctl" title="The most the view renders at; Auto lowers it while frames are slow"><span class="k">Render resolution</span><output id="oRq"></output><input type="range" id="rq" min="0.3" max="1" step="0.05"></label>
+          <div class="checks">
+            <label class="chk" title="Lower the resolution while frames take over 40 ms, and raise it back when they are fast"><input type="checkbox" id="rqAuto">Auto resolution</label>
+            <label class="chk" title="For phones, tablets and slow PCs: coarse grid, half resolution, longer render steps, heating from the solver's cells. Reloads the page."><input type="checkbox" id="liteMode">Lite mode</label>
           </div>
         </section>
 
@@ -953,58 +998,6 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           </div>
         </section>
 
-        <section class="pane" data-pane="display" hidden>
-          <button class="btn" id="vrBtn" type="button" hidden title="Show the model, a parameter panel and a heads-up readout in a WebXR headset">View in VR headset</button>
-          <label class="field hyp-only"><span class="k">Colour the surface by</span><select id="sq"><option value="0">Pressure · flow solver</option><option value="3">Pressure · quick estimate</option><option value="1">Heating rate</option><option value="2">Temperature at this moment</option><option value="4">Peak temperature and burn-through risk</option></select></label>
-          <span class="k">Show</span>
-          <div class="checks">
-            <label class="chk"><input type="checkbox" id="lS" checked>Surface</label>
-            <label class="chk"><input type="checkbox" id="lV" checked>Vortices</label>
-            <label class="chk hyp-only"><input type="checkbox" id="lK" checked>Shocks</label>
-            <label class="chk hyp-only"><input type="checkbox" id="lG">Glow</label>
-            <label class="chk"><input type="checkbox" id="lP">Slice</label>
-            <label class="chk" title="Nested surfaces of density (fast flow) or speed (low-speed flow): shock layer, expansion and wake"><input type="checkbox" id="lH">Shells</label>
-            <label class="chk" title="The flight path and the chosen point, drawn across the altitude and airspeed bars"><input type="checkbox" id="lE" checked>Flight path</label>
-          </div>
-          <label class="field" title="How the body is drawn. Line art keeps the surface colours unless you pick the plain one; it never changes the simulation."><span class="k">Render style</span><select id="rstyle"><option value="0">Shaded</option><option value="1">Line art</option><option value="2">Line art, plain</option></select></label>
-          <details>
-            <summary>Vortices</summary>
-            <div class="pane">
-              <label class="ctl" title="Higher shows only the strongest swirling cores (Q-criterion)"><span class="k">Strength threshold</span><output id="oQ"></output><input type="range" id="qthr" min="-0.5" max="2.7" step="0.02"></label>
-              <label class="ctl"><span class="k">Opacity</span><output id="oVop"></output><input type="range" id="vop" min="0.05" max="2" step="0.05"></label>
-              <label class="field"><span class="k">Colour</span><select id="vcol"><option value="0">By speed</option><option value="1">White</option></select></label>
-            </div>
-          </details>
-          <details class="hyp-only">
-            <summary>Shocks and glow</summary>
-            <div class="pane">
-              <label class="ctl" title="Lower shows weaker shocks and expansions"><span class="k">Shock threshold</span><output id="oKthr"></output><input type="range" id="kthr" min="0.02" max="1.5" step="0.01"></label>
-              <label class="ctl"><span class="k">Glow exposure</span><output id="oGexp"></output><input type="range" id="gexp" min="-3" max="3" step="0.05"></label>
-            </div>
-          </details>
-          <details>
-            <summary>Slice</summary>
-            <div class="pane">
-              <div class="row2">
-                <label class="field"><span class="k">Direction</span><select id="sax"><option value="0">Across the flow</option><option value="1">Side to side</option><option value="2">Top to bottom</option></select></label>
-                <label class="field"><span class="k">Shows</span><select id="sfield"><option value="0">Speed</option><option value="1">C<sub>p</sub></option><option value="2">Vorticity</option></select></label>
-              </div>
-              <label class="ctl"><span class="k">Position</span><output id="oSpos"></output><input type="range" id="spos" min="0.02" max="0.98" step="0.005"></label>
-            </div>
-          </details>
-          <details>
-            <summary>Pressure colour range</summary>
-            <div class="pane">
-              <label class="ctl"><span class="k">C<sub>p</sub> minimum (blue)</span><output id="oCpmin"></output><input type="range" id="cpmin" min="-4" max="-0.2" step="0.05"></label>
-              <label class="ctl"><span class="k">C<sub>p</sub> maximum (orange)</span><output id="oCpmax"></output><input type="range" id="cpmax" min="0.2" max="2" step="0.05"></label>
-            </div>
-          </details>
-          <label class="ctl" title="The most the view renders at; Auto lowers it while frames are slow"><span class="k">Render resolution</span><output id="oRq"></output><input type="range" id="rq" min="0.3" max="1" step="0.05"></label>
-          <div class="checks">
-            <label class="chk" title="Lower the resolution while frames take over 40 ms, and raise it back when they are fast"><input type="checkbox" id="rqAuto">Auto resolution</label>
-            <label class="chk" title="For phones, tablets and slow PCs: coarse grid, half resolution, longer render steps, heating from the solver's cells. Reloads the page."><input type="checkbox" id="liteMode">Lite mode</label>
-          </div>
-        </section>
 
         <section class="pane" data-pane="loads" hidden>
           <dl class="kv" id="loadInfo"></dl>
@@ -11648,11 +11641,12 @@ init().catch((e) => { console.error(e); fatal("Could not start", String(e.messag
 const CTRL = { list: [], at: 0 };
 function ctrlScan() {
   const out = [], seen = new Set();
-  const groupOf = (el) => {
+  // the section a control sits in: its collapsible section, else the nearest heading above it in the panel
+  const groupOf = (el, pane) => {
     const det = el.closest("details"); if (det && det.querySelector("summary")) return det.querySelector("summary").textContent.trim();
-    let n = el.closest(".pane > *") || el;
-    for (let p = n; p; p = p.previousElementSibling) if (p.matches && p.matches("h3.grp")) return p.textContent.trim();
-    return "";
+    let g = "";
+    for (const h of pane.querySelectorAll("h3.grp")) { if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) g = h.textContent.trim(); else break; }
+    return g;
   };
   for (const pane of document.querySelectorAll(".pane[data-pane]")) {
     const tab = pane.dataset.pane, mode = tab === "build" ? "build" : tab === "engine" ? "engine" : "test";
@@ -11662,7 +11656,7 @@ function ctrlScan() {
       let label = (k ? k.textContent : lab ? lab.textContent : el.getAttribute("aria-label") || el.id).replace(/\s+/g, " ").trim();
       const um = label.match(/^(.*?),\s*([^,]+)$/), unit = um && um[2].length <= 14 ? um[2] : "";
       if (unit) label = um[1];
-      const bg = el.closest("[data-g]"), grp = bg && bg.dataset.g ? (BLD_GROUPS().find(([g]) => g === bg.dataset.g) || [, ""])[1] : groupOf(el);
+      const bg = el.closest("[data-g]"), grp = bg && bg.dataset.g ? (BLD_GROUPS().find(([g]) => g === bg.dataset.g) || [, ""])[1] : groupOf(el, pane);
       const kind = el.tagName === "SELECT" ? "select" : el.type === "checkbox" ? "checkbox" : el.type === "range" ? "range" : el.type === "number" ? "number" : "text";
       const e = { id: el.id, label, unit, kind, mode, tab, group: grp, bld: bg ? bg.dataset.g : null };
       if (kind === "range" || kind === "number") { e.min = el.min === "" ? null : +el.min; e.max = el.max === "" ? null : +el.max; e.step = el.step === "" ? null : +el.step; }

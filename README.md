@@ -10,15 +10,23 @@ Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent 
 
 **Intro.** On first load the app opens with an explainer: the Space Shuttle preset as a tunnel model whose skin lifts off to show the structure the builder lays out (frames, bulkheads, longerons, tanks, payload, spars and ribs). It is drawn with [Anatomy](https://github.com/wheresryan22/anatomy) from the preset's own numbers; see `intro/`. "Don't show this again" hides it, "What is this?" under the title brings it back, and `?intro=1` or `?intro=0` forces it.
 
-**Line art.** Display › Render style draws the body the way the intro figure does: four flat light bands, bone ink on silhouettes, creases, part seams and (for builder designs) the main frame stations. "Line art" keeps the surface colours (pressure, heating, stress, livery); "Line art, plain" drops them. It only changes the final shading, so the simulation and its fields are untouched. On Lite it draws silhouettes only.
+**Line art.** Setup › Display › Render style draws the body the way the intro figure does: four flat light bands, bone ink on silhouettes, creases, part seams and (for builder designs) the main frame stations. "Line art" keeps the surface colours (pressure, heating, stress, livery); "Line art, plain" drops them. It only changes the final shading, so the simulation and its fields are untouched. On Lite it draws silhouettes only.
 
-**Shells.** Display › Show › Shells draws nested level surfaces of the flow, CT-scan style. In the compressible solver they are density over freestream at 1.3, 2.5 and 4.5 (shock layer and expansion); in the low-speed solver, speed over freestream at 0.35, 0.8 and 1.2 (wake and the fast flow over the body). Each is drawn where the render march crosses its level and is shaded by the field's gradient, denser where it turns away so its edges read as outlines. In line art they become bone ink. Display only.
+**Shells.** Setup › Display › Show › Shells draws nested level surfaces of the flow, CT-scan style. In the compressible solver they are density over freestream at 1.3, 2.5 and 4.5 (shock layer and expansion); in the low-speed solver, speed over freestream at 0.35, 0.8 and 1.2 (wake and the fast flow over the body). Each is drawn where the render march crosses its level and is shaded by the field's gradient, denser where it turns away so its edges read as outlines. In line art they become bone ink. Display only.
+
+**Layout.** Build is the design, and that includes the engine: type, propellant, O/F and chamber are set once, in Build › Engines. Test has four tabs, left to right in the order the work usually goes, though you can open any of them at any time:
+- **Conditions:** the body, attitude, flying it, engines firing and throttle, and energy deposition.
+- **Mission:** ascent, entry with its bank events, heat shield and heating model.
+- **Results:** structure, time-averaged pressure and exports.
+- **Setup:** solver, grid, validation and display.
+
+Engine is a bench for a closer look at one component, at higher fidelity than the vehicle pass.
 
 **Find and setups.** Press `/`, or the magnifier on the headline card, to search every setting by name. Picking one opens the right mode, tab and section and highlights it. In the same box, Copy setup puts the whole setup on the clipboard as JSON (mode, builder design, every control's value), and Load setup applies one pasted in. Scripts and agents get the same through `window.vwt`: `list()`, `find(text)`, `get(id)`, `set(id, value)`, `state()`, `load(setup)`, `show(id)`. Setting a value goes through the control itself, so it behaves exactly like a user's edit.
 
 **Engine stand.** The Engine mode, next to Build and Test, runs a rotating detonation engine of your own geometry on the GPU. It has a 3D view of the chamber and plug and the unrolled annulus beside it. The feed is either a fixed pressure or a resonant plenum, and you can add injector teeth and an exit throat. Its outputs are thrust, Isp, the azimuthal mode spectrum with the cavity frequencies marked, and a lock-range sweep that maps which mode the engine settles into as the feed changes. METHODS.md › Rotating detonation engine has the model and its limits.
 
-**VR.** In a WebXR browser (Quest Browser, or Chrome with a PC headset), Display › View in VR headset appears. In the headset:
+**VR.** In a WebXR browser (Quest Browser, or Chrome with a PC headset), Setup › Display › View in VR headset appears. In the headset:
 - The model stands in front of you, coloured by surface pressure and refreshed every two seconds. Squeeze to grab and turn it; squeeze with both hands to scale it.
 - A panel on the left sets airspeed, altitude, angle of attack, sideslip and model size: point at it and pull the trigger.
 - A readout of Mach, airspeed, altitude, CL, CD and L/D follows your view.

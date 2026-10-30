@@ -143,7 +143,7 @@ Bipropellant performance comes from NASA CEA (Gordon & McBride), run through Roc
 
 ### Energy ahead of the nose
 
-Engines › Energy ahead of the nose adds heat to the air ahead of the body, as a microwave or laser beam focused there would. It's a source term in the compressible solver's energy equation: a spherical Gaussian spot, q = q₀·exp(−r²/r₀²), cut off at 3r₀, centred a set distance ahead of the nose.
+Conditions › Energy ahead of the nose adds heat to the air ahead of the body, as a microwave or laser beam focused there would. It's a source term in the compressible solver's energy equation: a spherical Gaussian spot, q = q₀·exp(−r²/r₀²), cut off at 3r₀, centred a set distance ahead of the nose.
 
 The nose is the mean position of the most upstream solid cells. Power is set as η = P / (½ρ∞V³A), a multiple of the free stream's kinetic energy flux through the frontal area, which is the usual measure in the energy-deposition literature. The panel shows the equivalent watts at the current flight condition. The spot radius is never below 1.5 cells, so the grid resolves it.
 
@@ -178,7 +178,7 @@ All three runs ran to the same flow time and their drag settled. The grid is coa
 
 ### Rotating detonation engine
 
-Engines › Nozzle › Rotating detonation runs a detonation chamber of your own geometry: inner diameter, channel width, length, plug angle, injector area ratio and plenum pressure. It uses the engine's gaseous propellant (ethylene, methane or hydrogen with oxygen) at the engine's O/F.
+The Engine bench runs a rotating detonation chamber of your own geometry: inner diameter, channel width, length, plug angle, injector area ratio and plenum pressure. It uses the engine's gaseous propellant (ethylene, methane or hydrogen with oxygen) at the engine's O/F.
 
 **Grid and equations.** The annulus is unrolled: one axis runs round the circumference and is periodic, the other runs downstream from the injector face to the tip of the conical plug. The flow area can change downstream, which models the plug expansion as a confined nozzle out to the outer diameter. This quasi-2D layout is the same as NASA Glenn's Q2D code (Paxson; Miki et al. 2020). The equations are the reactive Euler equations, second-order MUSCL with an HLLE flux and two-stage Runge–Kutta, run on the GPU.
 
