@@ -16,7 +16,7 @@ Open https://windtunnel.supernovalabs.co.uk in a WebGPU-capable browser (recent 
 
 **Engine stand.** The Engine mode, next to Build and Test, runs a rotating detonation engine of your own geometry on the GPU. It has a 3D view of the chamber and plug and the unrolled annulus beside it. The feed is either a fixed pressure or a resonant plenum, and you can add injector teeth and an exit throat. Its outputs are thrust, Isp, the azimuthal mode spectrum with the cavity frequencies marked, and a lock-range sweep that maps which mode the engine settles into as the feed changes. METHODS.md › Rotating detonation engine has the model and its limits.
 
-**VR.** In a WebXR browser (Quest Browser, or Chrome with a PC headset), a VR button appears beside the modes. In the headset:
+**VR.** In a WebXR browser (Quest Browser, or Chrome with a PC headset), Display › View in VR headset appears. In the headset:
 - The model stands in front of you, coloured by surface pressure and refreshed every two seconds. Squeeze to grab and turn it; squeeze with both hands to scale it.
 - A panel on the left sets airspeed, altitude, angle of attack, sideslip and model size: point at it and pull the trigger.
 - A readout of Mach, airspeed, altitude, CL, CD and L/D follows your view.

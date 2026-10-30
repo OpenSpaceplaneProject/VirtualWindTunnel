@@ -482,7 +482,6 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
       <button class="mode" data-mode="build" aria-pressed="false">Build</button>
       <button class="mode" data-mode="test" aria-pressed="true">Test</button>
       <button class="mode" data-mode="engine" aria-pressed="false">Engine</button>
-      <button class="mode" id="vrBtn" type="button" hidden title="View and fly the model in a VR headset">VR</button>
     </nav>
     <aside class="panel" id="panel">
       <div class="hl" id="headline" aria-live="off">
@@ -925,6 +924,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
         </section>
 
         <section class="pane" data-pane="display" hidden>
+          <button class="btn" id="vrBtn" type="button" hidden title="Show the model, a parameter panel and a heads-up readout in a WebXR headset">View in VR headset</button>
           <label class="field hyp-only"><span class="k">Colour the surface by</span><select id="sq"><option value="0">Pressure · flow solver</option><option value="3">Pressure · quick estimate</option><option value="1">Heating rate</option><option value="2">Temperature at this moment</option><option value="4">Peak temperature and burn-through risk</option></select></label>
           <span class="k">Show</span>
           <div class="checks">
@@ -11770,7 +11770,7 @@ async function vrEnter(opts = {}) {
     if (now.length === 2) base = { d: now[0].position.distanceTo(now[1].position), s: holder.scale.x };
     grabbers = now;
   };
-  renderer.xr.addEventListener("sessionend", () => { VR.on = false; renderer.setAnimationLoop(null); renderer.dispose(); renderer.domElement.remove(); $("#vrBtn").textContent = "VR"; });
+  renderer.xr.addEventListener("sessionend", () => { VR.on = false; renderer.setAnimationLoop(null); renderer.dispose(); renderer.domElement.remove(); $("#vrBtn").textContent = "View in VR headset"; });
   if (preview) { cam.aspect = (opts.w || 900) / (opts.h || 600); cam.updateProjectionMatrix(); cam.position.set(-0.25, 1.55, 0.35); cam.lookAt(-0.35, 1.25, -0.9); VR.renderer = renderer; }
   else {
     const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor", "hand-tracking"] });
