@@ -4,3 +4,6 @@ tests/energy-deposition/eul_src.js
 tests/microwave-beam/beam_src.js
 tests/solver-accuracy/eul_src.js
 tests/solver-accuracy/cases_realgas.json
+tests/rde/rde_src.js
+tools/propellant_tables.js
+tools/__pycache__/

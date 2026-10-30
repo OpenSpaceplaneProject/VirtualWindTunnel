@@ -702,7 +702,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           <div id="rocketBox">
           <label class="chk"><input type="checkbox" id="engOn">Engines firing</label>
           <div class="row2">
-            <label class="field"><span class="k">Nozzle</span><select id="engType"><option value="bell">Bell nozzle</option><option value="aerospike">Aerospike (annular)</option></select></label>
+            <label class="field"><span class="k">Nozzle</span><select id="engType"><option value="bell">Bell nozzle</option><option value="aerospike">Aerospike (annular)</option><option value="rde">Rotating detonation</option></select></label>
             <label class="field"><span class="k">Propellant</span><select id="engProp"></select></label>
           </div>
           <details id="engCustomBox" class="more">
@@ -723,6 +723,25 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               </div>
             </div>
           </details>
+          <div id="rdeBox" style="display:none">
+            <h3 class="grp">Detonation chamber</h3>
+            <div class="row3">
+              <label class="field"><span class="k">Inner diameter, mm</span><input type="number" id="rdeDi" min="10" step="0.5"></label>
+              <label class="field"><span class="k">Channel, mm</span><input type="number" id="rdeW" min="0.5" step="0.1"></label>
+              <label class="field"><span class="k">Length, mm</span><input type="number" id="rdeLc" min="5" step="1"></label>
+            </div>
+            <div class="row3">
+              <label class="field" title="Half-angle of the conical plug downstream of the annulus"><span class="k">Plug angle, °</span><input type="number" id="rdeHalf" min="10" max="60" step="1"></label>
+              <label class="field" title="Injector throat area / head-end area"><span class="k">Injector ratio</span><input type="number" id="rdeAt" min="0.02" max="1" step="0.01"></label>
+              <label class="field" title="Premixed propellant supply pressure"><span class="k">Plenum, MPa</span><input type="number" id="rdeP0" min="0.1" step="0.05"></label>
+            </div>
+            <div class="row2">
+              <label class="field"><span class="k">Cells round</span><select id="rdeNx"><option value="200">200</option><option value="400">400</option><option value="800">800</option></select></label>
+              <button class="btn" id="rdeRun" type="button">Run</button>
+            </div>
+            <canvas class="chart" id="rdeView" aria-label="Unrolled annulus: pressure, injector face at the bottom, exit at the top"></canvas>
+            <dl class="kv" id="rdeInfo"></dl>
+          </div>
           <label class="ctl"><span class="k">Throttle</span><output id="oEngThr"></output><input type="range" id="engThr" min="0.3" max="1" step="0.01"></label>
           <h3 class="grp">Layout</h3>
           <div class="row3">
@@ -3363,7 +3382,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, nx: 400 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -7029,6 +7048,7 @@ function syncEngineUI() {
   $("#engN").value = E.n; $("#engRing").value = E.ring; $("#engX").value = E.x; $("#engRe").value = E.re; $("#engRi").value = E.ri; $("#engEps").value = E.eps;
   $("#engDir").value = E.dir; $("#engCant").value = E.cant;
   document.querySelectorAll("#engRi, #engCant").forEach((x) => { x.closest("label").style.opacity = E.type === "aerospike" ? 1 : 0.45; });
+  if (typeof syncRdeUI === "function") syncRdeUI();
   updateEngineInfo();
 }
 function wireEngines() {
@@ -7968,7 +7988,9 @@ const PROPELLANTS = {
   coldn2: { name: "Cold nitrogen (RCS / test rig)", pc: 2e6, Tc: 290, gam: 1.40, MW: 28.0 },
   storable: { name: "NTO / MMH (OMS class)", tab: "storable", of: 1.65, pc: 0.86e6, Tc: 3100, gam: 1.24, MW: 21.5 },
   amlox: { name: "Ammonia / oxygen (XLR99 class)", tab: "amlox", of: 1.25, pc: 4.1e6, Tc: 2950, gam: 1.24, MW: 19.5 },
-  ethox: { name: "Ethylene / oxygen, gaseous (RDE rigs)", tab: "ethox", of: 2.4, pc: 1e6, Tc: 3500, gam: 1.2, MW: 22 },
+  ethox: { name: "Ethylene / oxygen, gaseous (RDE rigs)", tab: "ethox", of: 3.1, pc: 1e6, Tc: 3500, gam: 1.2, MW: 22 },
+  gmethox: { name: "Methane / oxygen, gaseous (RDE rigs)", tab: "gmethox", of: 3.89, pc: 1e6, Tc: 3500, gam: 1.2, MW: 22 },
+  ghydrox: { name: "Hydrogen / oxygen, gaseous (RDE rigs)", tab: "ghydrox", of: 7.0, pc: 1e6, Tc: 3300, gam: 1.2, MW: 13 },
 };
 const PROPF = (() => {
   const b = atob(PROP_TAB.b64), u = new Uint8Array(b.length);
@@ -8045,6 +8067,317 @@ function idealExpandedF(pr, At, pa, epsMax, thr = 1) {
   const Me = Math.sqrt((2 / (g - 1)) * (Math.pow(pc / pe, (g - 1) / g) - 1));
   const eps = (1 / Me) * Math.pow((2 / (g + 1)) * (1 + 0.5 * (g - 1) * Me * Me), (g + 1) / (2 * (g - 1)));
   return rocketNozzle(pr, eps, At * eps, pa, thr);
+}
+
+// ── RDE ──
+// Rotating detonation engine, solved on the unrolled annulus: x runs round the circumference
+// (periodic), y runs downstream from the injector face. Quasi-two-dimensional: the flow area A(y) can
+// change along y (an aerospike plug or a throat), entering as face areas and a p·dA/dy wall force,
+// as in NASA Glenn's Q2D code (Paxson; Miki et al. 2020).
+// Gas: two-γ premixed model (Schwer & Kailasanath, NRL). Reactants (γ1, R1) carry chemical energy q per
+// kg; products (γ2, R2) take the equilibrium γ and molar mass of the CJ state, and q is set so the
+// model's CJ speed equals the equilibrium one (tools/cj.py). One-step Arrhenius reaction
+// ω = −k ρ Y exp(−Ea / R T), with k set so the reaction zone spans a few cells behind the lead shock.
+// Scheme: MUSCL (minmod) + HLLE, SSP-RK2, f32. Injector face: each cell takes premixed gas from the
+// plenum (p0, T0) through a throat of area ratio At/Aw while its pressure is below p0 (choked when far
+// below), and acts as a wall otherwise. Outlet: supersonic out, or subsonic to ambient pressure.
+const RDE_WGSL = /* wgsl */`
+struct P {
+  dims: vec4u,     // nx, ny, n, stage (0 or 1)
+  g: vec4f,        // dx, dy, dt, ambient p
+  r1: vec4f,       // γ1, R1, q, Ea (J/kg)
+  r2: vec4f,       // γ2, R2, k (1/s), At/Aw
+  inj: vec4f,      // plenum p0, T0, closed outlet (> 0.5), -
+};
+@group(0) @binding(0) var<uniform> C: P;
+@group(0) @binding(1) var<storage, read> U0: array<f32>;   // state at the start of the step
+@group(0) @binding(2) var<storage, read> Us: array<f32>;   // state the fluxes are taken from
+@group(0) @binding(3) var<storage, read_write> Un: array<f32>;
+@group(0) @binding(4) var<storage, read> A: array<f32>;    // area at cell centres (ny) then faces (ny+1)
+
+struct W { r: f32, u: f32, v: f32, p: f32, y: f32 };
+fn cv1() -> f32 { return C.r1.y / (C.r1.x - 1.0); }
+fn cv2() -> f32 { return C.r2.y / (C.r2.x - 1.0); }
+fn gasR(y: f32) -> f32 { return y * C.r1.y + (1.0 - y) * C.r2.y; }
+fn gasCv(y: f32) -> f32 { return y * cv1() + (1.0 - y) * cv2(); }
+fn cons(n: u32) -> array<f32, 5> {
+  let N = C.dims.z;
+  return array<f32, 5>(Us[n], Us[N + n], Us[2u * N + n], Us[3u * N + n], Us[4u * N + n]);
+}
+fn prim(q: array<f32, 5>) -> W {
+  let r = max(q[0], 1e-9); let u = q[1] / r; let v = q[2] / r; let y = clamp(q[4] / r, 0.0, 1.0);
+  let e = q[3] / r - 0.5 * (u * u + v * v);
+  let T = max((e - y * C.r1.z) / gasCv(y), 1.0);
+  return W(r, u, v, r * gasR(y) * T, y);
+}
+fn idx(i: i32, j: i32) -> u32 {
+  let nx = i32(C.dims.x);
+  let ii = ((i % nx) + nx) % nx;
+  return u32(ii) + C.dims.x * u32(j);
+}
+fn cellW(i: i32, j: i32) -> W { return prim(cons(idx(i, j))); }
+fn mm(a: f32, b: f32) -> f32 { if (a * b <= 0.0) { return 0.0; } return select(b, a, abs(a) < abs(b)); }
+fn slope(a: W, b: W, c: W) -> W {   // minmod slope of b between a and c
+  return W(mm(b.r - a.r, c.r - b.r), mm(b.u - a.u, c.u - b.u), mm(b.v - a.v, c.v - b.v), mm(b.p - a.p, c.p - b.p), mm(b.y - a.y, c.y - b.y));
+}
+fn add(a: W, s: W, f: f32) -> W { return W(max(a.r + f * s.r, 1e-6), a.u + f * s.u, a.v + f * s.v, max(a.p + f * s.p, 1.0), clamp(a.y + f * s.y, 0.0, 1.0)); }
+fn sound(w: W) -> f32 { let cv = gasCv(w.y); let R = gasR(w.y); return sqrt((cv + R) / cv * w.p / w.r); }
+fn energy(w: W) -> f32 { let T = w.p / (w.r * gasR(w.y)); return w.r * (gasCv(w.y) * T + w.y * C.r1.z + 0.5 * (w.u * w.u + w.v * w.v)); }
+// HLLE flux across a face with normal along x (dir 0) or y (dir 1)
+fn hlle(L: W, R: W, dir: u32) -> array<f32, 5> {
+  let un = select(L.u, L.v, dir == 1u); let vn = select(R.u, R.v, dir == 1u);
+  let cL = sound(L); let cR = sound(R);
+  let sL = min(min(un - cL, vn - cR), 0.0); let sR = max(max(un + cL, vn + cR), 0.0);
+  let EL = energy(L); let ER = energy(R);
+  let qL = array<f32, 5>(L.r, L.r * L.u, L.r * L.v, EL, L.r * L.y);
+  let qR = array<f32, 5>(R.r, R.r * R.u, R.r * R.v, ER, R.r * R.y);
+  var fL = array<f32, 5>(L.r * un, L.r * L.u * un, L.r * L.v * un, (EL + L.p) * un, L.r * L.y * un);
+  var fR = array<f32, 5>(R.r * vn, R.r * R.u * vn, R.r * R.v * vn, (ER + R.p) * vn, R.r * R.y * vn);
+  if (dir == 0u) { fL[1] += L.p; fR[1] += R.p; } else { fL[2] += L.p; fR[2] += R.p; }
+  var f: array<f32, 5>;
+  let d = max(sR - sL, 1e-9);
+  for (var k = 0; k < 5; k++) { f[k] = (sR * fL[k] - sL * fR[k] + sR * sL * (qR[k] - qL[k])) / d; }
+  return f;
+}
+// injector face flux into the first cell
+fn injFlux(c: W) -> array<f32, 5> {
+  let p0 = C.inj.x; let T0 = C.inj.y; let g = C.r1.x; let R = C.r1.y; let cp = g * R / (g - 1.0);
+  if (c.p >= p0) { return array<f32, 5>(0.0, 0.0, c.p, 0.0, 0.0); }
+  // isentropic expansion to the larger of cell pressure and the critical pressure, through the throat
+  let pc = p0 * pow(2.0 / (g + 1.0), g / (g - 1.0));
+  let pt = max(c.p, pc);
+  let Tt = T0 * pow(pt / p0, (g - 1.0) / g);
+  let vt = sqrt(max(2.0 * cp * (T0 - Tt), 0.0));
+  let m = pt / (R * Tt) * vt * C.r2.w;            // mass flux per unit head-end area
+  // gas enters at the cell pressure with the plenum's total enthalpy
+  var T = T0; var v = 0.0;
+  for (var it = 0; it < 4; it++) { let rho = c.p / (R * T); v = m / rho; T = max(T0 - 0.5 * v * v / cp, 0.3 * T0); }
+  let h0 = cp * T0 + C.r1.z;
+  return array<f32, 5>(m, 0.0, m * v + c.p, m * h0, m);
+}
+
+@compute @workgroup_size(16, 8)
+fn step(@builtin(global_invocation_id) gid: vec3u) {
+  let nx = C.dims.x; let ny = C.dims.y; let N = C.dims.z;
+  if (gid.x >= nx || gid.y >= ny) { return; }
+  let i = i32(gid.x); let j = i32(gid.y); let n = gid.x + nx * gid.y;
+  let dx = C.g.x; let dy = C.g.y; let dt = C.g.z; let pa = C.g.w;
+  let c0 = cellW(i, j);
+  // x faces (periodic)
+  let wm2 = cellW(i - 2, j); let wm1 = cellW(i - 1, j); let wp1 = cellW(i + 1, j); let wp2 = cellW(i + 2, j);
+  let sm1 = slope(wm2, wm1, c0); let s0 = slope(wm1, c0, wp1); let sp1 = slope(c0, wp1, wp2);
+  let fxR = hlle(add(c0, s0, 0.5), add(wp1, sp1, -0.5), 0u);
+  let fxL = hlle(add(wm1, sm1, 0.5), add(c0, s0, -0.5), 0u);
+  // y faces
+  var gB: array<f32, 5>; var gT: array<f32, 5>;
+  let jm = max(j - 1, 0); let jp = min(j + 1, i32(ny) - 1);
+  let wd1 = cellW(i, jm); let wu1 = cellW(i, jp);
+  let sy0 = slope(wd1, c0, wu1);
+  if (j == 0) { gB = injFlux(c0); }
+  else {
+    let wd2 = cellW(i, max(j - 2, 0));
+    var sd = slope(wd2, wd1, c0); if (j == 1) { sd = W(0.0, 0.0, 0.0, 0.0, 0.0); }
+    gB = hlle(add(wd1, sd, 0.5), add(c0, sy0, -0.5), 1u);
+  }
+  if (j == i32(ny) - 1 && C.inj.z > 0.5) { gT = array<f32, 5>(0.0, 0.0, c0.p, 0.0, 0.0); }
+  else if (j == i32(ny) - 1) {
+    // outlet: supersonic → extrapolate; subsonic → ambient pressure ghost
+    var gw = c0;
+    if (c0.v < sound(c0)) { gw.p = pa; }
+    gT = hlle(c0, gw, 1u);
+  } else {
+    let wu2 = cellW(i, min(j + 2, i32(ny) - 1));
+    var su = slope(c0, wu1, wu2); if (j == i32(ny) - 2) { su = W(0.0, 0.0, 0.0, 0.0, 0.0); }
+    gT = hlle(add(c0, sy0, 0.5), add(wu1, su, -0.5), 1u);
+  }
+  let Ac = A[gid.y]; let Ab = A[ny + gid.y]; let At = A[ny + gid.y + 1u];
+  // pressure on the walls where the area changes (y momentum)
+  var src = array<f32, 5>(0.0, 0.0, c0.p * (At - Ab) / (Ac * dy), 0.0, 0.0);
+  // reaction
+  let T = c0.p / (c0.r * gasR(c0.y));
+  let w = C.r2.z * c0.r * c0.y * exp(-C.r1.w / (gasR(c0.y) * T));
+  src[4] = -min(w, c0.r * c0.y / dt);
+  let a = select(0.5, 1.0, C.dims.w == 0u);
+  var q: array<f32, 5>;
+  for (var k = 0u; k < 5u; k++) {
+    let rhs = -(fxR[k] - fxL[k]) / dx - (At * gT[k] - Ab * gB[k]) / (Ac * dy) + src[k];
+    let u1 = Us[k * N + n] + dt * rhs;
+    q[k] = (1.0 - a) * U0[k * N + n] + a * u1;
+  }
+  // positivity floors for strong expansions (blow-down to low ambient pressure): density, speed,
+  // reactant fraction and temperature (≥ 50 K)
+  q[0] = max(q[0], 1e-5);
+  var uu = vec2f(q[1], q[2]) / q[0]; let sp = length(uu); if (sp > 2e4) { uu = uu * (2e4 / sp); }
+  let yy = clamp(q[4] / q[0], 0.0, 1.0);
+  let eint = max(q[3] / q[0] - 0.5 * dot(uu, uu), gasCv(yy) * 50.0 + yy * C.r1.z);
+  Un[n] = q[0]; Un[N + n] = q[0] * uu.x; Un[2u * N + n] = q[0] * uu.y; Un[3u * N + n] = q[0] * (eint + 0.5 * dot(uu, uu)); Un[4u * N + n] = q[0] * yy;
+}`;
+
+// Host side. cfg: { nx, ny, L (circumference, m), H (axial length, m), area(y) → m², gas {gam1,R1,gam2,R2,q},
+// Ea, k, AtAw, p0, T0, pa, init {h (fresh layer, m), pFresh, pBurn, TBurn, wIgn (m)} }.
+// Works on any WebGPU device; returns an object with step(n), sample() and destroy().
+async function rdeCreate(dev, cfg) {
+  const { nx, ny } = cfg, N = nx * ny, dx = cfg.L / nx, dy = cfg.H / ny, G = cfg.gas;
+  const cv = (y) => y * G.R1 / (G.gam1 - 1) + (1 - y) * G.R2 / (G.gam2 - 1), R = (y) => y * G.R1 + (1 - y) * G.R2;
+  const U = new Float32Array(5 * N), I = cfg.init;
+  const put = (n, r, u, v, p, y) => { const T = p / (r * R(y)); U[n] = r; U[N + n] = r * u; U[2 * N + n] = r * v; U[3 * N + n] = r * (cv(y) * T + y * G.q + 0.5 * (u * u + v * v)); U[4 * N + n] = r * y; };
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const x = (i + 0.5) * dx, y = (j + 0.5) * dy, n = i + nx * j;
+    if (y < I.h && x > I.wIgn && x < cfg.L - (I.back || I.wIgn)) put(n, I.pFresh / (G.R1 * cfg.T0), 0, 0, I.pFresh, 1);                // fresh layer
+    else if (y < I.h && x <= I.wIgn) put(n, I.pIgn / (G.R2 * I.TIgn), I.uIgn || 0, 0, I.pIgn, 0);                                    // igniter
+    else { const pb = I.pBurn || Math.max(cfg.pa, I.pFresh); put(n, pb / (G.R2 * I.TBurn), 0, 0, pb, 0); }                                                                // burnt gas
+  }
+  const Ar = new Float32Array(2 * ny + 1);
+  for (let j = 0; j < ny; j++) Ar[j] = cfg.area((j + 0.5) * dy);
+  for (let j = 0; j <= ny; j++) Ar[ny + j] = cfg.area(j * dy);
+  const S = GPUBufferUsage.STORAGE, CD = GPUBufferUsage.COPY_DST, CS = GPUBufferUsage.COPY_SRC;
+  const buf = (d, u) => { const b = dev.createBuffer({ size: d.byteLength, usage: u | CD }); dev.queue.writeBuffer(b, 0, d); return b; };
+  const B = [buf(U, S | CS), buf(U, S | CS), buf(U, S | CS)], Ab = buf(Ar, S);
+  const mod = dev.createShaderModule({ code: RDE_WGSL });
+  const info = await mod.getCompilationInfo(); const errs = info.messages.filter((m) => m.type === "error");
+  if (errs.length) throw new Error(errs.map((e) => e.lineNum + ": " + e.message).join("\n"));
+  const pipe = dev.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "step" } });
+  let dt = cfg.dt || 0.3 * Math.min(dx, dy) / (1.8 * cfg.Dcj);
+  const uni = (stage) => { const ab = new ArrayBuffer(80), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]); f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, cfg.Ea, G.gam2, G.R2, cfg.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0], 4); return ab; };
+  const UB = [0, 1].map(() => dev.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | CD }));
+  const writeU = () => { dev.queue.writeBuffer(UB[0], 0, uni(0)); dev.queue.writeBuffer(UB[1], 0, uni(1)); };
+  writeU();
+  const bg = (u, a, b, c) => dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [UB[u], B[a], B[b], B[c], Ab].map((buffer, binding) => ({ binding, resource: { buffer } })) });
+  // stage 0: U0=B0, Us=B0 → B1 ; stage 1: U0=B0, Us=B1 → B2 ; then B2 is the new state: rotate
+  let order = [0, 1, 2];
+  const groups = new Map();
+  const bgFor = () => { const k = order.join(); if (!groups.has(k)) groups.set(k, [bg(0, order[0], order[0], order[1]), bg(1, order[0], order[1], order[2])]); return groups.get(k); };
+  const wx = Math.ceil(nx / 16), wy = Math.ceil(ny / 8);
+  let t = 0, steps = 0;
+  const rd = dev.createBuffer({ size: 5 * N * 4, usage: GPUBufferUsage.MAP_READ | CD });
+  return {
+    dx, dy, N,
+    get t() { return t; }, get dt() { return dt; }, get steps() { return steps; },
+    setDt(v) { dt = v; writeU(); },
+    step(n) {
+      const e = dev.createCommandEncoder();
+      for (let s = 0; s < n; s++) {
+        const [g0, g1] = bgFor(), p = e.beginComputePass();
+        p.setPipeline(pipe); p.setBindGroup(0, g0); p.dispatchWorkgroups(wx, wy); p.setBindGroup(0, g1); p.dispatchWorkgroups(wx, wy); p.end();
+        order = [order[2], order[0], order[1]]; t += dt; steps++;
+      }
+      dev.queue.submit([e.finish()]);
+    },
+    async read() {
+      const e = dev.createCommandEncoder(); e.copyBufferToBuffer(B[order[0]], 0, rd, 0, 5 * N * 4); dev.queue.submit([e.finish()]);
+      await rd.mapAsync(GPUMapMode.READ); const q = new Float32Array(rd.getMappedRange().slice(0)); rd.unmap(); return q;
+    },
+    // instantaneous diagnostics from a state snapshot
+    diag(q) {
+      let mIn = 0, mOut = 0, F = 0, smax = 0, nan = false;
+      const prim = (n) => { const r = q[n], u = q[N + n] / r, v = q[2 * N + n] / r, y = Math.min(1, Math.max(0, q[4 * N + n] / r)), e = q[3 * N + n] / r - 0.5 * (u * u + v * v), T = (e - y * G.q) / cv(y); return { r, u, v, y, T, p: r * R(y) * T, c: Math.sqrt((cv(y) + R(y)) / cv(y) * R(y) * T) }; };
+      const jo = ny - 1, Ao = cfg.area(cfg.H) / nx, Ai = cfg.area(0) / nx;
+      const pHead = [];
+      const g1 = G.gam1, cp1 = g1 * G.R1 / (g1 - 1), pcr = cfg.p0 * Math.pow(2 / (g1 + 1), g1 / (g1 - 1));
+      const inj = (p) => { if (p >= cfg.p0) return 0; const pt = Math.max(p, pcr), Tt = cfg.T0 * Math.pow(pt / cfg.p0, (g1 - 1) / g1); return (pt / (G.R1 * Tt)) * Math.sqrt(Math.max(2 * cp1 * (cfg.T0 - Tt), 0)) * cfg.AtAw; };
+      for (let i = 0; i < nx; i++) {
+        const o = prim(i + nx * jo), h = prim(i); mIn += inj(h.p) * Ai;
+        mOut += o.r * o.v * Ao; F += (o.r * o.v * o.v + o.p - cfg.pa) * Ao; pHead.push(h.p);
+      }
+      for (let n = 0; n < N; n++) { const w = prim(n); if (!isFinite(w.p)) { nan = true; break; } smax = Math.max(smax, Math.hypot(w.u, w.v) + w.c); }
+      let pProbe = 0; const jp = Math.min(ny - 1, Math.floor((cfg.probeY || 0) / dy));
+      for (let i = 0; i < nx; i++) pProbe += prim(i + nx * jp).p / nx;
+      return { mIn, mOut, F, smax, nan, pHead, pProbe };
+    },
+    destroy() { B.forEach((b) => b.destroy()); Ab.destroy(); rd.destroy(); UB.forEach((b) => b.destroy()); },
+  };
+}
+// ── end RDE ──
+
+const RDE_MIX = {"phi":[0.5,0.6,0.8,1.0,1.2,1.5,2.0],"mix":{"ethox":[[1.3611,264.5,1.1351,303.31,7521879,2074.6,25.872,3664.7,1.847],[1.3561,265.29,1.1355,316.1,8057700,2151.8,27.713,3773.8,1.8489],[1.3471,266.77,1.138,340.87,8880737,2283.4,30.941,3926.0,1.8503],[1.3395,268.1,1.1412,364.43,9503618,2393.1,33.72,4022.2,1.8503],[1.3329,269.33,1.1446,386.93,9975405,2485.3,36.112,4077.3,1.8494],[1.3244,270.98,1.1509,419.18,10372556,2594.4,38.96,4091.6,1.8466],[1.3133,273.32,1.1687,470.11,9923150,2699.2,41.433,3938.2,1.835]],"gmethox":[[1.372,288.63,1.1323,318.71,7692100,2073.0,23.745,3494.7,1.8459],[1.3688,293.63,1.1312,333.89,8389869,2155.3,25.213,3597.6,1.849],[1.3632,303.01,1.1313,363.62,9480715,2294.2,27.636,3730.6,1.8519],[1.3584,311.64,1.1328,392.45,10308541,2408.1,29.551,3799.4,1.8529],[1.3544,319.6,1.1353,420.69,10889290,2500.8,31.015,3815.9,1.8524],[1.3493,330.46,1.143,462.75,11069620,2599.5,32.274,3741.9,1.8478],[1.3427,346.14,1.1747,532.99,9202155,2648.5,31.522,3366.6,1.8242]],"ghydrox":[[1.3996,488.88,1.1322,406.09,9831220,2335.0,17.904,3526.0,1.8339],[1.4001,531.47,1.131,438.88,11014931,2459.4,18.272,3615.9,1.8358],[1.4008,613.72,1.1303,504.39,13115553,2676.0,18.727,3720.1,1.8375],[1.4014,692.29,1.1306,569.65,14919502,2858.4,18.933,3756.1,1.8378],[1.4018,767.42,1.132,634.38,16376986,3012.5,18.957,3745.7,1.8368],[1.4022,874.15,1.1365,729.65,17820714,3199.8,18.742,3674.9,1.833],[1.4028,1037.7,1.1485,881.25,18605110,3424.6,18.0,3489.2,1.8224]]}}; // [γ1, R1, γ2, R2, q, D_CJ, p_CJ/p1, T_CJ, ρ_CJ/ρ1] at 1.5 atm, 300 K (tools/cj.py)
+// Engines tab: run the detonation chamber for the engine's propellant and draw the unrolled annulus.
+const RDE_STOICH = { ethox: 3.0 * 31.998 / 28.054, gmethox: 2.0 * 31.998 / 16.043, ghydrox: 31.998 / (2 * 2.016) };
+const rdeSim = { run: null, busy: false, hist: [], gen: 0 };
+function rdeMix(key, of) {
+  const rows = RDE_MIX.mix[key], P = RDE_MIX.phi, phi = RDE_STOICH[key] / of;
+  const x = Math.min(Math.max(phi, P[0]), P[P.length - 1]); let i = 0; while (i < P.length - 2 && x > P[i + 1]) i++;
+  const a = (x - P[i]) / (P[i + 1] - P[i]), r = rows[i].map((v, k) => v + a * (rows[i + 1][k] - v));
+  return { phi, gas: { gam1: r[0], R1: r[1], gam2: r[2], R2: r[3], q: r[4] }, D: r[5], pr: r[6], T: r[7], dr: r[8] };
+}
+function rdeConfig() {
+  const R = st.rde, E = st.eng, key = engPr(E).tab;
+  if (!RDE_MIX.mix[key]) return null;
+  const m = rdeMix(key, engPr(E).of), Di = R.Di / 1000, w = R.w / 1000, Lc = R.Lc / 1000, half = (R.half * Math.PI) / 180;
+  const Do = Di + 2 * w, Ac = (Math.PI / 4) * (Do * Do - Di * Di), Lp = Di / 2 / Math.tan(half);
+  const L = Math.PI * (Di + w), H = Lc + Lp, nx = +R.nx, dx = L / nx, ny = Math.max(20, Math.round(H / dx)), T0 = 300;
+  const g1 = m.gas.gam1, R1 = m.gas.R1, Mn = m.D / Math.sqrt(g1 * R1 * T0);
+  const TvN = (T0 * (2 * g1 * Mn * Mn - (g1 - 1)) * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) ** 2 * Mn * Mn);
+  const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn), pa = (engineEnv() || { p: 101325 }).p;
+  const area = (y) => (y <= Lc ? Ac : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
+  const pCJ = m.pr * 1.5 * 101325;
+  return { key, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, gas: m.gas, Ea: 8 * R1 * TvN, k: (uvN / (2 * dx)) * Math.exp(8), AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa: Math.max(pa, 1),
+    Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: pCJ, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
+}
+async function rdeToggle() {
+  const btn = $("#rdeRun");
+  if (rdeSim.run) { rdeSim.gen++; rdeSim.run.destroy(); rdeSim.run = null; btn.textContent = "Run"; return; }
+  const c = rdeConfig();
+  if (!c) { $("#rdeInfo").innerHTML = "<dt>Propellant</dt><dd>choose a gaseous propellant (ethylene, methane or hydrogen with oxygen)</dd>"; return; }
+  if (!dev) return;
+  try { rdeSim.run = await rdeCreate(dev, c); } catch (e) { $("#rdeInfo").innerHTML = `<dt>Error</dt><dd>${e.message}</dd>`; return; }
+  rdeSim.cfg = c; rdeSim.hist = []; btn.textContent = "Stop";
+  const gen = ++rdeSim.gen;
+  const loop = async () => {
+    if (gen !== rdeSim.gen || !rdeSim.run) return;
+    const s = rdeSim.run; s.step(60);
+    const q = await s.read(); if (gen !== rdeSim.gen) return;
+    const d = s.diag(q);
+    if (d.nan) { $("#rdeInfo").innerHTML = "<dt>Stopped</dt><dd>the solution blew up; try more cells or a lower plenum pressure</dd>"; rdeToggle(); return; }
+    if ((d.smax * s.dt) / Math.min(s.dx, s.dy) > 0.45) s.setDt((0.35 * Math.min(s.dx, s.dy)) / d.smax);
+    const ph = d.pHead, mean = ph.reduce((a, b) => a + b, 0) / ph.length, pk = [];
+    for (let i = 0; i < ph.length; i++) { const a = ph[(i - 1 + ph.length) % ph.length], b = ph[(i + 1) % ph.length]; if (ph[i] > 2.5 * mean && ph[i] >= a && ph[i] > b) pk.push(i); }
+    rdeSim.hist.push({ t: s.t, mIn: d.mIn, F: d.F, p: d.pProbe, waves: pk.length, peaks: pk });
+    rdeDraw(q); rdeReport();
+    requestAnimationFrame(loop);
+  };
+  loop();
+}
+function rdeDraw(q) {
+  const cv = $("#rdeView"), c = rdeSim.cfg, s = rdeSim.run, N = s.N, G = c.gas;
+  const W = c.nx, H = c.ny; if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const g = cv.getContext("2d"), img = g.createImageData(W, H), lo = Math.log(c.pa * 0.5), hi = Math.log(c.Dcj ? c.init.pIgn * 1.5 : 1e6);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const n = i + W * j, r = q[n], u = q[N + n] / r, v = q[2 * N + n] / r, y = Math.min(1, Math.max(0, q[4 * N + n] / r));
+    const cvm = (y * G.R1) / (G.gam1 - 1) + ((1 - y) * G.R2) / (G.gam2 - 1), T = (q[3 * N + n] / r - 0.5 * (u * u + v * v) - y * G.q) / cvm, p = r * (y * G.R1 + (1 - y) * G.R2) * T;
+    const a = Math.min(1, Math.max(0, (Math.log(p) - lo) / (hi - lo))), o = 4 * (i + W * (H - 1 - j));
+    // warm ramp for pressure; fresh propellant tinted blue
+    img.data[o] = 255 * Math.min(1, a * 1.6); img.data[o + 1] = 255 * Math.max(0, a * 1.4 - 0.4) ** 1.2; img.data[o + 2] = 255 * Math.max(y * 0.8, a > 0.85 ? (a - 0.85) * 6 : 0); img.data[o + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+}
+function rdeReport() {
+  const h = rdeSim.hist, c = rdeSim.cfg; if (!h.length) return;
+  const tail = h.slice(Math.floor(h.length / 2)), avg = (k) => tail.reduce((a, x) => a + x[k], 0) / tail.length;
+  const mIn = avg("mIn"), F = avg("F"), p = avg("p"), isp = mIn > 0 ? F / (mIn * G0) : 0;
+  const waves = tail.map((x) => x.waves).sort((a, b) => a - b)[tail.length >> 1];
+  const sp = [];
+  for (let k = 1; k < tail.length; k++) for (const a of tail[k - 1].peaks) { const ds = tail[k].peaks.map((b) => (b - a + c.nx) % c.nx).filter((d) => d > 0 && d < c.nx / 4); if (ds.length) sp.push((Math.min(...ds) * c.L) / c.nx / (tail[k].t - tail[k - 1].t)); }
+  sp.sort((a, b) => a - b); const v = sp.length ? sp[sp.length >> 1] : NaN;
+  const pr = engPr(st.eng), ideal = pr.tab ? idealExpandedF({ ...pr, pc: Math.max(p, c.pa * 1.01) }, 1, c.pa, c.Ae / c.Ac).Isp : NaN;
+  const row = (k, val) => `<dt>${k}</dt><dd>${val}</dd>`;
+  $("#rdeInfo").innerHTML =
+    row("Simulated", `${(h[h.length - 1].t * 1e3).toFixed(2)} ms · averages over the second half`) +
+    row("Mass flow", `${mIn.toFixed(3)} kg/s · φ ${c.m.phi.toFixed(2)}`) +
+    row("Thrust · Isp", `${F.toFixed(0)} N · ${isp.toFixed(0)} s`) +
+    row("Waves", `${waves} · ${isFinite(v) ? v.toFixed(0) + " m/s (" + ((100 * v) / c.Dcj).toFixed(0) + "% of CJ)" : "—"}`) +
+    row("Chamber pressure", `${(p / 1e6).toFixed(3)} MPa near the exit`) +
+    row("Constant-pressure ideal", `${isFinite(ideal) ? ideal.toFixed(0) + " s at that pressure, expanded to ambient" : "—"}`);
+}
+function syncRdeUI() {
+  const R = st.rde; if (!$("#rdeBox")) return;
+  $("#rdeBox").style.display = st.eng.type === "rde" ? "" : "none";
+  $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdeNx").value = R.nx;
+}
+function wireRde() {
+  for (const [id, k, lo] of [["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdeNx", "nx", 50]])
+    $(id).addEventListener("change", (e) => { st.rde[k] = Math.max(lo, +e.target.value || 0); if (rdeSim.run) rdeToggle(); });
+  $("#rdeRun").addEventListener("click", rdeToggle);
+  syncRdeUI();
 }
 
 // Radiative-equilibrium wall temperature: hc (Tr - Tw) = eps sigma Tw^4.
@@ -8241,7 +8574,7 @@ const engAB = new ArrayBuffer(16 + 128 * 16), engU32 = new Uint32Array(engAB), e
 let engJet = { vmax: 0, cmax: 0 };
 function engineState(env) {
   const E = st.eng, pr = engPr(E);
-  const ro = E.re, ri = E.type === "aerospike" ? Math.min(E.ri, ro * 0.95) : 0, Ae = Math.PI * (ro * ro - ri * ri);
+  const ro = E.re, ri = E.type !== "bell" ? Math.min(E.ri, ro * 0.95) : 0, Ae = Math.PI * (ro * ro - ri * ri);
   const noz = rocketNozzle(pr, E.eps, Ae, env.p, E.thr);
   return { pr, noz, Ae, ri, ro };
 }
@@ -10613,7 +10946,7 @@ function buildUI() {
   $("#btnAddEv").addEventListener("click", () => { st.tl.events.push({ when: "mach", v: 5, bank: 0, aoa: null, name: "" }); if (st.tl.profile !== "custom") { st.tl.profile = "custom"; } buildTimelineUI(); computeEntry(); });
   $("#btnPlayEntry").addEventListener("click", () => { if (entryPlay.on) stopManoeuvre(); else playEntry(); });
   setProfile(profileFor(st.preset));
-  wireEngines();
+  wireEngines(); wireRde();
   $("#btnMan").addEventListener("click", () => (fly.man ? stopManoeuvre() : playManoeuvre()));
   $("#btnHome").addEventListener("click", () => {
     stopFlying(); stopManoeuvre();

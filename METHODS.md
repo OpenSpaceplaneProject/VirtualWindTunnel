@@ -176,6 +176,37 @@ Check, run with the app's own solver kernels: a cylinder at Mach 4, inviscid, 8 
 
 All three runs ran to the same flow time and their drag settled. The grid is coarse, and other grids weren't tried.
 
+### Rotating detonation engine
+
+Engines › Nozzle › Rotating detonation runs a detonation chamber of your own geometry: inner diameter, channel width, length, plug angle, injector area ratio and plenum pressure. It uses the engine's gaseous propellant (ethylene, methane or hydrogen with oxygen) at the engine's O/F.
+
+**Grid and equations.** The annulus is unrolled: one axis runs round the circumference and is periodic, the other runs downstream from the injector face to the tip of the conical plug. The flow area can change downstream, which models the plug expansion as a confined nozzle out to the outer diameter. This quasi-2D layout is the same as NASA Glenn's Q2D code (Paxson; Miki et al. 2020). The equations are the reactive Euler equations, second-order MUSCL with an HLLE flux and two-stage Runge–Kutta, run on the GPU.
+
+**Gas model.** It is NRL's two-γ model (Schwer & Kailasanath):
+- Reactants carry the heat of reaction.
+- Products take the equilibrium γ and molar mass of the Chapman–Jouguet (CJ) state, the ideal detonation.
+- One Arrhenius step converts reactants to products.
+- The heat of reaction is calibrated so the model's CJ speed equals the equilibrium CJ speed from Cantera.
+
+`tools/cj.py` computes those CJ speeds. They agree with the Caltech detonation database to within 0.1%: H₂–air 1969 m/s, C₂H₄–O₂ 2374 m/s, CH₄–O₂ 2390 m/s.
+
+**Reaction zone.** The rate constant puts the reaction zone 2 cells behind the lead shock. Real reaction zones are tenths of a millimetre, so detonations here are thicker than real ones. The cells must be small against the fresh-propellant layer the wave runs through, a few millimetres in small rigs.
+
+**Injector and outlet.**
+- Each injector-face cell draws premixed propellant from the plenum through a throat of the set area ratio, choked when the chamber pressure is low enough. It acts as a wall while its pressure is above the plenum's.
+- The outlet passes supersonic flow out, and holds ambient pressure where the flow is subsonic.
+
+**Outputs.** Mass flow and thrust at the outlet, Isp, number of waves and their speed, and mean pressure 8 mm before the end of the annulus. All are averaged over the second half of the run.
+
+**Not modelled:**
+- Propellant mixing: the propellant is premixed.
+- Injector recovery dynamics beyond the choked or unchoked throat.
+- Heat loss to the walls.
+- Viscosity.
+- A plug's free outer jet boundary: the confined expansion is the over-expanded limit.
+
+Real rigs run their waves at 70–90% of the CJ speed, mostly because of mixing. Expect the solver's waves to run faster than measured. See tests/VALIDATION.md for the comparison with the Goto et al. (2021) ethylene/oxygen sled-test engine.
+
 ### Air-breathing engine
 
 The intake is solved by the high-speed flow solver, above Mach 0.6.

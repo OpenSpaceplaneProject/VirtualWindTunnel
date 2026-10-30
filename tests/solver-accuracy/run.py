@@ -6,10 +6,11 @@ subprocess.run(['node', os.path.join(HERE, 'gen.js')], check=True)
 flags = ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface', '--ignore-gpu-blocklist', '--disable-gpu-watchdog', '--disable-features=GPUWatchdog']
 cases = json.load(open(sys.argv[1])); out = sys.argv[2]
 only = sys.argv[3:]  # optional case names
+done = {json.loads(l)['case'] for l in open(out)} if os.path.exists(out) else set()  # resume: skip finished cases
 with sync_playwright() as p:
     b = p.chromium.launch(args=flags)
     for c in cases:
-        if only and c.get('name') not in only: continue
+        if (only and c.get('name') not in only) or c.get('name') in done: continue
         pg = b.new_page(); pg.set_default_timeout(7200000)
         pg.goto('file://' + os.path.join(HERE, 'harness.html'))
         try: r = pg.evaluate('c => run(c)', c)

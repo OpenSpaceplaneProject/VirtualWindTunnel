@@ -1,0 +1,76 @@
+<!doctype html><meta charset="utf-8"><script src="rde_src.js"></script><script>
+let dev;
+const areaFn = (a) => a.type === 'plug'
+  ? (y) => y <= a.Lc ? a.Ac : Math.PI / 4 * (a.Do * a.Do - Math.max(a.Di - 2 * (y - a.Lc) * Math.tan(a.half), 0) ** 2)
+  : () => a.Ac;
+// 1D detonation along x: shock position from the steepest pressure rise on row 1, every `every` steps
+async function det1d(c) {
+  if (!dev) dev = await (await navigator.gpu.requestAdapter()).requestDevice();
+  const s = await rdeCreate(dev, { ...c, area: areaFn(c.areaDef) });
+  const xs = [], ps = [];
+  for (let k = 0; k < c.samples; k++) {
+    s.step(c.every); const q = await s.read(), N = s.N, nx = c.nx;
+    const G = c.gas, R = (y) => y * G.R1 + (1 - y) * G.R2, cv = (y) => y * G.R1 / (G.gam1 - 1) + (1 - y) * G.R2 / (G.gam2 - 1);
+    const p = []; for (let i = 0; i < nx; i++) { const n = i + nx; const r = q[n], u = q[N + n] / r, v = q[2 * N + n] / r, y = q[4 * N + n] / r, e = q[3 * N + n] / r - 0.5 * (u * u + v * v); p.push(r * R(y) * (e - y * G.q) / cv(y)); }
+    let im = 0, best = 0; for (let i = 1; i < nx - 1; i++) { const d = p[i] - p[i + 1]; if (d > best) { best = d; im = i; } }
+    let pmax = 0; for (let i = Math.max(0, im - 40); i <= im + 1; i++) pmax = Math.max(pmax, p[i]);
+    xs.push([s.t, (im + 1) * s.dx]); ps.push(pmax);
+    if (!isFinite(best)) return { err: 'nan', xs };
+  }
+  // pressure profile behind the front at the end (for the CJ plateau), every 4th cell over 200 cells
+  s.destroy();
+  return { xs, ps, dt: s.dt };
+}
+async function engine(c) {
+  if (!dev) dev = await (await navigator.gpu.requestAdapter()).requestDevice();
+  const s = await rdeCreate(dev, { ...c, area: areaFn(c.areaDef) });
+  const hist = []; const t0 = performance.now();
+  let fronts = [];
+  for (let k = 0; k < c.samples; k++) {
+    s.step(c.every); const q = await s.read(); const d = s.diag(q);
+    if (d.nan) return { err: 'nan at ' + s.t, hist };
+    if (d.smax * s.dt / Math.min(s.dx, s.dy) > 0.45) s.setDt(0.35 * Math.min(s.dx, s.dy) / d.smax);
+    // waves: peaks of head-end pressure above 2.5x the mean, separated by > 10 cells
+    const ph = d.pHead, mean = ph.reduce((a, b) => a + b, 0) / ph.length, pk = [];
+    for (let i = 0; i < ph.length; i++) { const a = ph[(i - 1 + ph.length) % ph.length], b = ph[(i + 1) % ph.length]; if (ph[i] > 2.5 * mean && ph[i] >= a && ph[i] > b) pk.push(i); }
+    hist.push({ t: s.t, dt: s.dt, mIn: d.mIn, mOut: d.mOut, F: d.F, pHead: mean, pProbe: d.pProbe, waves: pk.length, peaks: pk.slice(0, 12) });
+  }
+  const final = await s.read(); s.destroy();
+  return { hist, ms: Math.round(performance.now() - t0), dt: s.dt };
+}
+</script>
+<script>
+async function prof(c) {
+  if (!dev) dev = await (await navigator.gpu.requestAdapter()).requestDevice();
+  const s = await rdeCreate(dev, { ...c, area: areaFn(c.areaDef) }); const out = [];
+  const G = c.gas, R = (y) => y * G.R1 + (1 - y) * G.R2, cv = (y) => y * G.R1 / (G.gam1 - 1) + (1 - y) * G.R2 / (G.gam2 - 1);
+  for (let k = 0; k < c.samples; k++) {
+    s.step(c.every); const q = await s.read(), N = s.N, nx = c.nx; const row = [];
+    for (let i = 0; i < nx; i += c.stride) { const n = i + nx; const r = q[n], u = q[N + n] / r, y = q[4 * N + n] / r, e = q[3 * N + n] / r - 0.5 * u * u; const T = (e - y * G.q) / cv(y); row.push([+(r * R(y) * T / 101325).toFixed(1), Math.round(T), +y.toFixed(2)]); }
+    out.push({ t: s.t, row });
+  }
+  s.destroy(); return out;
+}
+</script>
+<script>
+async function snaps(c, nsnap) {
+  if (!dev) dev = await (await navigator.gpu.requestAdapter()).requestDevice();
+  const s = await rdeCreate(dev, { ...c, area: areaFn(c.areaDef) }); const out = [];
+  const G = c.gas, R = (y) => y * G.R1 + (1 - y) * G.R2, cvf = (y) => y * G.R1 / (G.gam1 - 1) + (1 - y) * G.R2 / (G.gam2 - 1);
+  const cv = document.createElement('canvas'); cv.width = c.nx * 2 + 4; cv.height = c.ny; const g = cv.getContext('2d');
+  for (let k = 0; k < nsnap; k++) {
+    s.step(c.every); const q = await s.read(), N = s.N; const d = s.diag(q);
+    const img = g.createImageData(cv.width, cv.height); let pmax = 0, nanc = 0;
+    for (let j = 0; j < c.ny; j++) for (let i = 0; i < c.nx; i++) {
+      const n = i + c.nx * j, r = q[n], u = q[N + n] / r, v = q[2 * N + n] / r, y = Math.min(1, Math.max(0, q[4 * N + n] / r)), T = (q[3 * N + n] / r - 0.5 * (u * u + v * v) - y * G.q) / cvf(y), p = r * R(y) * T;
+      if (!isFinite(p)) nanc++; pmax = Math.max(pmax, p);
+      const a = Math.min(1, Math.max(0, Math.log(p / 5e4) / Math.log(60)));
+      let o = 4 * (i + cv.width * (c.ny - 1 - j)); img.data[o] = 255 * a; img.data[o + 1] = 255 * a * a; img.data[o + 2] = 60; img.data[o + 3] = 255;
+      o = 4 * (c.nx + 4 + i + cv.width * (c.ny - 1 - j)); const tt = Math.min(1, T / 4000); img.data[o] = 255 * tt; img.data[o + 1] = 80 * tt; img.data[o + 2] = 255 * y; img.data[o + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    out.push({ t: s.t, pmax, nanc, mIn: d.mIn, mOut: d.mOut, F: d.F, png: cv.toDataURL('image/png') });
+  }
+  s.destroy(); return out;
+}
+</script>
