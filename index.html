@@ -327,6 +327,17 @@ body.noEnv #envPlot { display: none; }
 }
 #toast.show { opacity: 1; }
 #fatal[hidden] { display: none; }
+#find { position: fixed; inset: 0; z-index: 20; display: grid; place-items: start center; padding: 12vh 12px 12px; background: rgba(0,0,0,0.45); }
+#find[hidden] { display: none; }
+#find .fbox { width: min(560px, 100%); background: #111113; box-shadow: 0 18px 60px rgba(0,0,0,0.6); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; max-height: 70vh; }
+#findQ { font: inherit; font-size: 16px; padding: 12px 14px; background: transparent; color: var(--fg); border: 0; border-bottom: 1px solid var(--line); outline: none; }
+#findL { list-style: none; margin: 0; padding: 4px; overflow-y: auto; }
+#findL li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; border-radius: 5px; cursor: pointer; font-size: 13.5px; }
+#findL li span:last-child { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#findL li[aria-selected="true"], #findL li:hover { background: rgba(214,206,189,0.1); }
+#find .ffoot { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+#findTxt { margin: 0 10px 10px; min-height: 120px; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 5px; font: 12px var(--f-mono, monospace); padding: 8px; }
+.found { outline: 2px solid var(--accent, #f29c4f); outline-offset: 3px; border-radius: 4px; transition: outline-color 1.2s; }
 body.nogpu .spd, body.nogpu .velw, body.nogpu .legend, body.nogpu #probe, body.nogpu #engStage { display: none !important; }
 #fatal { position: absolute; inset: 0; display: grid; place-items: center; text-align: left; }
 #fatal > div { max-width: 46ch; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px 22px; }
@@ -452,6 +463,14 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
 }
 </style>
 
+<div id="find" role="dialog" aria-modal="true" aria-label="Find a setting" hidden>
+  <div class="fbox">
+    <input id="findQ" type="search" autocomplete="off" spellcheck="false" placeholder="Find a setting" aria-controls="findL">
+    <ul id="findL" role="listbox"></ul>
+    <div class="ffoot"><button class="btn" id="findCopy" type="button">Copy setup</button><button class="btn" id="findLoad" type="button">Load setup</button><span id="findMsg"></span></div>
+    <textarea id="findTxt" hidden spellcheck="false" aria-label="Setup JSON to load"></textarea>
+  </div>
+</div>
 <div id="intro" role="dialog" aria-modal="true" aria-labelledby="introT" hidden>
   <div class="ic">
     <header><div><div class="ik">Open Spaceplane Project</div><h2 id="introT">Virtual Windtunnel</h2><p class="il">Design a spaceplane down to its frames, tanks and payload, then put the same shape in a wind tunnel that runs on your graphics card. Here is the Space Shuttle preset, built that way.</p></div></header>
@@ -488,6 +507,9 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
         <div class="hlTop">
           <span class="hlReg" id="hlReg">Starting GPU…</span>
           <span class="spacer"></span>
+          <button class="icon" id="btnFind" title="Find a setting ( / )" aria-label="Find a setting">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="M12.4 12.4 17 17"/></svg>
+          </button>
           <button class="icon" id="btnRun" title="Pause" aria-label="Pause simulation">
             <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><rect x="5" y="4" width="3.2" height="12" rx="1"/><rect x="11.8" y="4" width="3.2" height="12" rx="1"/></svg>
           </button>
@@ -11348,7 +11370,7 @@ function buildUI() {
   $("#btnAddEv").addEventListener("click", () => { st.tl.events.push({ when: "mach", v: 5, bank: 0, aoa: null, name: "" }); if (st.tl.profile !== "custom") { st.tl.profile = "custom"; } buildTimelineUI(); computeEntry(); });
   $("#btnPlayEntry").addEventListener("click", () => { if (entryPlay.on) stopManoeuvre(); else playEntry(); });
   setProfile(profileFor(st.preset));
-  wireEngines(); wireRde(); vrInit();
+  wireEngines(); wireRde(); vrInit(); wireFind();
   $("#btnMan").addEventListener("click", () => (fly.man ? stopManoeuvre() : playManoeuvre()));
   $("#btnHome").addEventListener("click", () => {
     stopFlying(); stopManoeuvre();
@@ -11590,6 +11612,161 @@ function buildUI() {
 })();
 
 init().catch((e) => { console.error(e); fatal("Could not start", String(e.message || e)); });
+
+// ── Controls ──
+// One list of every setting in the interface, read from the panels as they stand: id, label, unit, kind,
+// range, where it lives (mode › tab › group), and how to read and set it. Setting goes through the
+// control itself (value + input/change events), so every existing handler runs unchanged. The finder,
+// saved setups and the agent API (window.vwt) are built on it. Airspeed and altitude, which live on the
+// flight-condition bars rather than in a panel, are added by hand.
+const CTRL = { list: [], at: 0 };
+function ctrlScan() {
+  const out = [], seen = new Set();
+  const groupOf = (el) => {
+    const det = el.closest("details"); if (det && det.querySelector("summary")) return det.querySelector("summary").textContent.trim();
+    let n = el.closest(".pane > *") || el;
+    for (let p = n; p; p = p.previousElementSibling) if (p.matches && p.matches("h3.grp")) return p.textContent.trim();
+    return "";
+  };
+  for (const pane of document.querySelectorAll(".pane[data-pane]")) {
+    const tab = pane.dataset.pane, mode = tab === "build" ? "build" : tab === "engine" ? "engine" : "test";
+    for (const el of pane.querySelectorAll("input[id], select[id], textarea[id]")) {
+      if (el.type === "file" || seen.has(el.id)) continue; seen.add(el.id);
+      const lab = el.closest("label"), k = lab && lab.querySelector(".k");
+      let label = (k ? k.textContent : lab ? lab.textContent : el.getAttribute("aria-label") || el.id).replace(/\s+/g, " ").trim();
+      const um = label.match(/^(.*?),\s*([^,]+)$/), unit = um && um[2].length <= 14 ? um[2] : "";
+      if (unit) label = um[1];
+      const bg = el.closest("[data-g]"), grp = bg && bg.dataset.g ? (BLD_GROUPS().find(([g]) => g === bg.dataset.g) || [, ""])[1] : groupOf(el);
+      const kind = el.tagName === "SELECT" ? "select" : el.type === "checkbox" ? "checkbox" : el.type === "range" ? "range" : el.type === "number" ? "number" : "text";
+      const e = { id: el.id, label, unit, kind, mode, tab, group: grp, bld: bg ? bg.dataset.g : null };
+      if (kind === "range" || kind === "number") { e.min = el.min === "" ? null : +el.min; e.max = el.max === "" ? null : +el.max; e.step = el.step === "" ? null : +el.step; }
+      if (kind === "select") e.options = [...el.options].map((o) => [o.value, o.textContent.trim()]);
+      out.push(e);
+    }
+  }
+  // builder part sliders and switches carry data-p="group.key" / data-on / data-i rather than ids
+  for (const el of document.querySelectorAll('#bldPane input[data-p], #bldPane input[data-on], #bldPane input[data-i]')) {
+    const key = el.dataset.p || (el.dataset.on ? el.dataset.on + ".on" : "int." + el.dataset.i), id = "bld." + key;
+    if (seen.has(id)) continue; seen.add(id);
+    const lab = el.closest("label"), k = lab && lab.querySelector(".k");
+    let label = (k ? k.textContent : lab ? lab.textContent : key).replace(/\s+/g, " ").trim();
+    if (el.dataset.on) label = (BLD_GROUPS().find(([g]) => g === el.dataset.on) || [, label])[1] + " on";
+    const um = label.match(/^(.*?),\s*([^,]+)$/), unit = um && um[2].length <= 14 ? um[2] : ""; if (unit) label = um[1];
+    const g = (el.closest("[data-g]") || {}).dataset ? el.closest("[data-g]").dataset.g : key.split(".")[0];
+    const kind = el.type === "checkbox" ? "checkbox" : el.type === "range" ? "range" : "number";
+    out.push({ id, label, unit, kind, mode: "build", tab: "build", group: (BLD_GROUPS().find(([x]) => x === g) || [, ""])[1], bld: g, el,
+      min: el.min === "" ? null : +el.min, max: el.max === "" ? null : +el.max, step: el.step === "" ? null : +el.step });
+  }
+  out.push({ id: "airspeed", label: "Airspeed", unit: "m/s", kind: "number", mode: "test", tab: null, group: "Flight condition", min: 0, max: SPD_MAX, get: () => (st.spd.set ? st.spd.V : 0), set: (v) => setSpeed(+v, st.spd.h) });
+  out.push({ id: "altitude", label: "Altitude", unit: "km", kind: "number", mode: "test", tab: null, group: "Flight condition", min: 0, max: ALT_MAX, get: () => st.spd.h, set: (v) => (st.spd.set ? setSpeed(st.spd.V, +v) : setAltitude(+v)) });
+  CTRL.list = out; CTRL.at = performance.now();
+  return out;
+}
+function ctrlList() { if (!CTRL.list.length || performance.now() - CTRL.at > 5000) ctrlScan(); return CTRL.list; }
+function ctrlGet(id) {
+  const e = ctrlList().find((x) => x.id === id); if (!e) return undefined;
+  if (e.get) return e.get();
+  const el = e.el || document.getElementById(id); if (!el) return undefined;
+  return e.kind === "checkbox" ? el.checked : e.kind === "range" || e.kind === "number" ? (el.value === "" ? null : +el.value) : el.value;
+}
+function ctrlSet(id, v) {
+  const e = ctrlList().find((x) => x.id === id); if (!e) return false;
+  if (e.set) { e.set(v); return true; }
+  const el = e.el || document.getElementById(id); if (!el || el.disabled) return false;
+  if (e.kind === "checkbox") el.checked = !!v; else el.value = v;
+  el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+// the whole setup as JSON: mode, design (builder), and every control's value
+function ctrlState() {
+  const design = st.preset === "builder" && BLD ? JSON.parse(JSON.stringify(BLD)) : null, values = {};
+  for (const e of ctrlList()) { if (e.id === "code" || (design && e.mode === "build")) continue; const v = ctrlGet(e.id); if (v !== undefined) values[e.id] = v; }
+  return { app: "OSP Virtual Windtunnel", version: 1, mode: st.mode, preset: st.preset, design, values };
+}
+async function ctrlLoad(S) {
+  if (typeof S === "string") S = JSON.parse(S);
+  if (!S || !S.values) throw new Error("not a setup");
+  if (S.design) { BLD = bldFill(JSON.parse(JSON.stringify(S.design))); bldFields(); bldApply(); }
+  // selects first (they reshape the panels), then everything else
+  const ids = Object.keys(S.values), list = ctrlList(), kindOf = (id) => (list.find((e) => e.id === id) || {}).kind;
+  // only what differs, so controls for parts of the app not in use aren't poked; one failing handler
+  // doesn't stop the rest
+  const put = (id) => { const v = S.values[id], now = ctrlGet(id); if (now === v || (now == null && v == null)) return; try { ctrlSet(id, v); } catch (e) { console.warn("setup:", id, e.message); } };
+  // a select can swap the body or preset, which resets attitude and other values a moment later, so
+  // the rest go in after it settles, and once more after that
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  ids.filter((i) => kindOf(i) === "select").forEach(put); await pause(400);
+  ids.filter((i) => kindOf(i) !== "select").forEach(put); await pause(400);
+  ids.forEach(put);
+  if (S.mode) setMode(S.mode);
+  return true;
+}
+// bring a control into view: right mode, tab, builder group, open section, sheet open on phones
+function ctrlReveal(id) {
+  const e = ctrlList().find((x) => x.id === id); if (!e) return;
+  if (st.mode !== e.mode) setMode(e.mode);
+  if (e.mode === "test" && e.tab) { const tb = document.querySelector(`.tab[data-tab="${e.tab}"]`); if (tb && tb.getAttribute("aria-selected") !== "true") tb.click(); }
+  if (e.bld) bldSelect(e.bld);
+  $("#panel").classList.remove("collapsed");
+  const el = e.el || document.getElementById(id) || (id === "airspeed" ? $("#spd") : id === "altitude" ? $("#alt") : null); if (!el) return;
+  const det = el.closest("details"); if (det) det.open = true;
+  const box = el.closest("label") || el;
+  requestAnimationFrame(() => { box.scrollIntoView({ block: "center", behavior: "smooth" }); box.classList.add("found"); setTimeout(() => box.classList.remove("found"), 1600); if (el.focus) el.focus({ preventScroll: true }); });
+}
+function ctrlFind(q) {
+  const t = q.trim().toLowerCase(); if (!t) return [];
+  const words = t.split(/\s+/);
+  return ctrlList().map((e) => {
+    const hay = `${e.label} ${e.unit} ${e.group} ${e.tab || ""} ${e.id}`.toLowerCase();
+    if (!words.every((w) => hay.includes(w))) return null;
+    const score = (e.label.toLowerCase().startsWith(t) ? 0 : e.label.toLowerCase().includes(t) ? 1 : 2) + (e.mode === st.mode ? 0 : 0.5);
+    return [score, e];
+  }).filter(Boolean).sort((a, b) => a[0] - b[0]).slice(0, 12).map((x) => x[1]);
+}
+function ctrlPlace(e) {
+  const tabName = e.tab ? (document.querySelector(`.tab[data-tab="${e.tab}"]`) || {}).textContent : "";
+  return [e.mode[0].toUpperCase() + e.mode.slice(1), e.mode === "test" ? tabName : "", e.group].filter(Boolean).join(" › ");
+}
+function wireFind() {
+  const box = $("#find"), q = $("#findQ"), L = $("#findL"); let hits = [], sel = 0;
+  const open = () => { ctrlScan(); box.hidden = false; $("#findTxt").hidden = true; $("#findMsg").textContent = ""; q.value = ""; draw(); q.focus(); };
+  const close = () => { box.hidden = true; };
+  const draw = () => {
+    hits = ctrlFind(q.value); sel = Math.min(sel, Math.max(0, hits.length - 1)); L.textContent = "";
+    hits.forEach((e, i) => {
+      const li = document.createElement("li"); li.role = "option"; li.setAttribute("aria-selected", String(i === sel));
+      const a = document.createElement("span"); a.textContent = e.label + (e.unit ? `, ${e.unit}` : ""); const b = document.createElement("span"); b.textContent = ctrlPlace(e);
+      li.append(a, b); li.addEventListener("click", () => go(i)); L.appendChild(li);
+    });
+  };
+  const go = (i) => { const e = hits[i]; if (!e) return; close(); ctrlReveal(e.id); };
+  $("#btnFind").addEventListener("click", open);
+  q.addEventListener("input", () => { sel = 0; draw(); });
+  q.addEventListener("keydown", (ev) => {
+    if (ev.key === "ArrowDown") { sel = Math.min(sel + 1, hits.length - 1); draw(); ev.preventDefault(); }
+    else if (ev.key === "ArrowUp") { sel = Math.max(sel - 1, 0); draw(); ev.preventDefault(); }
+    else if (ev.key === "Enter") { go(sel); ev.preventDefault(); }
+  });
+  box.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
+  box.addEventListener("click", (ev) => { if (ev.target === box) close(); });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "/" || !box.hidden) return;
+    const t = ev.target; if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+    ev.preventDefault(); open();
+  });
+  $("#findCopy").addEventListener("click", async () => {
+    const txt = JSON.stringify(ctrlState(), null, 1);
+    try { await navigator.clipboard.writeText(txt); $("#findMsg").textContent = "Copied"; } catch (e) { const ta = $("#findTxt"); ta.hidden = false; ta.value = txt; ta.select(); $("#findMsg").textContent = "Select and copy"; }
+  });
+  $("#findLoad").addEventListener("click", async () => {
+    const ta = $("#findTxt");
+    if (ta.hidden || !ta.value.trim()) { ta.hidden = false; ta.value = ""; ta.placeholder = "Paste a setup here, then Load setup"; ta.focus(); return; }
+    try { await ctrlLoad(ta.value); close(); } catch (e) { $("#findMsg").textContent = "That isn't a setup: " + e.message; }
+  });
+}
+// for agents and scripts: vwt.list(), vwt.get(id), vwt.set(id, v), vwt.state(), vwt.load(setup), vwt.find(text), vwt.show(id)
+window.vwt = { list: () => ctrlList().map(({ get, set, el, ...e }) => e), get: ctrlGet, set: ctrlSet, state: ctrlState, load: ctrlLoad, find: (t) => ctrlFind(t).map(({ get, set, el, ...e }) => e), show: ctrlReveal };
+// ── end Controls ──
 
 // ── VR ──
 // WebXR on headsets (Quest Browser and other WebXR browsers). The solver keeps running on WebGPU; the
