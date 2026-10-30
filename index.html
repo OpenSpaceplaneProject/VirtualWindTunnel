@@ -8112,8 +8112,12 @@ function idealExpandedF(pr, At, pa, epsMax, thr = 1) {
 // as in NASA Glenn's Q2D code (Paxson; Miki et al. 2020).
 // Gas: two-γ premixed model (Schwer & Kailasanath, NRL). Reactants (γ1, R1) carry chemical energy q per
 // kg; products (γ2, R2) take the equilibrium γ and molar mass of the CJ state, and q is set so the
-// model's CJ speed equals the equilibrium one (tools/cj.py). One-step Arrhenius reaction
-// ω = −k ρ Y exp(−Ea / R T), with k set so the reaction zone spans a few cells behind the lead shock.
+// model's CJ speed equals the equilibrium one (tools/cj.py).
+// Chemistry: induction-parameter model, as NRL uses. Each parcel carries its induction progress z,
+// growing at 1/τ(T) with τ = τ_vN exp(θ (T_vN/T − 1)); once z ≥ 1 its reactants convert at rate k.
+// The steep temperature dependence (θ ≈ 20) keeps fresh propellant that touches hot products in the
+// numerically mixed cells from burning before the wave reaches it, the failure a one-step Arrhenius
+// rate shows in RDEs. τ_vN and 1/k are each about one cell's transit behind the lead shock.
 // Scheme: MUSCL (minmod) + HLLE, SSP-RK2, f32. Injector face: each cell takes premixed gas from the
 // plenum (p0, T0) through a throat of area ratio At/Aw while its pressure is below p0 (choked when far
 // below), and acts as a wall otherwise. Outlet: supersonic out, or subsonic to ambient pressure.
@@ -8121,9 +8125,10 @@ const RDE_WGSL = /* wgsl */`
 struct P {
   dims: vec4u,     // nx, ny, n, stage (0 or 1)
   g: vec4f,        // dx, dy, dt, ambient p
-  r1: vec4f,       // γ1, R1, q, Ea (J/kg)
+  r1: vec4f,       // γ1, R1, q, -
   r2: vec4f,       // γ2, R2, k (1/s), At/Aw
   inj: vec4f,      // plenum p0, T0, closed outlet (> 0.5), -
+  ch: vec4f,       // θ·T_vN, θ, 1/τ_vN, -
 };
 @group(0) @binding(0) var<uniform> C: P;
 @group(0) @binding(1) var<storage, read> U0: array<f32>;   // state at the start of the step
@@ -8131,20 +8136,20 @@ struct P {
 @group(0) @binding(3) var<storage, read_write> Un: array<f32>;
 @group(0) @binding(4) var<storage, read> A: array<f32>;    // area at cell centres (ny) then faces (ny+1)
 
-struct W { r: f32, u: f32, v: f32, p: f32, y: f32 };
+struct W { r: f32, u: f32, v: f32, p: f32, y: f32, z: f32 };
 fn cv1() -> f32 { return C.r1.y / (C.r1.x - 1.0); }
 fn cv2() -> f32 { return C.r2.y / (C.r2.x - 1.0); }
 fn gasR(y: f32) -> f32 { return y * C.r1.y + (1.0 - y) * C.r2.y; }
 fn gasCv(y: f32) -> f32 { return y * cv1() + (1.0 - y) * cv2(); }
-fn cons(n: u32) -> array<f32, 5> {
+fn cons(n: u32) -> array<f32, 6> {
   let N = C.dims.z;
-  return array<f32, 5>(Us[n], Us[N + n], Us[2u * N + n], Us[3u * N + n], Us[4u * N + n]);
+  return array<f32, 6>(Us[n], Us[N + n], Us[2u * N + n], Us[3u * N + n], Us[4u * N + n], Us[5u * N + n]);
 }
-fn prim(q: array<f32, 5>) -> W {
+fn prim(q: array<f32, 6>) -> W {
   let r = max(q[0], 1e-9); let u = q[1] / r; let v = q[2] / r; let y = clamp(q[4] / r, 0.0, 1.0);
   let e = q[3] / r - 0.5 * (u * u + v * v);
   let T = max((e - y * C.r1.z) / gasCv(y), 1.0);
-  return W(r, u, v, r * gasR(y) * T, y);
+  return W(r, u, v, r * gasR(y) * T, y, max(q[5] / r, 0.0));
 }
 fn idx(i: i32, j: i32) -> u32 {
   let nx = i32(C.dims.x);
@@ -8154,31 +8159,31 @@ fn idx(i: i32, j: i32) -> u32 {
 fn cellW(i: i32, j: i32) -> W { return prim(cons(idx(i, j))); }
 fn mm(a: f32, b: f32) -> f32 { if (a * b <= 0.0) { return 0.0; } return select(b, a, abs(a) < abs(b)); }
 fn slope(a: W, b: W, c: W) -> W {   // minmod slope of b between a and c
-  return W(mm(b.r - a.r, c.r - b.r), mm(b.u - a.u, c.u - b.u), mm(b.v - a.v, c.v - b.v), mm(b.p - a.p, c.p - b.p), mm(b.y - a.y, c.y - b.y));
+  return W(mm(b.r - a.r, c.r - b.r), mm(b.u - a.u, c.u - b.u), mm(b.v - a.v, c.v - b.v), mm(b.p - a.p, c.p - b.p), mm(b.y - a.y, c.y - b.y), mm(b.z - a.z, c.z - b.z));
 }
-fn add(a: W, s: W, f: f32) -> W { return W(max(a.r + f * s.r, 1e-6), a.u + f * s.u, a.v + f * s.v, max(a.p + f * s.p, 1.0), clamp(a.y + f * s.y, 0.0, 1.0)); }
+fn add(a: W, s: W, f: f32) -> W { return W(max(a.r + f * s.r, 1e-6), a.u + f * s.u, a.v + f * s.v, max(a.p + f * s.p, 1.0), clamp(a.y + f * s.y, 0.0, 1.0), max(a.z + f * s.z, 0.0)); }
 fn sound(w: W) -> f32 { let cv = gasCv(w.y); let R = gasR(w.y); return sqrt((cv + R) / cv * w.p / w.r); }
 fn energy(w: W) -> f32 { let T = w.p / (w.r * gasR(w.y)); return w.r * (gasCv(w.y) * T + w.y * C.r1.z + 0.5 * (w.u * w.u + w.v * w.v)); }
 // HLLE flux across a face with normal along x (dir 0) or y (dir 1)
-fn hlle(L: W, R: W, dir: u32) -> array<f32, 5> {
+fn hlle(L: W, R: W, dir: u32) -> array<f32, 6> {
   let un = select(L.u, L.v, dir == 1u); let vn = select(R.u, R.v, dir == 1u);
   let cL = sound(L); let cR = sound(R);
   let sL = min(min(un - cL, vn - cR), 0.0); let sR = max(max(un + cL, vn + cR), 0.0);
   let EL = energy(L); let ER = energy(R);
-  let qL = array<f32, 5>(L.r, L.r * L.u, L.r * L.v, EL, L.r * L.y);
-  let qR = array<f32, 5>(R.r, R.r * R.u, R.r * R.v, ER, R.r * R.y);
-  var fL = array<f32, 5>(L.r * un, L.r * L.u * un, L.r * L.v * un, (EL + L.p) * un, L.r * L.y * un);
-  var fR = array<f32, 5>(R.r * vn, R.r * R.u * vn, R.r * R.v * vn, (ER + R.p) * vn, R.r * R.y * vn);
+  let qL = array<f32, 6>(L.r, L.r * L.u, L.r * L.v, EL, L.r * L.y, L.r * L.z);
+  let qR = array<f32, 6>(R.r, R.r * R.u, R.r * R.v, ER, R.r * R.y, R.r * R.z);
+  var fL = array<f32, 6>(L.r * un, L.r * L.u * un, L.r * L.v * un, (EL + L.p) * un, L.r * L.y * un, L.r * L.z * un);
+  var fR = array<f32, 6>(R.r * vn, R.r * R.u * vn, R.r * R.v * vn, (ER + R.p) * vn, R.r * R.y * vn, R.r * R.z * vn);
   if (dir == 0u) { fL[1] += L.p; fR[1] += R.p; } else { fL[2] += L.p; fR[2] += R.p; }
-  var f: array<f32, 5>;
+  var f: array<f32, 6>;
   let d = max(sR - sL, 1e-9);
-  for (var k = 0; k < 5; k++) { f[k] = (sR * fL[k] - sL * fR[k] + sR * sL * (qR[k] - qL[k])) / d; }
+  for (var k = 0; k < 6; k++) { f[k] = (sR * fL[k] - sL * fR[k] + sR * sL * (qR[k] - qL[k])) / d; }
   return f;
 }
 // injector face flux into the first cell
-fn injFlux(c: W) -> array<f32, 5> {
+fn injFlux(c: W) -> array<f32, 6> {
   let p0 = C.inj.x; let T0 = C.inj.y; let g = C.r1.x; let R = C.r1.y; let cp = g * R / (g - 1.0);
-  if (c.p >= p0) { return array<f32, 5>(0.0, 0.0, c.p, 0.0, 0.0); }
+  if (c.p >= p0) { return array<f32, 6>(0.0, 0.0, c.p, 0.0, 0.0, 0.0); }
   // isentropic expansion to the larger of cell pressure and the critical pressure, through the throat
   let pc = p0 * pow(2.0 / (g + 1.0), g / (g - 1.0));
   let pt = max(c.p, pc);
@@ -8189,7 +8194,7 @@ fn injFlux(c: W) -> array<f32, 5> {
   var T = T0; var v = 0.0;
   for (var it = 0; it < 4; it++) { let rho = c.p / (R * T); v = m / rho; T = max(T0 - 0.5 * v * v / cp, 0.3 * T0); }
   let h0 = cp * T0 + C.r1.z;
-  return array<f32, 5>(m, 0.0, m * v + c.p, m * h0, m);
+  return array<f32, 6>(m, 0.0, m * v + c.p, m * h0, m, 0.0);
 }
 
 @compute @workgroup_size(16, 8)
@@ -8205,17 +8210,17 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   let fxR = hlle(add(c0, s0, 0.5), add(wp1, sp1, -0.5), 0u);
   let fxL = hlle(add(wm1, sm1, 0.5), add(c0, s0, -0.5), 0u);
   // y faces
-  var gB: array<f32, 5>; var gT: array<f32, 5>;
+  var gB: array<f32, 6>; var gT: array<f32, 6>;
   let jm = max(j - 1, 0); let jp = min(j + 1, i32(ny) - 1);
   let wd1 = cellW(i, jm); let wu1 = cellW(i, jp);
   let sy0 = slope(wd1, c0, wu1);
   if (j == 0) { gB = injFlux(c0); }
   else {
     let wd2 = cellW(i, max(j - 2, 0));
-    var sd = slope(wd2, wd1, c0); if (j == 1) { sd = W(0.0, 0.0, 0.0, 0.0, 0.0); }
+    var sd = slope(wd2, wd1, c0); if (j == 1) { sd = W(0.0, 0.0, 0.0, 0.0, 0.0, 0.0); }
     gB = hlle(add(wd1, sd, 0.5), add(c0, sy0, -0.5), 1u);
   }
-  if (j == i32(ny) - 1 && C.inj.z > 0.5) { gT = array<f32, 5>(0.0, 0.0, c0.p, 0.0, 0.0); }
+  if (j == i32(ny) - 1 && C.inj.z > 0.5) { gT = array<f32, 6>(0.0, 0.0, c0.p, 0.0, 0.0, 0.0); }
   else if (j == i32(ny) - 1) {
     // outlet: supersonic → extrapolate; subsonic → ambient pressure ghost
     var gw = c0;
@@ -8223,19 +8228,19 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
     gT = hlle(c0, gw, 1u);
   } else {
     let wu2 = cellW(i, min(j + 2, i32(ny) - 1));
-    var su = slope(c0, wu1, wu2); if (j == i32(ny) - 2) { su = W(0.0, 0.0, 0.0, 0.0, 0.0); }
+    var su = slope(c0, wu1, wu2); if (j == i32(ny) - 2) { su = W(0.0, 0.0, 0.0, 0.0, 0.0, 0.0); }
     gT = hlle(add(c0, sy0, 0.5), add(wu1, su, -0.5), 1u);
   }
   let Ac = A[gid.y]; let Ab = A[ny + gid.y]; let At = A[ny + gid.y + 1u];
   // pressure on the walls where the area changes (y momentum)
-  var src = array<f32, 5>(0.0, 0.0, c0.p * (At - Ab) / (Ac * dy), 0.0, 0.0);
-  // reaction
+  var src = array<f32, 6>(0.0, 0.0, c0.p * (At - Ab) / (Ac * dy), 0.0, 0.0, 0.0);
+  // induction, then reaction
   let T = c0.p / (c0.r * gasR(c0.y));
-  let w = C.r2.z * c0.r * c0.y * exp(-C.r1.w / (gasR(c0.y) * T));
-  src[4] = -min(w, c0.r * c0.y / dt);
+  if (c0.y > 1e-4 && c0.z < 1.0) { src[5] = c0.r * C.ch.z * exp(min(C.ch.y - C.ch.x / max(T, 1.0), 30.0)); }
+  if (c0.z >= 1.0) { src[4] = -min(C.r2.z * c0.r * c0.y, c0.r * c0.y / dt); }
   let a = select(0.5, 1.0, C.dims.w == 0u);
-  var q: array<f32, 5>;
-  for (var k = 0u; k < 5u; k++) {
+  var q: array<f32, 6>;
+  for (var k = 0u; k < 6u; k++) {
     let rhs = -(fxR[k] - fxL[k]) / dx - (At * gT[k] - Ab * gB[k]) / (Ac * dy) + src[k];
     let u1 = Us[k * N + n] + dt * rhs;
     q[k] = (1.0 - a) * U0[k * N + n] + a * u1;
@@ -8246,17 +8251,17 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   var uu = vec2f(q[1], q[2]) / q[0]; let sp = length(uu); if (sp > 2e4) { uu = uu * (2e4 / sp); }
   let yy = clamp(q[4] / q[0], 0.0, 1.0);
   let eint = max(q[3] / q[0] - 0.5 * dot(uu, uu), gasCv(yy) * 50.0 + yy * C.r1.z);
-  Un[n] = q[0]; Un[N + n] = q[0] * uu.x; Un[2u * N + n] = q[0] * uu.y; Un[3u * N + n] = q[0] * (eint + 0.5 * dot(uu, uu)); Un[4u * N + n] = q[0] * yy;
+  Un[n] = q[0]; Un[N + n] = q[0] * uu.x; Un[2u * N + n] = q[0] * uu.y; Un[3u * N + n] = q[0] * (eint + 0.5 * dot(uu, uu)); Un[4u * N + n] = q[0] * yy; Un[5u * N + n] = clamp(q[5], 0.0, 2.0 * q[0]);
 }`;
 
 // Host side. cfg: { nx, ny, L (circumference, m), H (axial length, m), area(y) → m², gas {gam1,R1,gam2,R2,q},
-// Ea, k, AtAw, p0, T0, pa, init {h (fresh layer, m), pFresh, pBurn, TBurn, wIgn (m)} }.
+// chem {theta, TvN, tau (s), k (1/s)}, AtAw, p0, T0, pa, init {h (fresh layer, m), pFresh, pBurn, TBurn, wIgn (m)} }.
 // Works on any WebGPU device; returns an object with step(n), sample() and destroy().
 async function rdeCreate(dev, cfg) {
   const { nx, ny } = cfg, N = nx * ny, dx = cfg.L / nx, dy = cfg.H / ny, G = cfg.gas;
   const cv = (y) => y * G.R1 / (G.gam1 - 1) + (1 - y) * G.R2 / (G.gam2 - 1), R = (y) => y * G.R1 + (1 - y) * G.R2;
-  const U = new Float32Array(5 * N), I = cfg.init;
-  const put = (n, r, u, v, p, y) => { const T = p / (r * R(y)); U[n] = r; U[N + n] = r * u; U[2 * N + n] = r * v; U[3 * N + n] = r * (cv(y) * T + y * G.q + 0.5 * (u * u + v * v)); U[4 * N + n] = r * y; };
+  const U = new Float32Array(6 * N), I = cfg.init;
+  const put = (n, r, u, v, p, y) => { const T = p / (r * R(y)); U[n] = r; U[N + n] = r * u; U[2 * N + n] = r * v; U[3 * N + n] = r * (cv(y) * T + y * G.q + 0.5 * (u * u + v * v)); U[4 * N + n] = r * y; U[5 * N + n] = y > 0.5 ? 0 : r; };
   for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
     const x = (i + 0.5) * dx, y = (j + 0.5) * dy, n = i + nx * j;
     if (y < I.h && x > I.wIgn && x < cfg.L - (I.back || I.wIgn)) put(n, I.pFresh / (G.R1 * cfg.T0), 0, 0, I.pFresh, 1);                // fresh layer
@@ -8274,8 +8279,9 @@ async function rdeCreate(dev, cfg) {
   if (errs.length) throw new Error(errs.map((e) => e.lineNum + ": " + e.message).join("\n"));
   const pipe = dev.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "step" } });
   let dt = cfg.dt || 0.3 * Math.min(dx, dy) / (1.8 * cfg.Dcj);
-  const uni = (stage) => { const ab = new ArrayBuffer(80), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]); f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, cfg.Ea, G.gam2, G.R2, cfg.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0], 4); return ab; };
-  const UB = [0, 1].map(() => dev.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | CD }));
+  const X = cfg.chem;
+  const uni = (stage) => { const ab = new ArrayBuffer(96), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]); f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, 0, G.gam2, G.R2, X.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0, X.theta * X.TvN, X.theta, 1 / X.tau, 0], 4); return ab; };
+  const UB = [0, 1].map(() => dev.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | CD }));
   const writeU = () => { dev.queue.writeBuffer(UB[0], 0, uni(0)); dev.queue.writeBuffer(UB[1], 0, uni(1)); };
   writeU();
   const bg = (u, a, b, c) => dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [UB[u], B[a], B[b], B[c], Ab].map((buffer, binding) => ({ binding, resource: { buffer } })) });
@@ -8285,7 +8291,7 @@ async function rdeCreate(dev, cfg) {
   const bgFor = () => { const k = order.join(); if (!groups.has(k)) groups.set(k, [bg(0, order[0], order[0], order[1]), bg(1, order[0], order[1], order[2])]); return groups.get(k); };
   const wx = Math.ceil(nx / 16), wy = Math.ceil(ny / 8);
   let t = 0, steps = 0;
-  const rd = dev.createBuffer({ size: 5 * N * 4, usage: GPUBufferUsage.MAP_READ | CD });
+  const rd = dev.createBuffer({ size: 6 * N * 4, usage: GPUBufferUsage.MAP_READ | CD });
   return {
     dx, dy, N,
     get t() { return t; }, get dt() { return dt; }, get steps() { return steps; }, get state() { return B[order[0]]; }, nx, ny,
@@ -8300,7 +8306,7 @@ async function rdeCreate(dev, cfg) {
       dev.queue.submit([e.finish()]);
     },
     async read() {
-      const e = dev.createCommandEncoder(); e.copyBufferToBuffer(B[order[0]], 0, rd, 0, 5 * N * 4); dev.queue.submit([e.finish()]);
+      const e = dev.createCommandEncoder(); e.copyBufferToBuffer(B[order[0]], 0, rd, 0, 6 * N * 4); dev.queue.submit([e.finish()]);
       await rd.mapAsync(GPUMapMode.READ); const q = new Float32Array(rd.getMappedRange().slice(0)); rd.unmap(); return q;
     },
     // instantaneous diagnostics from a state snapshot
@@ -8346,7 +8352,7 @@ function rdeConfig() {
   const TvN = (T0 * (2 * g1 * Mn * Mn - (g1 - 1)) * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) ** 2 * Mn * Mn);
   const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn);
   const area = (y) => (y <= Lc ? Ac : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
-  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, Ea: 8 * R1 * TvN, k: (uvN / (2 * dx)) * Math.exp(8), AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
+  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 20, TvN, tau: dx / uvN, k: uvN / dx }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
     Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }

@@ -185,12 +185,18 @@ Engines › Nozzle › Rotating detonation runs a detonation chamber of your own
 **Gas model.** It is NRL's two-γ model (Schwer & Kailasanath):
 - Reactants carry the heat of reaction.
 - Products take the equilibrium γ and molar mass of the Chapman–Jouguet (CJ) state, the ideal detonation.
-- One Arrhenius step converts reactants to products.
 - The heat of reaction is calibrated so the model's CJ speed equals the equilibrium CJ speed from Cantera.
 
 `tools/cj.py` computes those CJ speeds. They agree with the Caltech detonation database to within 0.1%: H₂–air 1969 m/s, C₂H₄–O₂ 2374 m/s, CH₄–O₂ 2390 m/s.
 
-**Reaction zone.** The rate constant puts the reaction zone 2 cells behind the lead shock. Real reaction zones are tenths of a millimetre, so detonations here are thicker than real ones. The cells must be small against the fresh-propellant layer the wave runs through, a few millimetres in small rigs.
+**Chemistry.** It is an induction-parameter model, as NRL uses:
+- Each parcel carries its ignition-delay progress, which grows at 1/τ(T), with τ = τ_vN·exp(θ(T_vN/T − 1)) and θ = 20. T_vN is the temperature just behind the lead shock.
+- Once the delay is used up, the reactants convert.
+- τ_vN and the conversion time are each about one cell's transit behind the shock.
+
+A one-step Arrhenius rate failed here. Fresh propellant entering behind the wave meets hot products in the numerically mixed cells next to the injector, and it burned there before the next wave arrived. The steep ignition delay stops that.
+
+**Reaction zone.** Real reaction zones are tenths of a millimetre, so detonations here are thicker than real ones. The cells must be small against the fresh-propellant layer the wave runs through, a few millimetres in small rigs.
 
 **Injector and outlet.**
 - Each injector-face cell draws premixed propellant from the plenum through a throat of the set area ratio, choked when the chamber pressure is low enough. It acts as a wall while its pressure is above the plenum's.
