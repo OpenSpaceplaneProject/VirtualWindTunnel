@@ -736,6 +736,14 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           </div>
           <dl class="kv" id="engInfo"></dl>
           </div>
+          <div class="hyp-only" id="depBox">
+            <h3 class="grp">Energy ahead of the nose</h3>
+            <label class="chk" title="Heat deposited in the air ahead of the body, as a microwave or laser beam focused there would: the hot, thin core pushes the bow shock forward and cuts wave drag and nose heating. Compressible solver only."><input type="checkbox" id="depOn">Deposit energy</label>
+            <label class="ctl" title="Power as a multiple of the free stream's kinetic energy flux through the body's frontal area, ½ρV³A"><span class="k">Power, of ½ρV³A</span><output id="oDepP"></output><input type="range" id="depP" min="0.05" max="3" step="0.05"></label>
+            <label class="ctl" title="Centre of the heated spot ahead of the nose, in body lengths"><span class="k">Distance ahead</span><output id="oDepD"></output><input type="range" id="depD" min="0.03" max="0.6" step="0.01"></label>
+            <label class="ctl" title="Radius of the heated spot (Gaussian 1/e), in body lengths; never under 1.5 grid cells"><span class="k">Spot radius</span><output id="oDepR"></output><input type="range" id="depR" min="0.005" max="0.1" step="0.005"></label>
+            <dl class="kv" id="depInfo"></dl>
+          </div>
         </section>
 
         <section class="pane" data-pane="solver" hidden>
@@ -2032,7 +2040,7 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
   // the flow is distributed. Too much heat for the duct chokes it thermally, as in a real engine.
   for (var k = 0u; k < min(EN.count, 32u); k++) {
     let d = EN.e[4u * k + 3u];
-    if (d.y < 1.5) { continue; }
+    if (d.y < 1.5 || d.y > 2.5) { continue; }
     let a = EN.e[4u * k]; let b = EN.e[4u * k + 1u]; let x = EN.e[4u * k + 2u];
     let q = vec3f(c) + vec3f(0.5) - a.xyz;
     let ax = dot(q, b.xyz);
@@ -2041,6 +2049,18 @@ fn stage(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) nwg
     if (rr > b.w || rr < x.w) { continue; }
     let s0 = ldP(n);
     dE += s0.r * max(dot(s0.u, b.xyz), 0.0) * x.x / a.w;
+  }
+  // Energy deposition ahead of the body (a microwave or laser "air spike"): heat added at a fixed
+  // power, whatever flows through, as a Gaussian spot q = x.x·exp(−r²/a.w²) out to b.w. The hot,
+  // thin core it leaves pushes the bow shock forward. Power per unit volume in ρ∞U∞³/Δx.
+  for (var k = 0u; k < min(EN.count, 32u); k++) {
+    let d = EN.e[4u * k + 3u];
+    if (d.y < 2.5) { continue; }
+    let a = EN.e[4u * k]; let b = EN.e[4u * k + 1u]; let x = EN.e[4u * k + 2u];
+    let q = vec3f(c) + vec3f(0.5) - a.xyz;
+    let r2 = dot(q, q);
+    if (r2 > b.w * b.w) { continue; }
+    dE += x.x * exp(-r2 / (a.w * a.w));
   }
   let U0 = ldU(n);
   var Un = F5(U0.a + E.dt * dA, U0.e + E.dt * dE);
@@ -3223,7 +3243,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, P: 1, d: 0.2, r: 0.03 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -6896,6 +6916,22 @@ function wireEngines() {
   }
   $("#engDir").addEventListener("change", (e) => { st.eng.dir = e.target.value; changed(); });
   syncEngineUI();
+  const dep = () => {
+    const Dp = st.dep;
+    $("#depOn").checked = Dp.on;
+    $("#depP").value = Dp.P; $("#oDepP").textContent = Dp.P.toFixed(2) + "×";
+    $("#depD").value = Dp.d; $("#oDepD").textContent = Dp.d.toFixed(2) + " L";
+    $("#depR").value = Dp.r; $("#oDepR").textContent = Dp.r.toFixed(3) + " L";
+    const sp = depSpot(envNow()), row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+    $("#depInfo").innerHTML = !Dp.on ? "" : !st.euler ? row("Solver", "needs the compressible solver") : !sp ? row("Spot", "measuring the body…") :
+      row("Power here", sp.W > 0 ? (sp.W >= 1e9 ? (sp.W / 1e9).toFixed(2) + " GW" : (sp.W / 1e6).toFixed(1) + " MW") : "—") +
+      row("Frontal area", sp.Am.toFixed(2) + " m²") + row("Spot radius", sp.rMetres.toFixed(2) + " m");
+  };
+  wireEngines.dep = dep;
+  $("#depOn").addEventListener("change", (e) => { st.dep.on = e.target.checked; eu.hist = { cl: [], cd: [], cm: [] }; dep(); });
+  for (const [id, key] of [["#depP", "P"], ["#depD", "d"], ["#depR", "r"]]) $(id).addEventListener("input", (e) => { st.dep[key] = +e.target.value; dep(); });
+  dep();
+  setInterval(() => { if (st.dep.on) dep(); }, 1000);
 }
 function updateHud() {
   updateChain();
@@ -7080,7 +7116,11 @@ async function refAreas() {
     const row = nx * (y + ny * z);
     for (let x = 0; x < nx; x++) if (f[row + x] === 1) { solid++; sx[x]++; plan[x + nx * y] = 1; front[y + ny * z] = 1; if (x < xmin) xmin = x; if (x > xmax) xmax = x; if (y < ymin) ymin = y; if (y > ymax) ymax = y; if (z < zmin) zmin = z; if (z > zmax) zmax = z; }
   }
-  const val = { plan: plan.reduce((a, b) => a + b, 0), front: front.reduce((a, b) => a + b, 0), solid, xmin, xmax, ymin, ymax, zmin, zmax, sx, o: origin(), L: lc(), size: st.size };
+  // the nose: the mean of the most upstream solid cells (cell centres)
+  let ny0 = 0, nz0 = 0, nn = 0;
+  if (xmin < nx) for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) if (f[xmin + nx * (y + ny * z)] === 1) { ny0 += y + 0.5; nz0 += z + 0.5; nn++; }
+  const nose = nn ? [xmin, ny0 / nn, nz0 / nn] : null;
+  const val = { plan: plan.reduce((a, b) => a + b, 0), front: front.reduce((a, b) => a + b, 0), solid, xmin, xmax, ymin, ymax, zmin, zmax, sx, nose, o: origin(), L: lc(), size: st.size };
   refCache.key = key; refCache.val = val;
   return val;
 }
@@ -8005,6 +8045,25 @@ function engWorld(xb, yb, zb) {
   const o = origin(), piv = [0.5, 0, 0], pb = [xb - piv[0], yb, zb];
   return [0, 1, 2].map((r) => o[r] + lc() * (ATT[r][0] * pb[0] + ATT[r][1] * pb[1] + ATT[r][2] * pb[2] + piv[r]));
 }
+// Energy deposition spot in grid cells. Power as a multiple of the free stream's kinetic energy flux
+// through the body's frontal area, η = P / (½ρ∞U∞³A), the usual measure in the literature; the
+// Gaussian's integral is π^1.5·r0³, so its peak is q0 = η·½A / (π^1.5·r0³) in solver units.
+function depSpot(env) {
+  const Dp = st.dep;
+  if (!Dp || !Dp.on || st.regime !== "hyp" || !st.euler || !R) return null;
+  const A = refCache.val;
+  if (!A || !A.nose || A.L !== lc()) {
+    if (!depSpot.busy) { depSpot.busy = true; refAreas().finally(() => { depSpot.busy = false; }); }
+    return null;
+  }
+  const k = lc(), r0 = Math.max(1.5, Dp.r * k);
+  const c = [A.nose[0] - Dp.d * k, A.nose[1], A.nose[2]];
+  if (c[0] - 3 * r0 < 2) return null;   // keep it inside the domain, clear of the inflow face
+  const q0 = (Dp.P * 0.5 * A.front) / (Math.pow(Math.PI, 1.5) * r0 * r0 * r0);
+  const L = Math.max(st.ent.L, 1e-3), Am = A.front * (L / k) * (L / k);
+  const W = env && env.V > 1 ? Dp.P * 0.5 * env.rho * env.V ** 3 * Am : 0;
+  return { c, r0, q0, W, Am, rMetres: (r0 / k) * L };
+}
 function writeEngines(env) {
   engF.fill(0); engJet = { vmax: 0, cmax: 0 };
   const E = st.eng;
@@ -8055,6 +8114,17 @@ function writeEngines(env) {
       const cj = Math.sqrt((g * X.pe) / X.re), vj = Math.sqrt(X.ue * X.ue + (2 / (g - 1)) * cj * cj);
       if (vj > engJet.vmax) engJet = { vmax: vj, cmax: Math.max(cj, engJet.cmax) };
     }
+  }
+  // energy deposition: a Gaussian spot of set power a set distance ahead of the nose
+  const dp = depSpot(env);
+  if (dp && n < 32) {
+    engF.set([dp.c[0], dp.c[1], dp.c[2], dp.r0, 0, 0, 0, 3 * dp.r0, dp.q0, 0, 0, 0, 0, 3, 0, 0], 4 + 16 * n);
+    n++;
+    // the hottest gas it can make: a parcel through the centre, taken as moving at half the free
+    // stream (the bow shock may stand in the spot), bounds the time step like a hot exhaust
+    const M = eu.M, H = 0.5 + 1 / ((g - 1) * M * M) + 2 * dp.q0 * Math.sqrt(Math.PI) * dp.r0;
+    const vj = Math.sqrt(2 * H), cj = Math.sqrt((g - 1) * H);
+    if (vj > engJet.vmax) engJet = { vmax: vj, cmax: Math.max(cj, engJet.cmax) };
   }
   engU32[0] = n;
   dev.queue.writeBuffer(R.engU, 0, engAB);

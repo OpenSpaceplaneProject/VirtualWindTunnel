@@ -141,6 +141,23 @@ Exhaust plumes are solved by the high-speed flow solver, above Mach 0.6. Low-spe
 
 Each nozzle is ideal-rocket theory: frozen, isentropic, one-dimensional flow from the chamber to the exit area ratio, which gives exit Mach number, pressure, velocity and mass flow. Real engines lose a few per cent; the presets are representative, not certified data. In the flow solver each exit plane is a source boundary that injects that exit state, so the plume, its shock cells, base pressure and any interaction with the airframe are solved. The exhaust is carried as the solver's gas with the true exit density, velocity and pressure, so mass flow, momentum and pressure are right, while its temperature and sound speed follow air's properties. For an aerospike only the primary nozzle is modelled this way; the spike is geometry, so its thrust appears in the surface pressure. Thrust shown here is the nozzle exit thrust; pressure on the spike and base adds to it through the force coefficients.
 
+### Energy ahead of the nose
+
+Engines › Energy ahead of the nose adds heat to the air ahead of the body, as a microwave or laser beam focused there would. It's a source term in the compressible solver's energy equation: a spherical Gaussian spot, q = q₀·exp(−r²/r₀²), cut off at 3r₀, centred a set distance ahead of the nose.
+
+The nose is the mean position of the most upstream solid cells. Power is set as η = P / (½ρ∞V³A), a multiple of the free stream's kinetic energy flux through the frontal area, which is the usual measure in the energy-deposition literature. The panel shows the equivalent watts at the current flight condition. The spot radius is never below 1.5 cells, so the grid resolves it.
+
+The heated gas is hotter and faster than anything in the free stream, so the time step is bounded the same way as for a hot exhaust. That bound comes from the total enthalpy of a parcel crossing the spot's centre at half the free-stream speed.
+
+The power is fixed: the beam isn't modelled. Whether a microwave beam reaches the spot through the shock layer's plasma, and where it would be absorbed, needs the electron density. That isn't in the gas model yet.
+
+Check, run with the app's own solver kernels: a cylinder at Mach 4, inviscid, 8 cells to the radius, with the spot 1.5 radii ahead and 2.5 cells in radius.
+- Without the spot: the shock stands 0.62 R off, against 0.52 R from Billig's correlation, which is within a cell. The drag coefficient is 1.42.
+- With η = 1: the shock moves forward to the spot and the drag coefficient falls to 0.92 (−35%).
+- With η = 2: the drag coefficient is 0.89 (−37%), so most of the gain comes early.
+
+All three runs ran to the same flow time and their drag settled. The grid is coarse, and other grids weren't tried.
+
 ### Air-breathing engine
 
 The intake is solved by the high-speed flow solver, above Mach 0.6.

@@ -1,0 +1,84 @@
+<!doctype html><meta charset=utf-8><script src="eul_src.js"></script><script>
+// Sphere at Mach M in the app's Euler kernels, with and without an energy spot ahead of it.
+async function run(cfg) {
+  const { NX, NY, NZ, R0, M, steps, dep } = cfg;
+  const N = NX * NY * NZ, g = 1.4, pinf = 1 / (g * M * M);
+  const ad = await navigator.gpu.requestAdapter(); const dev = await ad.requestDevice({ requiredLimits: { maxStorageBufferBindingSize: ad.limits.maxStorageBufferBindingSize } });
+  const mod = dev.createShaderModule({ code: EULER_WGSL });
+  const info = await mod.getCompilationInfo(); const errs = info.messages.filter((m) => m.type === "error"); if (errs.length) return { err: errs.map((e) => e.lineNum + ": " + e.message).join("\n") };
+  const sb = (bytes, usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC) => dev.createBuffer({ size: Math.max(16, bytes), usage });
+  const A = sb(5 * N * 4), B = sb(5 * N * 4), F = sb(N * 4), NR = sb(N * 8), EQ = sb(64), PAR = sb(16);
+  const cx = 30 + R0, cy = NY / 2, cz = NZ / 2;
+  const fl = new Uint32Array(N);
+  for (let z = 0; z < NZ; z++) for (let y = 0; y < NY; y++) for (let x = 0; x < NX; x++) { const d = cfg.cyl ? Math.hypot(x + 0.5 - cx, y + 0.5 - cy) : Math.hypot(x + 0.5 - cx, y + 0.5 - cy, z + 0.5 - cz); if (d < R0) fl[x + NX * (y + NY * z)] = 1; }
+  dev.queue.writeBuffer(F, 0, fl);
+  // engine/source uniform
+  const eab = new ArrayBuffer(16 + 128 * 16), ef = new Float32Array(eab), eu = new Uint32Array(eab);
+  let dt = 0.4 / (Math.sqrt(3) * Math.sqrt(1 + 2 / ((g - 1) * M * M)) + 3 * (1 / M) * Math.sqrt(1 + 0.5 * (g - 1) * M * M));
+  if (dep) {
+    const nose = cx - R0, r0 = dep.r0, A_front = cfg.cyl ? 2 * R0 * NZ : Math.PI * R0 * R0;
+    const q0 = (dep.P * 0.5 * A_front) / (Math.pow(Math.PI, 1.5) * r0 ** 3);
+    ef.set([nose - dep.d, cy, cz, r0, 0, 0, 0, 3 * r0, q0, 0, 0, 0, 0, 3, 0, 0], 4); eu[0] = 1;
+    const H = 0.5 + 1 / ((g - 1) * M * M) + 2 * q0 * Math.sqrt(Math.PI) * r0;
+    dt = Math.min(dt, 0.4 / (Math.sqrt(3) * Math.sqrt(2 * H) + 3 * Math.max(Math.sqrt((g - 1) * H), (1 / M) * Math.sqrt(1 + 0.5 * (g - 1) * M * M))));
+  }
+  const EN = dev.createBuffer({ size: eab.byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); dev.queue.writeBuffer(EN, 0, eab);
+  const mkU = (a, b) => { const ab = new ArrayBuffer(112), f = new Float32Array(ab), u = new Uint32Array(ab); u[0] = NX; u[1] = NY; u[2] = NZ; u[3] = N; f[4] = g; f[5] = dt; f[6] = a; f[7] = b; f[8] = pinf; f[9] = 0; f[10] = 1; f[11] = 0; const buf = dev.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); dev.queue.writeBuffer(buf, 0, ab); return buf; };
+  const U1 = mkU(0, 1), U2 = mkU(0.5, 0.5);
+  const pInit = dev.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "init" } });
+  const pStage = dev.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "stage" } });
+  const bg = (pipe, U, s, d) => dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [[0, U], [1, s], [2, d], [3, F], [4, NR], [5, EN], [6, EQ], [7, PAR]].filter(([i]) => used(pipe, i)).map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+  const used = (pipe, i) => { try { pipe.getBindGroupLayout(0); return true; } catch (e) { return false; } };
+  const X = Math.min(Math.ceil(N / 64), 65535), Y = Math.ceil(Math.ceil(N / 64) / X);
+  let bgI;
+  dev.pushErrorScope("validation");
+  try { bgI = dev.createBindGroup({ layout: pInit.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: U1 } }, { binding: 2, resource: { buffer: A } }, { binding: 6, resource: { buffer: EQ } }, { binding: 7, resource: { buffer: PAR } }] }); } catch (e) { return { err: "init bg " + e }; }
+  { const v = await dev.popErrorScope(); if (v) return { err: "init bg: " + v.message }; }
+  const all = (pipe, U, s, d) => dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [[0, U], [1, s], [2, d], [3, F], [4, NR], [5, EN], [6, EQ], [7, PAR]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+  const s1 = all(pStage, U1, A, B), s2 = all(pStage, U2, B, A);
+  dev.pushErrorScope("validation");
+  { const e = dev.createCommandEncoder(); const p = e.beginComputePass(); p.setPipeline(pInit); p.setBindGroup(0, bgI); p.dispatchWorkgroups(X, Y); p.end(); dev.queue.submit([e.finish()]); }
+  const ve = await dev.popErrorScope(); if (ve) return { err: "init: " + ve.message };
+  dev.pushErrorScope("validation");
+  const t0 = performance.now();
+  const rdS = sb(5 * N * 4, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+  const nb6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  const cdOf = (U) => {
+    const pr = (n) => { const r = U[n], u = U[N + n] / r, v = U[2 * N + n] / r, w = U[3 * N + n] / r; return (g - 1) * (U[4 * N + n] - 0.5 * r * (u * u + v * v + w * w)); };
+    let Fx = 0;
+    for (let z = 1; z < NZ - 1; z++) for (let y = 1; y < NY - 1; y++) for (let x = 1; x < NX - 1; x++) {
+      const n = x + NX * (y + NY * z); if (fl[n]) continue;
+      for (const [a, b, c] of nb6) { const m = n + a + NX * (b + NY * c); if (fl[m]) Fx += (pr(n) - pinf) * a; }
+    }
+    return +(Fx / (0.5 * (cfg.cyl ? 2 * R0 * (NZ - 2) : Math.PI * R0 * R0))).toFixed(4);
+  };
+  const total = cfg.T ? Math.ceil(cfg.T / dt / 20) * 20 : steps, hist = [];
+  for (let s = 0; s < total; s += 20) {
+    if (s > 0 && s % Math.max(20, Math.round(total / 8 / 20) * 20) === 0) {
+      const e = dev.createCommandEncoder(); e.copyBufferToBuffer(A, 0, rdS, 0, 5 * N * 4); dev.queue.submit([e.finish()]);
+      await rdS.mapAsync(GPUMapMode.READ); hist.push([+(s * dt).toFixed(1), cdOf(new Float32Array(rdS.getMappedRange().slice(0)))]); rdS.unmap();
+    }
+    const e = dev.createCommandEncoder(); const p = e.beginComputePass(); p.setPipeline(pStage);
+    for (let k = 0; k < 20; k++) { p.setBindGroup(0, s1); p.dispatchWorkgroups(X, Y); p.setBindGroup(0, s2); p.dispatchWorkgroups(X, Y); }
+    p.end(); dev.queue.submit([e.finish()]); await dev.queue.onSubmittedWorkDone();
+  }
+  const ve2 = await dev.popErrorScope(); if (ve2) return { err: "stage: " + ve2.message };
+  const rd = sb(5 * N * 4, GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST);
+  { const e = dev.createCommandEncoder(); e.copyBufferToBuffer(A, 0, rd, 0, 5 * N * 4); dev.queue.submit([e.finish()]); }
+  await rd.mapAsync(GPUMapMode.READ); const U = new Float32Array(rd.getMappedRange().slice(0)); rd.unmap();
+  const pr = (n) => { const r = U[n], u = U[N + n] / r, v = U[2 * N + n] / r, w = U[3 * N + n] / r; return (g - 1) * (U[4 * N + n] - 0.5 * r * (u * u + v * v + w * w)); };
+  // pressure drag on the sphere: each fluid face against a solid neighbour
+  let Fx = 0; const nb = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+  for (let z = 1; z < NZ - 1; z++) for (let y = 1; y < NY - 1; y++) for (let x = 1; x < NX - 1; x++) {
+    const n = x + NX * (y + NY * z); if (fl[n]) continue;
+    for (const [a, b, c] of nb) { const m = n + a + NX * (b + NY * c); if (fl[m]) Fx += (pr(n) - pinf) * a; }
+  }
+  const CD = Fx / (0.5 * (cfg.cyl ? 2 * R0 * (NZ - 2) : Math.PI * R0 * R0));
+  // shock standoff on the stagnation line: first cell from upstream where density passes 1.5
+  let xs = -1, rmin = 1e9, Tmax = 0; const row = NX * (Math.floor(cy) + NY * Math.floor(cz));
+  for (let x = 1; x < cx - R0; x++) { const n = row + x; if (xs < 0 && U[n] > 1.5) xs = x; rmin = Math.min(rmin, U[n]); Tmax = Math.max(Tmax, pr(n) / U[n] / pinf); }
+  const probe = [0, 1, 5, 10, 20, Math.floor(cx - R0 - 2)].map((x) => [x, +U[row + x].toFixed(3), +U[N + row + x].toFixed(3), +U[4 * N + row + x].toFixed(3)]);
+  return { hist, steps: total, probe, nzero: U.slice(0, N).filter((v) => v === 0).length, CD: +CD.toFixed(4), standoff: xs < 0 ? null : +((cx - R0) - xs).toFixed(1), rhoMinOnAxis: +rmin.toFixed(3), TmaxOverTinf: +Tmax.toFixed(2), dt: +dt.toFixed(4), ms: Math.round(performance.now() - t0), nan: U.some((v) => !isFinite(v)) };
+}
+window.run = run;
+</script>
