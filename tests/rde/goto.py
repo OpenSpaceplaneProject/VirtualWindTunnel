@@ -18,11 +18,13 @@ def cfg(test, p0, dx, t_end, AtAw=0.12, EaRT=8.0, cells_rz=2):
     TvN = T0 * (2 * g1 * M * M - (g1 - 1)) * ((g1 - 1) * M * M + 2) / ((g1 + 1) ** 2 * M * M)
     uvN = D * ((g1 - 1) * M * M + 2) / ((g1 + 1) * M * M)
     L = math.pi * (Di + De); H = Lc + Lp; nx = int(round(L / dx)); ny = int(round(H / dx))
-    dt = 0.3 * dx / (1.8 * D); every = 40; samples = int(t_end / dt / every)
+    dt = 0.3 * dx / (1.8 * D); every = max(4, min(40, int(L / (16 * 1.2 * D * dt)))); samples = int(t_end / dt / every)
     return dict(nx=nx, ny=ny, L=L, H=H, areaDef=dict(type='plug', Ac=Ac, Lc=Lc, Do=Do, Di=Di, half=half), gas=m, chem=dict(theta=0.0, TvN=TvN, tau=0.5 * dx / uvN, k=uvN / (0.5 * dx), Tign=0.65 * TvN, pign=2 * p0),
                 AtAw=AtAw, p0=p0, T0=T0, pa=101325.0, closed=False, Dcj=D, dt=dt, probeY=40e-3,
                 init=dict(h=10e-3, pFresh=101325.0, wIgn=10e-3, back=0.3 * L, pIgn=c['cj']['p'], TIgn=c['cj']['T'], uIgn=D * (1 - c['cj']['rho1'] / c['cj']['rho2']), TBurn=2500.0),
-                samples=samples, every=every)
+                samples=samples, every=every,
+                plenum=dict(on=os.environ.get('FEED') == 'res', mdot=T['mdot'], V=float(os.environ.get('VP', '30')) * 1e-6, neck=float(os.environ.get('NECK', '5')) * 1e-3, Cd=0.7),
+                teeth=dict(n=int(os.environ.get('TEETH', '0')), depth=float(os.environ.get('DEPTH', '0'))))
 def summarise(r, c, frac=0.5):
     h = r['hist']; h2 = h[int(len(h) * (1 - frac)):]
     avg = lambda k: sum(x[k] for x in h2) / len(h2)
@@ -35,7 +37,14 @@ def summarise(r, c, frac=0.5):
     sp.sort(); v = sp[len(sp) // 2] if sp else float('nan')
     wv = sorted(x['waves'] for x in h2)[len(h2) // 2]
     mi, mo, F = avg('mIn'), avg('mOut'), avg('F')
-    return dict(mIn=mi, mOut=mo, F=F, isp=F / (mi * 9.80665), pProbe=avg('pProbe'), pHead=avg('pHead'), waves=wv, v=v, t=h[-1]['t'], ms=r.get('ms'))
+    amp = [sum(x['amp'][k] for x in h2) / len(h2) for k in range(8)]; n = amp.index(max(amp))
+    fs = []
+    for a_, b_ in zip(h2, h2[1:]):
+        d = b_['phs'][n] - a_['phs'][n]; d = math.atan2(math.sin(d), math.cos(d)); fs.append(-d / (2 * math.pi * (b_['t'] - a_['t'])))
+    fs.sort(); fmode = fs[len(fs) // 2] if fs else float('nan')
+    held = sum(1 for x in h2 if x['amp'].index(max(x['amp'])) == n) / len(h2)
+    return dict(mIn=mi, mOut=mo, F=F, isp=F / (mi * 9.80665), pProbe=avg('pProbe'), pHead=avg('pHead'), pPl=avg('pPl') if h2[0].get('pPl') is not None else None,
+                waves=wv, v=v, mode=n + 1, fmode=fmode, held=held, amp=[round(a, 3) for a in amp], t=h[-1]['t'], ms=r.get('ms'))
 if __name__ == '__main__':
     test = int(sys.argv[1]) if len(sys.argv) > 1 else 1; dx = float(sys.argv[2]) if len(sys.argv) > 2 else 0.5e-3
     t_end = float(sys.argv[3]) if len(sys.argv) > 3 else 0.6e-3; p0 = float(sys.argv[4]) if len(sys.argv) > 4 else 7e5
@@ -43,6 +52,7 @@ if __name__ == '__main__':
         b = pw.chromium.launch(args=FLAGS); pg = b.new_page(); pg.set_default_timeout(7200000)
         pg.goto('file://' + os.path.join(HERE, 'r.html'))
         target = TESTS[test]['mdot']; tries = []
+        if os.environ.get('FEED') == 'res': os.environ['ITERS'] = '1'   # supply sets the mass flow
         for it in range(int(os.environ.get('ITERS', '2'))):
             c = cfg(test, p0, dx, t_end); r = pg.evaluate('c => engine(c)', c)
             if 'err' in r: print('ERR', r['err']); break
@@ -51,5 +61,5 @@ if __name__ == '__main__':
             if abs(s['mIn'] / target - 1) < 0.03: break
             if len(tries) >= 2: (pa_, ma), (pb, mb) = tries[-2], tries[-1]; p0 = pb + (target - mb) * (pb - pa_) / (mb - ma)
             else: p0 = p0 * target / s['mIn']
-        json.dump({'test': test, 'dx': dx, 'p0': p0, 'summary': s, 'ref': TESTS[test], 'hist': r['hist']}, open(os.path.join(HERE, f'goto_t{test}_dx{dx*1e3:.2f}.json'), 'w'))
+        json.dump({'test': test, 'dx': dx, 'p0': p0, 'env': {k: os.environ.get(k) for k in ['FEED', 'VP', 'NECK', 'TEETH', 'DEPTH']}, 'summary': s, 'ref': TESTS[test], 'hist': r['hist']}, open(os.path.join(HERE, os.environ.get('OUT', f'goto_t{test}_dx{dx*1e3:.2f}.json')), 'w'))
         b.close()

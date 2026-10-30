@@ -583,12 +583,29 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="field"><span class="k">Cells round</span><select id="rdeNx"><option value="200">200</option><option value="400">400</option><option value="800">800</option></select></label>
             <label class="field"><span class="k">Show</span><select id="rdeShow"><option value="p">Pressure</option><option value="T">Temperature</option></select></label>
           </div>
+          <h3 class="grp">Feed and passive tuning</h3>
+          <div class="row3">
+            <label class="field" title="Fixed: injectors draw from a constant plenum pressure. Resonant: a plenum volume fed at a set mass flow, with injector necks whose gas has inertia, so the feed can ring and lock to the waves."><span class="k">Feed</span><select id="rdeFeed"><option value="fixed">Fixed pressure</option><option value="res">Resonant</option></select></label>
+            <label class="field rde-res"><span class="k">Supply, g/s</span><input type="number" id="rdeMdot" min="1" step="1"></label>
+            <label class="field rde-res"><span class="k">Plenum, cm³</span><input type="number" id="rdeVp" min="1" step="1"></label>
+          </div>
+          <div class="row3">
+            <label class="field rde-res" title="Length of each injector passage; with the plenum volume it sets the Helmholtz frequency"><span class="k">Neck, mm</span><input type="number" id="rdeNeck" min="0.5" step="0.5"></label>
+            <label class="field" title="Injector open area varies round the ring as 1 + depth·cos(n·θ): n teeth for the waves to mesh with (0 for uniform)"><span class="k">Injector teeth</span><input type="number" id="rdeTeeth" min="0" max="12" step="1"></label>
+            <label class="field"><span class="k">Teeth depth</span><input type="number" id="rdeDepth" min="0" max="1" step="0.05"></label>
+          </div>
+          <div class="row3">
+            <label class="field" title="Area of a 2 mm contraction at the end of the annulus, as a fraction of the annulus area (1 for none)"><span class="k">Exit throat</span><input type="number" id="rdeThroat" min="0.2" max="1" step="0.05"></label>
+          </div>
           <div class="row2">
             <button class="btn" id="rdeRun" type="button">Run</button>
             <button class="btn" id="rdeGoto" type="button" title="Goto et al. (2021): 60.5 mm, 3.2 mm channel, 48 mm long, 30° plug, ethylene/oxygen at φ 1.1, sea level">Goto et al. rig</button>
           </div>
           <dl class="kv" id="rdeInfo"></dl>
           <canvas class="chart" id="rdeHist" aria-label="Thrust against time"></canvas>
+          <h3 class="grp">Modes</h3>
+          <canvas class="chart" id="rdeModes" aria-label="Azimuthal mode spectrum of the injector-face pressure against time: mode number up, time across"></canvas>
+          <dl class="kv" id="rdeModeInfo"></dl>
         </section>
 
         <section class="pane" data-pane="model">
@@ -3405,7 +3422,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -7000,7 +7017,8 @@ function updateHeadline() {
   if (st.mode === "engine") {
     const S = rdeSim.run ? rdeStats() : null;
     set("#hlReg", "Engine stand · rotating detonation");
-    set("#hlSub", S ? `${S.F.toFixed(0)} N · Isp ${S.isp.toFixed(0)} s · ${S.waves} wave${S.waves === 1 ? "" : "s"}` : "Set the chamber, then Run");
+    const Mo = rdeSim.run ? rdeModeStats() : null;
+    set("#hlSub", S ? `${S.F.toFixed(0)} N · Isp ${S.isp.toFixed(0)} s · ${Mo ? "mode " + Mo.n + " at " + (Math.abs(Mo.f) / 1000).toFixed(1) + " kHz" : S.waves + " waves"}` : "Set the chamber, then Run");
     set("#hlStat", rdeSim.run ? `${(S ? S.t * 1e3 : 0).toFixed(3)} ms simulated` : "");
     return;
   }
@@ -8131,12 +8149,23 @@ struct P {
   r2: vec4f,       // γ2, R2, k (1/s), At/Aw
   inj: vec4f,      // plenum p0, T0, closed outlet (> 0.5), -
   ch: vec4f,       // θ·T_vN, θ, 1/τ_vN, ignition temperature (no induction below)
+  pl: vec4f,       // plenum volume per cell (m³), injector neck length (m), discharge coefficient, dynamic plenum (> 0.5)
+  sup: vec4f,      // supply mass flow per cell (kg/s), head-end area per cell (m²), injector teeth, teeth depth (0–1)
 };
 @group(0) @binding(0) var<uniform> C: P;
 @group(0) @binding(1) var<storage, read> U0: array<f32>;   // state at the start of the step
 @group(0) @binding(2) var<storage, read> Us: array<f32>;   // state the fluxes are taken from
 @group(0) @binding(3) var<storage, read_write> Un: array<f32>;
 @group(0) @binding(4) var<storage, read> A: array<f32>;    // area at cell centres (ny) then faces (ny+1)
+// plenum ring, per azimuthal cell: density, momentum, total energy (per volume), injector neck mass flux
+@group(0) @binding(5) var<storage, read> Pl: array<f32>;   // the plenum the chamber step reads (this step's)
+@group(0) @binding(6) var<storage, read> Pin: array<f32>;  // plenum step: old
+@group(0) @binding(7) var<storage, read_write> Pout: array<f32>;  // plenum step: new
+// injector open-area ratio round the circumference: n teeth of the given depth, same mean
+fn atw(i: u32) -> f32 {
+  let th = (f32(i) + 0.5) / f32(C.dims.x) * 6.2831853;
+  return C.r2.w * max(1.0 + C.sup.w * cos(C.sup.z * th), 0.0);
+}
 
 struct W { r: f32, u: f32, v: f32, p: f32, y: f32, z: f32 };
 fn cv1() -> f32 { return C.r1.y / (C.r1.x - 1.0); }
@@ -8182,16 +8211,24 @@ fn hlle(L: W, R: W, dir: u32) -> array<f32, 6> {
   for (var k = 0; k < 6; k++) { f[k] = (sR * fL[k] - sL * fR[k] + sR * sL * (qR[k] - qL[k])) / d; }
   return f;
 }
-// injector face flux into the first cell
-fn injFlux(c: W) -> array<f32, 6> {
-  let p0 = C.inj.x; let T0 = C.inj.y; let g = C.r1.x; let R = C.r1.y; let cp = g * R / (g - 1.0);
-  if (c.p >= p0) { return array<f32, 6>(0.0, 0.0, c.p, 0.0, 0.0, 0.0); }
-  // isentropic expansion to the larger of cell pressure and the critical pressure, through the throat
-  let pc = p0 * pow(2.0 / (g + 1.0), g / (g - 1.0));
-  let pt = max(c.p, pc);
-  let Tt = T0 * pow(pt / p0, (g - 1.0) / g);
-  let vt = sqrt(max(2.0 * cp * (T0 - Tt), 0.0));
-  let m = pt / (R * Tt) * vt * C.r2.w;            // mass flux per unit head-end area
+// injector face flux into the first cell. Fixed plenum: isentropic from (p0, T0) to the larger of the
+// cell and critical pressures. Dynamic plenum: the neck's own mass flux, at the plenum's temperature.
+fn injFlux(c: W, i: u32) -> array<f32, 6> {
+  var p0 = C.inj.x; var T0 = C.inj.y; let g = C.r1.x; let R = C.r1.y; let cp = g * R / (g - 1.0);
+  var m = 0.0;
+  if (C.pl.w > 0.5) {
+    let nx = C.dims.x; let pr = max(Pl[i], 1e-6);
+    let pu = Pl[nx + i] / pr; T0 = max((Pl[2u * nx + i] / pr - 0.5 * pu * pu) * (g - 1.0) / R, 50.0);
+    m = max(Pl[3u * nx + i], 0.0) * atw(i);
+    if (m <= 0.0) { return array<f32, 6>(0.0, 0.0, c.p, 0.0, 0.0, 0.0); }
+  } else {
+    if (c.p >= p0) { return array<f32, 6>(0.0, 0.0, c.p, 0.0, 0.0, 0.0); }
+    let pc = p0 * pow(2.0 / (g + 1.0), g / (g - 1.0));
+    let pt = max(c.p, pc);
+    let Tt = T0 * pow(pt / p0, (g - 1.0) / g);
+    let vt = sqrt(max(2.0 * cp * (T0 - Tt), 0.0));
+    m = pt / (R * Tt) * vt * atw(i);              // mass flux per unit head-end area
+  }
   // gas enters at the cell pressure with the plenum's total enthalpy
   var T = T0; var v = 0.0;
   for (var it = 0; it < 4; it++) { let rho = c.p / (R * T); v = m / rho; T = max(T0 - 0.5 * v * v / cp, 0.3 * T0); }
@@ -8216,7 +8253,7 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   let jm = max(j - 1, 0); let jp = min(j + 1, i32(ny) - 1);
   let wd1 = cellW(i, jm); let wu1 = cellW(i, jp);
   let sy0 = slope(wd1, c0, wu1);
-  if (j == 0) { gB = injFlux(c0); }
+  if (j == 0) { gB = injFlux(c0, gid.x); }
   else {
     let wd2 = cellW(i, max(j - 2, 0));
     var sd = slope(wd2, wd1, c0); if (j == 1) { sd = W(0.0, 0.0, 0.0, 0.0, 0.0, 0.0); }
@@ -8254,6 +8291,41 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   let yy = clamp(q[4] / q[0], 0.0, 1.0);
   let eint = max(q[3] / q[0] - 0.5 * dot(uu, uu), gasCv(yy) * 50.0 + yy * C.r1.z);
   Un[n] = q[0]; Un[N + n] = q[0] * uu.x; Un[2u * N + n] = q[0] * uu.y; Un[3u * N + n] = q[0] * (eint + 0.5 * dot(uu, uu)); Un[4u * N + n] = q[0] * yy; Un[5u * N + n] = clamp(q[5], 0.0, 2.0 * q[0]);
+}
+
+// Plenum: a ring of premixed propellant round the circumference, fed uniformly at a set mass flow,
+// emptying into the chamber through one injector neck per cell. 1D Euler round the ring (Rusanov), and
+// each neck's gas has inertia: ℓ dG/dt = p_plenum − p_chamber − G|G| / (2 ρ Cd²), G ≥ 0 (no backflow),
+// capped at the choked flux. Volume and neck length set a Helmholtz frequency; the ring carries its own
+// azimuthal acoustic modes. Both can lock to, or fight, the detonation's passing frequency.
+fn plQ(k: i32) -> vec4f {
+  let nx = i32(C.dims.x); let i = u32(((k % nx) + nx) % nx);
+  return vec4f(Pin[i], Pin[C.dims.x + i], Pin[2u * C.dims.x + i], Pin[3u * C.dims.x + i]);
+}
+fn plP(q: vec4f) -> f32 { let r = max(q.x, 1e-6); return (C.r1.x - 1.0) * (q.z - 0.5 * q.y * q.y / r); }
+fn plF(q: vec4f) -> vec3f { let r = max(q.x, 1e-6); let u = q.y / r; let p = plP(q); return vec3f(q.y, q.y * u + p, (q.z + p) * u); }
+fn plRus(a: vec4f, b: vec4f) -> vec3f {
+  let ra = max(a.x, 1e-6); let rb = max(b.x, 1e-6);
+  let s = max(abs(a.y / ra) + sqrt(C.r1.x * max(plP(a), 1.0) / ra), abs(b.y / rb) + sqrt(C.r1.x * max(plP(b), 1.0) / rb));
+  return 0.5 * (plF(a) + plF(b)) - 0.5 * s * (b.xyz - a.xyz);
+}
+@compute @workgroup_size(64)
+fn plenum(@builtin(global_invocation_id) gid: vec3u) {
+  let nx = C.dims.x; if (gid.x >= nx) { return; }
+  let i = i32(gid.x); let dx = C.g.x; let dt = C.g.z; let g = C.r1.x; let R = C.r1.y; let cp = g * R / (g - 1.0);
+  let q = plQ(i); let fL = plRus(plQ(i - 1), q); let fR = plRus(q, plQ(i + 1));
+  let r = max(q.x, 1e-6); let u = q.y / r; let p = max(plP(q), 1.0);
+  let V = C.pl.x; let ms = C.sup.x; let mo = max(q.w, 0.0) * atw(gid.x) * C.sup.y;
+  var nq = q.xyz - dt / dx * (fR - fL);
+  nq += dt / V * vec3f(ms - mo, -mo * u, ms * cp * C.inj.y - mo * (q.z + p) / r);
+  nq.x = max(nq.x, 1e-4);
+  // neck
+  let cc = cellW(i, 0);
+  var G = q.w + dt / C.pl.y * (p - cc.p - q.w * abs(q.w) / (2.0 * r * C.pl.z * C.pl.z));
+  let T = p / (r * R);
+  let Gs = p / sqrt(R * T) * sqrt(g) * pow(2.0 / (g + 1.0), (g + 1.0) / (2.0 * (g - 1.0)));
+  G = clamp(G, 0.0, Gs);
+  Pout[gid.x] = nq.x; Pout[nx + gid.x] = nq.y; Pout[2u * nx + gid.x] = max(nq.z, nq.x * R / (g - 1.0) * 50.0 + 0.5 * nq.y * nq.y / nq.x); Pout[3u * nx + gid.x] = G;
 }`;
 
 // Host side. cfg: { nx, ny, L (circumference, m), H (axial length, m), area(y) → m², gas {gam1,R1,gam2,R2,q},
@@ -8270,30 +8342,40 @@ async function rdeCreate(dev, cfg) {
     else if (y < I.h && x <= I.wIgn) put(n, I.pIgn / (G.R2 * I.TIgn), I.uIgn || 0, 0, I.pIgn, 0);                                    // igniter
     else { const pb = I.pBurn || Math.max(cfg.pa, I.pFresh); put(n, pb / (G.R2 * I.TBurn), 0, 0, pb, 0); }                                                                // burnt gas
   }
+  // plenum: initial pressure p0 at T0, necks at the steady orifice flux into the fill pressure
+  const g1 = G.gam1, PL = cfg.plenum || {}, dyn = !!PL.on, Vc = (PL.V || 30e-6) / nx, ln = PL.neck || 5e-3, Cd = PL.Cd || 0.7;
+  const Pq = new Float32Array(4 * nx), r0 = cfg.p0 / (G.R1 * cfg.T0);
+  const G0n = Math.min(Cd * Math.sqrt(2 * r0 * Math.max(cfg.p0 - I.pFresh, 0)), (cfg.p0 / Math.sqrt(G.R1 * cfg.T0)) * Math.sqrt(g1) * Math.pow(2 / (g1 + 1), (g1 + 1) / (2 * (g1 - 1))));
+  for (let i = 0; i < nx; i++) { Pq[i] = r0; Pq[nx + i] = 0; Pq[2 * nx + i] = cfg.p0 / (g1 - 1); Pq[3 * nx + i] = G0n; }
   const Ar = new Float32Array(2 * ny + 1);
   for (let j = 0; j < ny; j++) Ar[j] = cfg.area((j + 0.5) * dy);
   for (let j = 0; j <= ny; j++) Ar[ny + j] = cfg.area(j * dy);
   const S = GPUBufferUsage.STORAGE, CD = GPUBufferUsage.COPY_DST, CS = GPUBufferUsage.COPY_SRC;
   const buf = (d, u) => { const b = dev.createBuffer({ size: d.byteLength, usage: u | CD }); dev.queue.writeBuffer(b, 0, d); return b; };
-  const B = [buf(U, S | CS), buf(U, S | CS), buf(U, S | CS)], Ab = buf(Ar, S);
+  const B = [buf(U, S | CS), buf(U, S | CS), buf(U, S | CS)], Ab = buf(Ar, S), PB = [buf(Pq, S | CS), buf(Pq, S | CS)];
   const mod = dev.createShaderModule({ code: RDE_WGSL });
   const info = await mod.getCompilationInfo(); const errs = info.messages.filter((m) => m.type === "error");
   if (errs.length) throw new Error(errs.map((e) => e.lineNum + ": " + e.message).join("\n"));
   const pipe = dev.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "step" } });
+  const ppl = dev.createComputePipeline({ layout: "auto", compute: { module: mod, entryPoint: "plenum" } });
   let dt = cfg.dt || 0.3 * Math.min(dx, dy) / (1.8 * cfg.Dcj);
   const X = cfg.chem;
-  const uni = (stage) => { const ab = new ArrayBuffer(96), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]); f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, X.pign || 0, G.gam2, G.R2, X.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0, X.theta * X.TvN, X.theta, 1 / X.tau, X.Tign || 0], 4); return ab; };
-  const UB = [0, 1].map(() => dev.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | CD }));
+  const uni = (stage) => { const ab = new ArrayBuffer(128), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]); f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, X.pign || 0, G.gam2, G.R2, X.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0, X.theta * X.TvN, X.theta, 1 / X.tau, X.Tign || 0,
+    Vc, ln, Cd, dyn ? 1 : 0, (PL.mdot || 0) / nx, cfg.area(0) / nx, (cfg.teeth && cfg.teeth.n) || 0, (cfg.teeth && cfg.teeth.depth) || 0], 4); return ab; };
+  const UB = [0, 1].map(() => dev.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | CD }));
   const writeU = () => { dev.queue.writeBuffer(UB[0], 0, uni(0)); dev.queue.writeBuffer(UB[1], 0, uni(1)); };
   writeU();
-  const bg = (u, a, b, c) => dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [UB[u], B[a], B[b], B[c], Ab].map((buffer, binding) => ({ binding, resource: { buffer } })) });
-  // stage 0: U0=B0, Us=B0 → B1 ; stage 1: U0=B0, Us=B1 → B2 ; then B2 is the new state: rotate
-  let order = [0, 1, 2];
+  const bg = (u, a, b, c, pl) => dev.createBindGroup({ layout: pipe.getBindGroupLayout(0), entries: [[0, UB[u]], [1, B[a]], [2, B[b]], [3, B[c]], [4, Ab], [5, PB[pl]]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+  const bgp = (a, pin, pout) => dev.createBindGroup({ layout: ppl.getBindGroupLayout(0), entries: [[0, UB[0]], [2, B[a]], [6, PB[pin]], [7, PB[pout]]].map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
+  // each step: plenum old → new (reading the chamber's head pressure), then the chamber's two stages with
+  // the new plenum. Chamber: stage 0 U0=B0, Us=B0 → B1; stage 1 U0=B0, Us=B1 → B2; B2 is the new state.
+  let order = [0, 1, 2], par = 0;
   const groups = new Map();
-  const bgFor = () => { const k = order.join(); if (!groups.has(k)) groups.set(k, [bg(0, order[0], order[0], order[1]), bg(1, order[0], order[1], order[2])]); return groups.get(k); };
+  const bgFor = () => { const k = order.join() + par; if (!groups.has(k)) groups.set(k, [bgp(order[0], par, 1 - par), bg(0, order[0], order[0], order[1], 1 - par), bg(1, order[0], order[1], order[2], 1 - par)]); return groups.get(k); };
+  const wp = Math.ceil(nx / 64);
   const wx = Math.ceil(nx / 16), wy = Math.ceil(ny / 8);
   let t = 0, steps = 0;
-  const rd = dev.createBuffer({ size: 6 * N * 4, usage: GPUBufferUsage.MAP_READ | CD });
+  const rd = dev.createBuffer({ size: (6 * N + 4 * nx) * 4, usage: GPUBufferUsage.MAP_READ | CD });
   return {
     dx, dy, N,
     get t() { return t; }, get dt() { return dt; }, get steps() { return steps; }, get state() { return B[order[0]]; }, nx, ny,
@@ -8301,15 +8383,17 @@ async function rdeCreate(dev, cfg) {
     step(n) {
       const e = dev.createCommandEncoder();
       for (let s = 0; s < n; s++) {
-        const [g0, g1] = bgFor(), p = e.beginComputePass();
+        const [gp, g0, g1] = bgFor(), p = e.beginComputePass();
+        if (dyn) { p.setPipeline(ppl); p.setBindGroup(0, gp); p.dispatchWorkgroups(wp); }
         p.setPipeline(pipe); p.setBindGroup(0, g0); p.dispatchWorkgroups(wx, wy); p.setBindGroup(0, g1); p.dispatchWorkgroups(wx, wy); p.end();
-        order = [order[2], order[0], order[1]]; t += dt; steps++;
+        order = [order[2], order[0], order[1]]; if (dyn) par = 1 - par; t += dt; steps++;
       }
       dev.queue.submit([e.finish()]);
     },
     async read() {
-      const e = dev.createCommandEncoder(); e.copyBufferToBuffer(B[order[0]], 0, rd, 0, 6 * N * 4); dev.queue.submit([e.finish()]);
-      await rd.mapAsync(GPUMapMode.READ); const q = new Float32Array(rd.getMappedRange().slice(0)); rd.unmap(); return q;
+      const e = dev.createCommandEncoder(); e.copyBufferToBuffer(B[order[0]], 0, rd, 0, 6 * N * 4); e.copyBufferToBuffer(PB[dyn ? par : 0], 0, rd, 6 * N * 4, 4 * nx * 4); dev.queue.submit([e.finish()]);
+      await rd.mapAsync(GPUMapMode.READ); const all = new Float32Array(rd.getMappedRange().slice(0)); rd.unmap();
+      const q = all.subarray(0, 6 * N); q.pl = all.subarray(6 * N); return q;
     },
     // instantaneous diagnostics from a state snapshot
     diag(q) {
@@ -8318,17 +8402,19 @@ async function rdeCreate(dev, cfg) {
       const jo = ny - 1, Ao = cfg.area(cfg.H) / nx, Ai = cfg.area(0) / nx;
       const pHead = [];
       const g1 = G.gam1, cp1 = g1 * G.R1 / (g1 - 1), pcr = cfg.p0 * Math.pow(2 / (g1 + 1), g1 / (g1 - 1));
-      const inj = (p) => { if (p >= cfg.p0) return 0; const pt = Math.max(p, pcr), Tt = cfg.T0 * Math.pow(pt / cfg.p0, (g1 - 1) / g1); return (pt / (G.R1 * Tt)) * Math.sqrt(Math.max(2 * cp1 * (cfg.T0 - Tt), 0)) * cfg.AtAw; };
+      const tw = (i) => cfg.AtAw * Math.max(1 + ((cfg.teeth && cfg.teeth.depth) || 0) * Math.cos((((cfg.teeth && cfg.teeth.n) || 0) * 2 * Math.PI * (i + 0.5)) / nx), 0);
+      const inj = (p, i) => { if (dyn) return Math.max(q.pl[3 * nx + i], 0) * tw(i); if (p >= cfg.p0) return 0; const pt = Math.max(p, pcr), Tt = cfg.T0 * Math.pow(pt / cfg.p0, (g1 - 1) / g1); return (pt / (G.R1 * Tt)) * Math.sqrt(Math.max(2 * cp1 * (cfg.T0 - Tt), 0)) * tw(i); };
       for (let i = 0; i < nx; i++) {
-        const o = prim(i + nx * jo), h = prim(i); mIn += inj(h.p) * Ai;
+        const o = prim(i + nx * jo), h = prim(i); mIn += inj(h.p, i) * Ai;
         mOut += o.r * o.v * Ao; F += (o.r * o.v * o.v + o.p - cfg.pa) * Ao; pHead.push(h.p);
       }
       for (let n = 0; n < N; n++) { const w = prim(n); if (!isFinite(w.p)) { nan = true; break; } smax = Math.max(smax, Math.hypot(w.u, w.v) + w.c); }
       let pProbe = 0; const jp = Math.min(ny - 1, Math.floor((cfg.probeY || 0) / dy));
       for (let i = 0; i < nx; i++) pProbe += prim(i + nx * jp).p / nx;
-      return { mIn, mOut, F, smax, nan, pHead, pProbe };
+      let pPl = 0; if (dyn) for (let i = 0; i < nx; i++) { const r = q.pl[i], u = q.pl[nx + i] / r; pPl += ((g1 - 1) * (q.pl[2 * nx + i] - 0.5 * r * u * u)) / nx; }
+      return { mIn, mOut, F, smax, nan, pHead, pProbe, pPl };
     },
-    destroy() { B.forEach((b) => b.destroy()); Ab.destroy(); rd.destroy(); UB.forEach((b) => b.destroy()); },
+    destroy() { B.forEach((b) => b.destroy()); PB.forEach((b) => b.destroy()); Ab.destroy(); rd.destroy(); UB.forEach((b) => b.destroy()); },
   };
 }
 // ── end RDE ──
@@ -8353,8 +8439,9 @@ function rdeConfig() {
   const g1 = m.gas.gam1, R1 = m.gas.R1, Mn = m.D / Math.sqrt(g1 * R1 * T0);
   const TvN = (T0 * (2 * g1 * Mn * Mn - (g1 - 1)) * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) ** 2 * Mn * Mn);
   const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn);
-  const area = (y) => (y <= Lc ? Ac : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
-  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 2 * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
+  const area = (y) => (y <= Lc ? (y > Lc - 2e-3 ? Ac * Math.min(1, R.throat) : Ac) : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
+  const plenum = { on: R.feed === "res", mdot: R.mdot / 1000, V: R.Vp * 1e-6, neck: R.neck / 1000, Cd: 0.7 };
+  return { key: R.prop, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 2 * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
     Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }
@@ -8375,10 +8462,12 @@ async function rdeToggle() {
     if ((d.smax * s.dt) / Math.min(s.dx, s.dy) > 0.45) s.setDt((0.35 * Math.min(s.dx, s.dy)) / d.smax);
     const ph = d.pHead, mean = ph.reduce((a, b) => a + b, 0) / ph.length, pk = [];
     for (let i = 0; i < ph.length; i++) { const a = ph[(i - 1 + ph.length) % ph.length], b = ph[(i + 1) % ph.length]; if (ph[i] > 2.5 * mean && ph[i] >= a && ph[i] > b) pk.push(i); }
-    rdeSim.hist.push({ t: s.t, mIn: d.mIn, F: d.F, p: d.pProbe, waves: pk.length, peaks: pk });
-    rdeDraw2d(q); rdeDraw3d(); rdeReport(); rdeDrawHist(); updateHeadline();
-    // keep the frame near 30 ms of GPU work
-    const ms = performance.now() - t0; st.rde.spf = Math.max(4, Math.min(400, Math.round(st.rde.spf * (ms > 40 ? 0.8 : 1.15))));
+    rdeSim.hist.push({ t: s.t, mIn: d.mIn, F: d.F, p: d.pProbe, pPl: d.pPl, waves: pk.length, peaks: pk, modes: rdeModes(ph, s.t) });
+    rdeDraw2d(q); rdeDraw3d(); rdeReport(); rdeDrawHist(); rdeDrawModes(); updateHeadline();
+    // keep the frame near 30 ms of GPU work, and the waves under 1/16 of the circumference per frame so
+    // the mode phases (n ≤ 8) can't alias
+    const ms = performance.now() - t0, cap = Math.max(4, Math.floor(rdeSim.cfg.L / (16 * 1.2 * rdeSim.cfg.Dcj * s.dt)));
+    st.rde.spf = Math.max(4, Math.min(cap, Math.round(st.rde.spf * (ms > 40 ? 0.8 : 1.15))));
     requestAnimationFrame(loop);
   };
   loop();
@@ -8515,13 +8604,61 @@ function rdeDraw3d() {
   p.setBindGroup(0, bg); p.setPipeline(rde3.pipe); p.draw(160 * 96 * 6, 1, 0, 0); p.setPipeline(rde3.line); p.draw((4 * 160 + 48) * 2, 1, 0, 1); p.end();
   dev.queue.submit([e.finish()]);
 }
+// Azimuthal modes of the injector-face pressure: |a_n| / mean for n = 1..8, and each mode's rotation
+// frequency from its phase change since the last frame (positive: the direction the waves started in).
+const RDE_NMAX = 8;
+function rdeModes(ph, t) {
+  const nx = ph.length, mean = ph.reduce((a, b) => a + b, 0) / nx, amp = [], phs = [];
+  for (let n = 1; n <= RDE_NMAX; n++) {
+    let re = 0, im = 0;
+    for (let i = 0; i < nx; i++) { const a = (2 * Math.PI * n * (i + 0.5)) / nx; re += ph[i] * Math.cos(a); im -= ph[i] * Math.sin(a); }
+    amp.push((2 * Math.hypot(re, im)) / nx / mean); phs.push(Math.atan2(im, re));
+  }
+  const prev = rdeSim.hist.length ? rdeSim.hist[rdeSim.hist.length - 1] : null, freq = [];
+  for (let k = 0; k < RDE_NMAX; k++) {
+    if (!prev || !prev.modes) { freq.push(NaN); continue; }
+    let d = phs[k] - prev.modes.phs[k]; d = Math.atan2(Math.sin(d), Math.cos(d));
+    freq.push(-d / (2 * Math.PI * (t - prev.t)));   // a wave moving +θ lowers the phase
+  }
+  return { amp, phs, freq };
+}
+function rdeModeStats() {
+  const h = rdeSim.hist; if (h.length < 4) return null;
+  const tail = h.slice(Math.floor(h.length / 2)).filter((e) => e.modes && isFinite(e.modes.freq[0]));
+  if (!tail.length) return null;
+  const amp = new Array(RDE_NMAX).fill(0);
+  tail.forEach((e) => e.modes.amp.forEach((a, k) => (amp[k] += a / tail.length)));
+  const k = amp.indexOf(Math.max(...amp)), fs = tail.map((e) => e.modes.freq[k]).sort((a, b) => a - b), f = fs[fs.length >> 1];
+  // how steady the lock is: share of frames where the same mode is the largest
+  const held = tail.filter((e) => e.modes.amp.indexOf(Math.max(...e.modes.amp)) === k).length / tail.length;
+  return { n: k + 1, f, amp, held };
+}
+// frequencies the waves could mesh with
+function rdeMarkers(c, q) {
+  const N = c.nx * c.ny, G = c.gas, jc = Math.max(1, Math.floor((c.ny * c.Lc) / c.H));
+  let a2 = 0, cnt = 0;
+  for (let j = 0; j < jc; j++) for (let i = 0; i < c.nx; i += 4) { const f = rdeField(q, i + c.nx * j, N, G), g = (f.y * G.R1 / (G.gam1 - 1) + (1 - f.y) * G.R2 / (G.gam2 - 1)); a2 += ((g + f.y * G.R1 + (1 - f.y) * G.R2) / g) * (f.y * G.R1 + (1 - f.y) * G.R2) * f.T; cnt++; }
+  const cBar = Math.sqrt(a2 / cnt), Dm = (c.Di + c.Do) / 2, cp = Math.sqrt(G.gam1 * G.R1 * c.T0);
+  const fH = c.plenum.on ? (cp / (2 * Math.PI)) * Math.sqrt((c.AtAw * c.Ac) / (c.plenum.V * c.plenum.neck)) : NaN;
+  return { cBar, acoustic: (n) => (n * cBar) / (Math.PI * Dm), gear: (n) => (n * c.Dcj) / (Math.PI * Dm), fH };
+}
+function rdeDrawModes() {
+  const cv = $("#rdeModes"), h = rdeSim.hist; if (!cv || h.length < 2) return;
+  const dpr = devicePixelRatio || 1, W = Math.round(cv.clientWidth * dpr), H = Math.round(cv.clientHeight * dpr); if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const x = cv.getContext("2d"); x.clearRect(0, 0, W, H);
+  const L = 22 * dpr, B = 14 * dpr, rows = RDE_NMAX, hh = (H - B - 4 * dpr) / rows, use = h.slice(-Math.floor((W - L) / dpr)), cw = (W - L) / Math.max(use.length, 1);
+  use.forEach((e, k) => { if (!e.modes) return; e.modes.amp.forEach((a, n) => { const v = Math.min(1, a / 0.8); x.fillStyle = `rgba(242,156,79,${v.toFixed(3)})`; x.fillRect(L + k * cw, 4 * dpr + (rows - 1 - n) * hh, Math.ceil(cw), hh - 1); }); });
+  x.fillStyle = "rgba(214,206,189,0.75)"; x.font = `${10 * dpr}px Archivo, system-ui, sans-serif`; x.textAlign = "right";
+  for (let n = 1; n <= rows; n++) x.fillText(String(n), L - 5 * dpr, 4 * dpr + (rows - n + 0.7) * hh);
+  x.textAlign = "left"; x.fillText("mode n · time →", L, H - 3 * dpr);
+}
 function rdeStats() {
   const h = rdeSim.hist, c = rdeSim.cfg; if (!h.length) return null;
   const tail = h.slice(Math.floor(h.length / 2)), avg = (k) => tail.reduce((a, x) => a + x[k], 0) / tail.length;
   const mIn = avg("mIn"), F = avg("F"), p = avg("p"), waves = tail.map((x) => x.waves).sort((a, b) => a - b)[tail.length >> 1], sp = [];
   for (let k = 1; k < tail.length; k++) for (const a of tail[k - 1].peaks) { const ds = tail[k].peaks.map((b) => (b - a + c.nx) % c.nx).filter((d) => d > 0 && d < c.nx / 4); if (ds.length) sp.push((Math.min(...ds) * c.L) / c.nx / (tail[k].t - tail[k - 1].t)); }
   sp.sort((a, b) => a - b);
-  return { mIn, F, p, isp: mIn > 0 ? F / (mIn * G0) : 0, waves, v: sp.length ? sp[sp.length >> 1] : NaN, t: h[h.length - 1].t };
+  return { mIn, F, p, pPl: avg("pPl"), isp: mIn > 0 ? F / (mIn * G0) : 0, waves, v: sp.length ? sp[sp.length >> 1] : NaN, t: h[h.length - 1].t };
 }
 function rdeReport() {
   const S = rdeStats(), c = rdeSim.cfg; if (!S) return;
@@ -8533,7 +8670,16 @@ function rdeReport() {
     row("Thrust · Isp", `${S.F.toFixed(0)} N · ${S.isp.toFixed(0)} s`) +
     row("Waves", `${S.waves} · ${isFinite(S.v) ? S.v.toFixed(0) + " m/s, " + ((100 * S.v) / c.Dcj).toFixed(0) + "% of CJ (" + c.Dcj.toFixed(0) + ")" : "—"}`) +
     row("Pressure, end of annulus", `${(S.p / 1e6).toFixed(3)} MPa`) +
-    row("Constant-pressure engine", `${isFinite(ideal) ? ideal.toFixed(0) + " s ideal at that pressure, expanded to ambient" : "—"}`);
+    row("Constant-pressure engine", `${isFinite(ideal) ? ideal.toFixed(0) + " s ideal at that pressure, expanded to ambient" : "—"}`) +
+    (c.plenum.on ? row("Plenum", `${(S.pPl / 1e6).toFixed(3)} MPa`) : "");
+  const M = rdeModeStats(), el = $("#rdeModeInfo"); if (!el) return;
+  if (!M || !rdeSim.q) { el.innerHTML = ""; return; }
+  const K = rdeMarkers(c, rdeSim.q), kHz = (f) => (isFinite(f) ? (f / 1000).toFixed(1) + " kHz" : "—");
+  el.innerHTML =
+    row("Locked mode", `n = ${M.n} · ${kHz(Math.abs(M.f))} ${M.f < 0 ? "(turned round)" : ""} · held ${(100 * M.held).toFixed(0)}% of the time`) +
+    row(`Gear, n·D_CJ/πD`, `${kHz(K.gear(M.n))} · waves at ${isFinite(M.f) ? ((100 * Math.abs(M.f)) / K.gear(M.n)).toFixed(0) + "% of CJ" : "—"}`) +
+    row(`Annulus acoustic, n = ${M.n}`, `${kHz(K.acoustic(M.n))} (mean sound speed ${K.cBar.toFixed(0)} m/s)`) +
+    row("Plenum Helmholtz", c.plenum.on ? kHz(K.fH) : "fixed-pressure feed");
 }
 function rdeDrawHist() {
   const cv = $("#rdeHist"), h = rdeSim.hist; if (!cv || h.length < 2) return;
@@ -8547,16 +8693,19 @@ function rdeDrawHist() {
 }
 function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
+  $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat;
+  document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
   $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeShow").value = R.show;
 }
 function wireRde() {
   const restart = () => { if (rdeSim.run) { rdeStop(); rdeToggle(); } };
-  for (const [id, k, lo] of [["#rdeOF", "of", 0.2], ["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdePa", "pa", 0.1], ["#rdeNx", "nx", 50]])
+  for (const [id, k, lo] of [["#rdeOF", "of", 0.2], ["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdePa", "pa", 0.1], ["#rdeNx", "nx", 50], ["#rdeMdot", "mdot", 1], ["#rdeVp", "Vp", 1], ["#rdeNeck", "neck", 0.5], ["#rdeTeeth", "teeth", 0], ["#rdeDepth", "depth", 0], ["#rdeThroat", "throat", 0.2]])
     $(id).addEventListener("change", (e) => { st.rde[k] = Math.max(lo, +e.target.value || 0); restart(); });
   $("#rdeProp").addEventListener("change", (e) => { st.rde.prop = e.target.value; st.rde.of = +(RDE_STOICH[st.rde.prop] / 1.1).toFixed(2); syncRdeUI(); restart(); });
+  $("#rdeFeed").addEventListener("change", (e) => { st.rde.feed = e.target.value; syncRdeUI(); restart(); });
   $("#rdeShow").addEventListener("change", (e) => { st.rde.show = e.target.value; if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
   $("#rdeRun").addEventListener("click", rdeToggle);
-  $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325 }); syncRdeUI(); restart(); });
+  $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, mdot: 125, teeth: 0, throat: 1 }); syncRdeUI(); restart(); });
   syncRdeUI();
 }
 

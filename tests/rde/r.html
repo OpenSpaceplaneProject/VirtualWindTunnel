@@ -33,7 +33,9 @@ async function engine(c) {
     // waves: peaks of head-end pressure above 2.5x the mean, separated by > 10 cells
     const ph = d.pHead, mean = ph.reduce((a, b) => a + b, 0) / ph.length, pk = [];
     for (let i = 0; i < ph.length; i++) { const a = ph[(i - 1 + ph.length) % ph.length], b = ph[(i + 1) % ph.length]; if (ph[i] > 2.5 * mean && ph[i] >= a && ph[i] > b) pk.push(i); }
-    hist.push({ t: s.t, dt: s.dt, mIn: d.mIn, mOut: d.mOut, F: d.F, pHead: mean, pProbe: d.pProbe, waves: pk.length, peaks: pk.slice(0, 12) });
+    const amp = [], phs = [];
+    for (let n = 1; n <= 8; n++) { let re = 0, im = 0; for (let i = 0; i < ph.length; i++) { const a = 2 * Math.PI * n * (i + 0.5) / ph.length; re += ph[i] * Math.cos(a); im -= ph[i] * Math.sin(a); } amp.push(+(2 * Math.hypot(re, im) / ph.length / mean).toFixed(4)); phs.push(+Math.atan2(im, re).toFixed(4)); }
+    hist.push({ t: s.t, dt: s.dt, mIn: d.mIn, mOut: d.mOut, F: d.F, pHead: mean, pProbe: d.pProbe, pPl: d.pPl, waves: pk.length, peaks: pk.slice(0, 12), amp, phs });
   }
   const final = await s.read(); s.destroy();
   return { hist, ms: Math.round(performance.now() - t0), dt: s.dt };
