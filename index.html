@@ -120,6 +120,14 @@ body[data-mode="build"] .tabs, body[data-mode="build"] #coefBox, body[data-mode=
 .bigview { display: none; position: absolute; z-index: 0; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); height: calc(100% - 128px); cursor: pointer; }
 body[data-mode="build"] .bigview { display: block; }
 body[data-mode="build"] #gpu, body[data-mode="build"] #alt, body[data-mode="build"] #spd, body[data-mode="build"] #envPlot, body[data-mode="build"] #velw, body[data-mode="build"] #probe { display: none !important; }
+body[data-mode="engine"] .tabs, body[data-mode="engine"] #coefBox, body[data-mode="engine"] .legend, body[data-mode="engine"] .hlNums, body[data-mode="engine"] #btnRun, body[data-mode="engine"] #btnReset,
+body[data-mode="engine"] #gpu, body[data-mode="engine"] #alt, body[data-mode="engine"] #spd, body[data-mode="engine"] #envPlot, body[data-mode="engine"] #velw, body[data-mode="engine"] #probe { display: none !important; }
+#engStage { display: none; position: absolute; z-index: 0; left: 32px; top: 96px; width: calc(100% - var(--pw, 0px) - 80px); height: calc(100% - 128px); flex-direction: column; gap: 10px; }
+body[data-mode="engine"] #engStage { display: flex; }
+#eng3d { flex: 1 1 auto; min-height: 0; width: 100%; display: block; cursor: grab; touch-action: none; border-radius: 6px; }
+#eng3d:active { cursor: grabbing; }
+#eng2d { flex: 0 0 30%; width: 100%; min-height: 0; display: block; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 5px; background: #08090c; }
+@media (max-width: 1180px) { #engStage { top: 118px; height: calc(100% - 150px); } }
 .field.grow { flex: 1; }
 .tlRow.stRow { grid-template-columns: repeat(5, minmax(0, 1fr)) 26px; }
 .tlRow.stRow input { padding: 5px 3px; font-size: 11px; }
@@ -465,6 +473,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
     <nav class="modes" id="modes" aria-label="Mode">
       <button class="mode" data-mode="build" aria-pressed="false">Build</button>
       <button class="mode" data-mode="test" aria-pressed="true">Test</button>
+      <button class="mode" data-mode="engine" aria-pressed="false">Engine</button>
     </nav>
     <aside class="panel" id="panel">
       <div class="hl" id="headline" aria-live="off">
@@ -551,6 +560,35 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             </details>
             <div class="row2"><button class="btn primary" id="btnBldCad">Export for CAD</button><button class="btn" id="btnBldJson">Copy design as JSON</button></div>
           </div>
+        </section>
+
+        <section class="pane" data-pane="engine" hidden>
+          <h3 class="grp">Rotating detonation engine</h3>
+          <div class="row2">
+            <label class="field"><span class="k">Propellant</span><select id="rdeProp"><option value="ethox">Ethylene / oxygen</option><option value="gmethox">Methane / oxygen</option><option value="ghydrox">Hydrogen / oxygen</option></select></label>
+            <label class="field" title="Oxidiser / fuel mass ratio"><span class="k">O/F</span><input type="number" id="rdeOF" min="0.5" step="0.05"></label>
+          </div>
+          <div class="row3">
+            <label class="field"><span class="k">Inner diameter, mm</span><input type="number" id="rdeDi" min="10" step="0.5"></label>
+            <label class="field"><span class="k">Channel, mm</span><input type="number" id="rdeW" min="0.5" step="0.1"></label>
+            <label class="field"><span class="k">Length, mm</span><input type="number" id="rdeLc" min="5" step="1"></label>
+          </div>
+          <div class="row3">
+            <label class="field" title="Half-angle of the conical plug downstream of the annulus"><span class="k">Plug angle, °</span><input type="number" id="rdeHalf" min="10" max="60" step="1"></label>
+            <label class="field" title="Injector throat area / head-end area"><span class="k">Injector ratio</span><input type="number" id="rdeAt" min="0.02" max="1" step="0.01"></label>
+            <label class="field" title="Premixed propellant supply pressure"><span class="k">Plenum, MPa</span><input type="number" id="rdeP0" min="0.1" step="0.05"></label>
+          </div>
+          <div class="row3">
+            <label class="field"><span class="k">Ambient, kPa</span><input type="number" id="rdePa" min="0.1" step="1"></label>
+            <label class="field"><span class="k">Cells round</span><select id="rdeNx"><option value="200">200</option><option value="400">400</option><option value="800">800</option></select></label>
+            <label class="field"><span class="k">Show</span><select id="rdeShow"><option value="p">Pressure</option><option value="T">Temperature</option></select></label>
+          </div>
+          <div class="row2">
+            <button class="btn" id="rdeRun" type="button">Run</button>
+            <button class="btn" id="rdeGoto" type="button" title="Goto et al. (2021): 60.5 mm, 3.2 mm channel, 48 mm long, 30° plug, ethylene/oxygen at φ 1.1, sea level">Goto et al. rig</button>
+          </div>
+          <dl class="kv" id="rdeInfo"></dl>
+          <canvas class="chart" id="rdeHist" aria-label="Thrust against time"></canvas>
         </section>
 
         <section class="pane" data-pane="model">
@@ -702,7 +740,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
           <div id="rocketBox">
           <label class="chk"><input type="checkbox" id="engOn">Engines firing</label>
           <div class="row2">
-            <label class="field"><span class="k">Nozzle</span><select id="engType"><option value="bell">Bell nozzle</option><option value="aerospike">Aerospike (annular)</option><option value="rde">Rotating detonation</option></select></label>
+            <label class="field"><span class="k">Nozzle</span><select id="engType"><option value="bell">Bell nozzle</option><option value="aerospike">Aerospike (annular)</option></select></label>
             <label class="field"><span class="k">Propellant</span><select id="engProp"></select></label>
           </div>
           <details id="engCustomBox" class="more">
@@ -723,25 +761,6 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               </div>
             </div>
           </details>
-          <div id="rdeBox" style="display:none">
-            <h3 class="grp">Detonation chamber</h3>
-            <div class="row3">
-              <label class="field"><span class="k">Inner diameter, mm</span><input type="number" id="rdeDi" min="10" step="0.5"></label>
-              <label class="field"><span class="k">Channel, mm</span><input type="number" id="rdeW" min="0.5" step="0.1"></label>
-              <label class="field"><span class="k">Length, mm</span><input type="number" id="rdeLc" min="5" step="1"></label>
-            </div>
-            <div class="row3">
-              <label class="field" title="Half-angle of the conical plug downstream of the annulus"><span class="k">Plug angle, °</span><input type="number" id="rdeHalf" min="10" max="60" step="1"></label>
-              <label class="field" title="Injector throat area / head-end area"><span class="k">Injector ratio</span><input type="number" id="rdeAt" min="0.02" max="1" step="0.01"></label>
-              <label class="field" title="Premixed propellant supply pressure"><span class="k">Plenum, MPa</span><input type="number" id="rdeP0" min="0.1" step="0.05"></label>
-            </div>
-            <div class="row2">
-              <label class="field"><span class="k">Cells round</span><select id="rdeNx"><option value="200">200</option><option value="400">400</option><option value="800">800</option></select></label>
-              <button class="btn" id="rdeRun" type="button">Run</button>
-            </div>
-            <canvas class="chart" id="rdeView" aria-label="Unrolled annulus: pressure, injector face at the bottom, exit at the top"></canvas>
-            <dl class="kv" id="rdeInfo"></dl>
-          </div>
           <label class="ctl"><span class="k">Throttle</span><output id="oEngThr"></output><input type="range" id="engThr" min="0.3" max="1" step="0.01"></label>
           <h3 class="grp">Layout</h3>
           <div class="row3">
@@ -972,6 +991,10 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
     <div class="probe" id="probe" hidden><div class="pdot"></div><div class="ptip mono" id="ptip"></div></div>
 
     <canvas class="bigview" id="bldChart" aria-label="Plan and side view: hull, tanks, cabin, payload bay, engine and gear bays, balance points. Click a part to edit it."></canvas>
+    <div id="engStage">
+      <canvas id="eng3d" aria-label="Detonation chamber in 3D: pressure on the gas in the annulus and over the plug. Drag to orbit, scroll to zoom."></canvas>
+      <canvas id="eng2d" aria-label="Unrolled annulus: circumference across, injector face at the top, plug tip at the bottom"></canvas>
+    </div>
     <canvas id="envPlot" aria-hidden="true"></canvas>
     <div class="alt" id="alt">
       <span class="k altK">Alt</span>
@@ -3382,7 +3405,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, nx: 400 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, show: "p", spf: 20 }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -5629,9 +5652,16 @@ function setMode(m) {
   document.body.dataset.mode = m;
   document.querySelectorAll("#modes .mode").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
   const tabsPane = (t) => document.querySelectorAll(".pane[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== t; });
+  if (m === "engine") {
+    if (OPT.on) optStop("Stopped: engine stand.");
+    if (st.wasRunning === undefined) st.wasRunning = running; running = false; syncRun();
+    tabsPane("engine"); updateHeadline();
+    requestAnimationFrame(() => { if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
+    livPalette(); return;
+  }
   if (m === "build") {
     if (OPT.on) optStop("Stopped: back to Build.");
-    st.wasRunning = running; running = false; syncRun();
+    if (st.wasRunning === undefined) st.wasRunning = running; running = false; syncRun();
     tabsPane("build");
     bldChips();
     if (st.preset !== "builder") bldApply(); else { bldApply(false); }
@@ -6967,6 +6997,13 @@ function updateHeadline() {
   const set = (id, t) => { const e = $(id); if (e && e.textContent !== t) e.textContent = t; };
   if (loadSpin.on) { set("#hlReg", "Loading the default model"); set("#hlStat", loadSpin.msg); return; }
   if (st.mode === "build") { buildHeadline(); return; }
+  if (st.mode === "engine") {
+    const S = rdeSim.run ? rdeStats() : null;
+    set("#hlReg", "Engine stand · rotating detonation");
+    set("#hlSub", S ? `${S.F.toFixed(0)} N · Isp ${S.isp.toFixed(0)} s · ${S.waves} wave${S.waves === 1 ? "" : "s"}` : "Set the chamber, then Run");
+    set("#hlStat", rdeSim.run ? `${(S ? S.t * 1e3 : 0).toFixed(3)} ms simulated` : "");
+    return;
+  }
   const fmtV = (v) => (v >= 1000 ? (v / 1000).toFixed(2) + " km/s" : v.toFixed(v < 10 ? 1 : 0) + " m/s");
   const en = st.spd.set || st.regime === "hyp" ? envNow() : null;
   const solver = st.regime === "lbm" ? "lattice Boltzmann" : st.euler ? "Euler flowfield" : "engineering estimates";
@@ -7048,7 +7085,6 @@ function syncEngineUI() {
   $("#engN").value = E.n; $("#engRing").value = E.ring; $("#engX").value = E.x; $("#engRe").value = E.re; $("#engRi").value = E.ri; $("#engEps").value = E.eps;
   $("#engDir").value = E.dir; $("#engCant").value = E.cant;
   document.querySelectorAll("#engRi, #engCant").forEach((x) => { x.closest("label").style.opacity = E.type === "aerospike" ? 1 : 0.45; });
-  if (typeof syncRdeUI === "function") syncRdeUI();
   updateEngineInfo();
 }
 function wireEngines() {
@@ -8252,7 +8288,7 @@ async function rdeCreate(dev, cfg) {
   const rd = dev.createBuffer({ size: 5 * N * 4, usage: GPUBufferUsage.MAP_READ | CD });
   return {
     dx, dy, N,
-    get t() { return t; }, get dt() { return dt; }, get steps() { return steps; },
+    get t() { return t; }, get dt() { return dt; }, get steps() { return steps; }, get state() { return B[order[0]]; }, nx, ny,
     setDt(v) { dt = v; writeU(); },
     step(n) {
       const e = dev.createCommandEncoder();
@@ -8290,9 +8326,12 @@ async function rdeCreate(dev, cfg) {
 // ── end RDE ──
 
 const RDE_MIX = {"phi":[0.5,0.6,0.8,1.0,1.2,1.5,2.0],"mix":{"ethox":[[1.3611,264.5,1.1351,303.31,7521879,2074.6,25.872,3664.7,1.847],[1.3561,265.29,1.1355,316.1,8057700,2151.8,27.713,3773.8,1.8489],[1.3471,266.77,1.138,340.87,8880737,2283.4,30.941,3926.0,1.8503],[1.3395,268.1,1.1412,364.43,9503618,2393.1,33.72,4022.2,1.8503],[1.3329,269.33,1.1446,386.93,9975405,2485.3,36.112,4077.3,1.8494],[1.3244,270.98,1.1509,419.18,10372556,2594.4,38.96,4091.6,1.8466],[1.3133,273.32,1.1687,470.11,9923150,2699.2,41.433,3938.2,1.835]],"gmethox":[[1.372,288.63,1.1323,318.71,7692100,2073.0,23.745,3494.7,1.8459],[1.3688,293.63,1.1312,333.89,8389869,2155.3,25.213,3597.6,1.849],[1.3632,303.01,1.1313,363.62,9480715,2294.2,27.636,3730.6,1.8519],[1.3584,311.64,1.1328,392.45,10308541,2408.1,29.551,3799.4,1.8529],[1.3544,319.6,1.1353,420.69,10889290,2500.8,31.015,3815.9,1.8524],[1.3493,330.46,1.143,462.75,11069620,2599.5,32.274,3741.9,1.8478],[1.3427,346.14,1.1747,532.99,9202155,2648.5,31.522,3366.6,1.8242]],"ghydrox":[[1.3996,488.88,1.1322,406.09,9831220,2335.0,17.904,3526.0,1.8339],[1.4001,531.47,1.131,438.88,11014931,2459.4,18.272,3615.9,1.8358],[1.4008,613.72,1.1303,504.39,13115553,2676.0,18.727,3720.1,1.8375],[1.4014,692.29,1.1306,569.65,14919502,2858.4,18.933,3756.1,1.8378],[1.4018,767.42,1.132,634.38,16376986,3012.5,18.957,3745.7,1.8368],[1.4022,874.15,1.1365,729.65,17820714,3199.8,18.742,3674.9,1.833],[1.4028,1037.7,1.1485,881.25,18605110,3424.6,18.0,3489.2,1.8224]]}}; // [γ1, R1, γ2, R2, q, D_CJ, p_CJ/p1, T_CJ, ρ_CJ/ρ1] at 1.5 atm, 300 K (tools/cj.py)
-// Engines tab: run the detonation chamber for the engine's propellant and draw the unrolled annulus.
-const RDE_STOICH = { ethox: 3.0 * 31.998 / 28.054, gmethox: 2.0 * 31.998 / 16.043, ghydrox: 31.998 / (2 * 2.016) };
-const rdeSim = { run: null, busy: false, hist: [], gen: 0 };
+// Engine mode: a test stand for the detonation chamber. The chamber runs on the GPU; the 3D view draws
+// the gas sheet in the annulus and over the plug straight from the solver's state buffer, and the
+// unrolled field below it is the same data flat.
+const RDE_STOICH = { ethox: (3.0 * 31.998) / 28.054, gmethox: (2.0 * 31.998) / 16.043, ghydrox: 31.998 / (2 * 2.016) };
+const RDE_NAMES = { ethox: "C₂H₄/O₂", gmethox: "CH₄/O₂", ghydrox: "H₂/O₂" };
+const rdeSim = { run: null, hist: [], gen: 0, cfg: null, q: null };
 function rdeMix(key, of) {
   const rows = RDE_MIX.mix[key], P = RDE_MIX.phi, phi = RDE_STOICH[key] / of;
   const x = Math.min(Math.max(phi, P[0]), P[P.length - 1]); let i = 0; while (i < P.length - 2 && x > P[i + 1]) i++;
@@ -8300,83 +8339,216 @@ function rdeMix(key, of) {
   return { phi, gas: { gam1: r[0], R1: r[1], gam2: r[2], R2: r[3], q: r[4] }, D: r[5], pr: r[6], T: r[7], dr: r[8] };
 }
 function rdeConfig() {
-  const R = st.rde, E = st.eng, key = engPr(E).tab;
-  if (!RDE_MIX.mix[key]) return null;
-  const m = rdeMix(key, engPr(E).of), Di = R.Di / 1000, w = R.w / 1000, Lc = R.Lc / 1000, half = (R.half * Math.PI) / 180;
+  const R = st.rde, m = rdeMix(R.prop, R.of), Di = R.Di / 1000, w = R.w / 1000, Lc = R.Lc / 1000, half = (R.half * Math.PI) / 180;
   const Do = Di + 2 * w, Ac = (Math.PI / 4) * (Do * Do - Di * Di), Lp = Di / 2 / Math.tan(half);
-  const L = Math.PI * (Di + w), H = Lc + Lp, nx = +R.nx, dx = L / nx, ny = Math.max(20, Math.round(H / dx)), T0 = 300;
+  const L = Math.PI * (Di + w), H = Lc + Lp, nx = +R.nx, dx = L / nx, ny = Math.max(20, Math.round(H / dx)), T0 = 300, pa = Math.max(R.pa * 1000, 1);
   const g1 = m.gas.gam1, R1 = m.gas.R1, Mn = m.D / Math.sqrt(g1 * R1 * T0);
   const TvN = (T0 * (2 * g1 * Mn * Mn - (g1 - 1)) * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) ** 2 * Mn * Mn);
-  const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn), pa = (engineEnv() || { p: 101325 }).p;
+  const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn);
   const area = (y) => (y <= Lc ? Ac : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
-  const pCJ = m.pr * 1.5 * 101325;
-  return { key, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, gas: m.gas, Ea: 8 * R1 * TvN, k: (uvN / (2 * dx)) * Math.exp(8), AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa: Math.max(pa, 1),
-    Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: pCJ, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
+  return { key: R.prop, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, Ea: 8 * R1 * TvN, k: (uvN / (2 * dx)) * Math.exp(8), AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
+    Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * 101325, TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
+function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }
 async function rdeToggle() {
-  const btn = $("#rdeRun");
-  if (rdeSim.run) { rdeSim.gen++; rdeSim.run.destroy(); rdeSim.run = null; btn.textContent = "Run"; return; }
+  if (rdeSim.run) return rdeStop();
+  if (!dev) { $("#rdeInfo").innerHTML = "<dt>GPU</dt><dd>needs WebGPU</dd>"; return; }
   const c = rdeConfig();
-  if (!c) { $("#rdeInfo").innerHTML = "<dt>Propellant</dt><dd>choose a gaseous propellant (ethylene, methane or hydrogen with oxygen)</dd>"; return; }
-  if (!dev) return;
   try { rdeSim.run = await rdeCreate(dev, c); } catch (e) { $("#rdeInfo").innerHTML = `<dt>Error</dt><dd>${e.message}</dd>`; return; }
-  rdeSim.cfg = c; rdeSim.hist = []; btn.textContent = "Stop";
+  rdeSim.cfg = c; rdeSim.hist = []; $("#rdeRun").textContent = "Stop";
   const gen = ++rdeSim.gen;
   const loop = async () => {
     if (gen !== rdeSim.gen || !rdeSim.run) return;
-    const s = rdeSim.run; s.step(60);
-    const q = await s.read(); if (gen !== rdeSim.gen) return;
-    const d = s.diag(q);
-    if (d.nan) { $("#rdeInfo").innerHTML = "<dt>Stopped</dt><dd>the solution blew up; try more cells or a lower plenum pressure</dd>"; rdeToggle(); return; }
+    if (st.mode !== "engine") { requestAnimationFrame(loop); return; }   // paused while away
+    const s = rdeSim.run; s.step(st.rde.spf);
+    const t0 = performance.now(); rdeSim.reading = s.read(); const q = await rdeSim.reading; rdeSim.reading = null; if (gen !== rdeSim.gen) return;
+    const d = s.diag(q); rdeSim.q = q;
+    if (d.nan) { $("#rdeInfo").innerHTML = "<dt>Stopped</dt><dd>the solution blew up; try more cells or a lower plenum pressure</dd>"; rdeStop(); return; }
     if ((d.smax * s.dt) / Math.min(s.dx, s.dy) > 0.45) s.setDt((0.35 * Math.min(s.dx, s.dy)) / d.smax);
     const ph = d.pHead, mean = ph.reduce((a, b) => a + b, 0) / ph.length, pk = [];
     for (let i = 0; i < ph.length; i++) { const a = ph[(i - 1 + ph.length) % ph.length], b = ph[(i + 1) % ph.length]; if (ph[i] > 2.5 * mean && ph[i] >= a && ph[i] > b) pk.push(i); }
     rdeSim.hist.push({ t: s.t, mIn: d.mIn, F: d.F, p: d.pProbe, waves: pk.length, peaks: pk });
-    rdeDraw(q); rdeReport();
+    rdeDraw2d(q); rdeDraw3d(); rdeReport(); rdeDrawHist(); updateHeadline();
+    // keep the frame near 30 ms of GPU work
+    const ms = performance.now() - t0; st.rde.spf = Math.max(4, Math.min(400, Math.round(st.rde.spf * (ms > 40 ? 0.8 : 1.15))));
     requestAnimationFrame(loop);
   };
   loop();
 }
-function rdeDraw(q) {
-  const cv = $("#rdeView"), c = rdeSim.cfg, s = rdeSim.run, N = s.N, G = c.gas;
-  const W = c.nx, H = c.ny; if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-  const g = cv.getContext("2d"), img = g.createImageData(W, H), lo = Math.log(c.pa * 0.5), hi = Math.log(c.Dcj ? c.init.pIgn * 1.5 : 1e6);
+// field value for the colour maps: log pressure, or temperature; fresh propellant tinted blue
+function rdeField(q, n, N, G) {
+  const r = q[n], u = q[N + n] / r, v = q[2 * N + n] / r, y = Math.min(1, Math.max(0, q[4 * N + n] / r));
+  const cvm = (y * G.R1) / (G.gam1 - 1) + ((1 - y) * G.R2) / (G.gam2 - 1), T = (q[3 * N + n] / r - 0.5 * (u * u + v * v) - y * G.q) / cvm;
+  return { p: r * (y * G.R1 + (1 - y) * G.R2) * T, T, y };
+}
+function rdeRange(c) { return st.rde.show === "T" ? [250, c.m.T * 1.15] : [c.pa * 0.5, c.init.pIgn * 2]; }
+function rdeColour(a, y) {   // warm ramp (dark → orange → bone), fresh propellant blue
+  const r = Math.min(1, a * 1.5), g = Math.max(0, a * 1.35 - 0.35) ** 1.15, b = Math.max(0, a - 0.75) * 2.4;
+  return [255 * (r * (1 - 0.6 * y)), 255 * (g * (1 - 0.4 * y) + 0.25 * y), 255 * Math.min(1, b + 0.85 * y)];
+}
+function rdeDraw2d(q) {
+  const cv = $("#eng2d"), c = rdeSim.cfg, N = c.nx * c.ny, G = c.gas, W = c.nx, H = c.ny;
+  const off = rdeDraw2d.off || (rdeDraw2d.off = document.createElement("canvas")); off.width = W; off.height = H;
+  const g = off.getContext("2d"), img = g.createImageData(W, H), [lo, hi] = rdeRange(c), T = st.rde.show === "T";
+  const l0 = T ? lo : Math.log(lo), l1 = T ? hi : Math.log(hi);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-    const n = i + W * j, r = q[n], u = q[N + n] / r, v = q[2 * N + n] / r, y = Math.min(1, Math.max(0, q[4 * N + n] / r));
-    const cvm = (y * G.R1) / (G.gam1 - 1) + ((1 - y) * G.R2) / (G.gam2 - 1), T = (q[3 * N + n] / r - 0.5 * (u * u + v * v) - y * G.q) / cvm, p = r * (y * G.R1 + (1 - y) * G.R2) * T;
-    const a = Math.min(1, Math.max(0, (Math.log(p) - lo) / (hi - lo))), o = 4 * (i + W * (H - 1 - j));
-    // warm ramp for pressure; fresh propellant tinted blue
-    img.data[o] = 255 * Math.min(1, a * 1.6); img.data[o + 1] = 255 * Math.max(0, a * 1.4 - 0.4) ** 1.2; img.data[o + 2] = 255 * Math.max(y * 0.8, a > 0.85 ? (a - 0.85) * 6 : 0); img.data[o + 3] = 255;
+    const f = rdeField(q, i + W * j, N, G), a = Math.min(1, Math.max(0, ((T ? f.T : Math.log(f.p)) - l0) / (l1 - l0))), o = 4 * (i + W * j), col = rdeColour(a, f.y);
+    img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2]; img.data[o + 3] = 255;
   }
   g.putImageData(img, 0, 0);
+  const dpr = devicePixelRatio || 1, Wd = Math.round(cv.clientWidth * dpr), Hd = Math.round(cv.clientHeight * dpr);
+  if (cv.width !== Wd || cv.height !== Hd) { cv.width = Wd; cv.height = Hd; }
+  const x = cv.getContext("2d"); x.imageSmoothingEnabled = true; x.drawImage(off, 0, 0, Wd, Hd);
+  // chamber exit line and labels
+  const yc = (Hd * c.Lc) / c.H; x.strokeStyle = "rgba(214,206,189,0.35)"; x.setLineDash([4 * dpr, 4 * dpr]); x.beginPath(); x.moveTo(0, yc); x.lineTo(Wd, yc); x.stroke(); x.setLineDash([]);
+  x.font = `${11 * dpr}px Archivo, system-ui, sans-serif`; x.fillStyle = "rgba(214,206,189,0.92)"; x.shadowColor = "rgba(0,0,0,0.9)"; x.shadowBlur = 4 * dpr;
+  x.fillText("injector face", 6 * dpr, 14 * dpr); x.fillText("end of annulus", 6 * dpr, yc + 14 * dpr); x.fillText("plug tip", 6 * dpr, Hd - 6 * dpr);
+  const lab = T ? `${lo.toFixed(0)}–${hi.toFixed(0)} K` : `${(lo / 1e5).toFixed(2)}–${(hi / 1e5).toFixed(0)} bar (log)`;
+  x.textAlign = "right"; x.fillText(`${T ? "temperature" : "pressure"} ${lab} · blue: fresh propellant`, Wd - 6 * dpr, Hd - 6 * dpr); x.textAlign = "left"; x.shadowBlur = 0;
+}
+// 3D: gas sheet at the mean radius through the annulus, then on the plug surface; casing as lines
+const RDE3D_WGSL = /* wgsl */`
+struct V { mvp: mat4x4f, eye: vec4f, geo: vec4f, geo2: vec4f, gas1: vec4f, gas2: vec4f, rng: vec4f, dims: vec4u };
+// geo: rMean, rInner, rOuter, Lc   geo2: H, tan(half), scale, -   gas1: γ1, R1, q, -   gas2: γ2, R2, -, -   rng: lo, hi, show T (>0.5), -
+@group(0) @binding(0) var<uniform> U: V;
+@group(0) @binding(1) var<storage, read> S: array<f32>;
+struct O { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) n: vec3f, @location(2) w: vec3f, @location(3) k: f32 };
+fn radius(y: f32) -> f32 { if (y <= U.geo.w) { return U.geo.x; } return max(U.geo.y - (y - U.geo.w) * U.geo2.y, 0.0) + 0.4 * (U.geo.x - U.geo.y); }
+fn place(th: f32, y: f32, r: f32) -> vec3f { return vec3f(r * cos(th), r * sin(th), -y) * U.geo2.z; }
+@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> O {
+  var o: O;
+  let NT = 160u;
+  if (ii == 0u) {
+    // gas sheet: quads over (θ, y)
+    let NY = 96u; let q = vi / 6u; let c = vi % 6u;
+    let qi = q % NT; let qj = q / NT;
+    var du = array<u32, 6>(0u, 1u, 0u, 0u, 1u, 1u); var dv = array<u32, 6>(0u, 0u, 1u, 1u, 0u, 1u);
+    let u = f32(qi + du[c]) / f32(NT); let v = f32(qj + dv[c]) / f32(NY);
+    let y = v * U.geo2.x; let th = u * 6.2831853; let r = radius(y);
+    o.w = place(th, y, r); o.uv = vec2f(u, v); o.k = 0.0;
+    let dr = select(0.0, -U.geo2.y, y > U.geo.w);
+    o.n = normalize(vec3f(cos(th), sin(th), dr));
+  } else {
+    // casing: rings at the injector face and the end of the annulus (inner and outer), and generators
+    let seg = vi / 2u; let e = vi % 2u;
+    var p = vec3f(0.0);
+    if (seg < 4u * NT) {
+      let ring = seg / NT; let k = seg % NT + e;
+      let th = f32(k) / f32(NT) * 6.2831853;
+      let r = select(U.geo.z, U.geo.y, ring % 2u == 1u); let y = select(0.0, U.geo.w, ring >= 2u);
+      p = place(th, y, r);
+    } else {
+      let g = seg - 4u * NT; let th = f32(g % 24u) / 24.0 * 6.2831853; let r = select(U.geo.z, U.geo.y, g >= 24u);
+      p = place(th, select(0.0, U.geo.w, e == 1u), r);
+    }
+    o.w = p; o.uv = vec2f(0.0); o.n = vec3f(0.0, 0.0, 1.0); o.k = 1.0;
+  }
+  o.pos = U.mvp * vec4f(o.w, 1.0);
+  return o;
+}
+fn colour(a: f32, y: f32) -> vec3f {
+  let r = min(1.0, a * 1.5); let g = pow(max(0.0, a * 1.35 - 0.35), 1.15); let b = max(0.0, a - 0.75) * 2.4;
+  return vec3f(r * (1.0 - 0.6 * y), g * (1.0 - 0.4 * y) + 0.25 * y, min(1.0, b + 0.85 * y));
+}
+@fragment fn fs(i: O) -> @location(0) vec4f {
+  if (i.k > 0.5) { return vec4f(0.84, 0.81, 0.74, 0.55); }
+  let nx = U.dims.x; let ny = U.dims.y; let N = nx * ny;
+  let ci = min(u32(i.uv.x * f32(nx)), nx - 1u); let cj = min(u32(i.uv.y * f32(ny)), ny - 1u); let n = ci + nx * cj;
+  let r = max(S[n], 1e-6); let u = S[N + n] / r; let v = S[2u * N + n] / r; let y = clamp(S[4u * N + n] / r, 0.0, 1.0);
+  let cv = y * U.gas1.y / (U.gas1.x - 1.0) + (1.0 - y) * U.gas2.y / (U.gas2.x - 1.0);
+  let T = (S[3u * N + n] / r - 0.5 * (u * u + v * v) - y * U.gas1.z) / cv;
+  let p = r * (y * U.gas1.y + (1.0 - y) * U.gas2.y) * T;
+  var a = 0.0;
+  if (U.rng.z > 0.5) { a = (T - U.rng.x) / (U.rng.y - U.rng.x); } else { a = (log(p) - log(U.rng.x)) / (log(U.rng.y) - log(U.rng.x)); }
+  let col = colour(clamp(a, 0.0, 1.0), y);
+  let l = 0.55 + 0.45 * abs(dot(normalize(i.n), normalize(U.eye.xyz - i.w)));
+  return vec4f(col * l, 1.0);
+}`;
+const rde3 = { cam: { yaw: 0.6, pitch: 0.45, dist: 2.1 }, pipe: null, line: null, ubuf: null, depth: null, ctx: null };
+function rdeMat(c) {
+  const cv = $("#eng3d"), asp = cv.width / Math.max(cv.height, 1), C = rde3.cam;
+  const ex = C.dist * Math.cos(C.pitch) * Math.cos(C.yaw), ey = C.dist * Math.cos(C.pitch) * Math.sin(C.yaw), ez = C.dist * Math.sin(C.pitch) - 0.45;
+  const eye = [ex, ey, ez], at = [0, 0, -0.45], up = [0, 0, 1];
+  const sub = (a, b) => a.map((v, i) => v - b[i]), nrm = (a) => { const l = Math.hypot(...a); return a.map((v) => v / l); }, cr = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], dt = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const f = nrm(sub(at, eye)), sx = nrm(cr(f, up)), u = cr(sx, f);
+  const V = [sx[0], u[0], -f[0], 0, sx[1], u[1], -f[1], 0, sx[2], u[2], -f[2], 0, -dt(sx, eye), -dt(u, eye), dt(f, eye), 1];
+  const fy = 1 / Math.tan(0.35), n = 0.05, fa = 50;
+  const P = [fy / asp, 0, 0, 0, 0, fy, 0, 0, 0, 0, fa / (n - fa), -1, 0, 0, (n * fa) / (n - fa), 0];
+  const M = new Array(16).fill(0);
+  for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) for (let j = 0; j < 4; j++) M[k * 4 + r] += P[j * 4 + r] * V[k * 4 + j];
+  return { M, eye };
+}
+function rdeDraw3d() {
+  const s = rdeSim.run, c = rdeSim.cfg, cv = $("#eng3d"); if (!s || !cv) return;
+  if (!rde3.ctx) {
+    rde3.ctx = cv.getContext("webgpu"); rde3.ctx.configure({ device: dev, format: fmt, alphaMode: "premultiplied" });
+    const mod = dev.createShaderModule({ code: RDE3D_WGSL });
+    const bgl = dev.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }] });
+    rde3.bgl = bgl; const layout = dev.createPipelineLayout({ bindGroupLayouts: [bgl] });
+    const mk = (topology, blend) => dev.createRenderPipeline({ layout, vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format: fmt, blend }] }, primitive: { topology, cullMode: "none" }, depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" } });
+    rde3.pipe = mk("triangle-list"); rde3.line = mk("line-list", { color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha" }, alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" } });
+    rde3.ubuf = dev.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    const drag = { on: false };
+    cv.addEventListener("pointerdown", (e) => { drag.on = true; drag.x = e.clientX; drag.y = e.clientY; cv.setPointerCapture(e.pointerId); });
+    cv.addEventListener("pointermove", (e) => { if (!drag.on) return; rde3.cam.yaw -= (e.clientX - drag.x) * 0.008; rde3.cam.pitch = Math.max(-1.4, Math.min(1.4, rde3.cam.pitch + (e.clientY - drag.y) * 0.008)); drag.x = e.clientX; drag.y = e.clientY; if (!rdeSim.run) rdeDraw3d(); });
+    cv.addEventListener("pointerup", () => (drag.on = false));
+    cv.addEventListener("wheel", (e) => { e.preventDefault(); rde3.cam.dist = Math.max(1.2, Math.min(10, rde3.cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+  }
+  const dpr = devicePixelRatio || 1, W = Math.max(1, Math.round(cv.clientWidth * dpr)), H = Math.max(1, Math.round(cv.clientHeight * dpr));
+  if (cv.width !== W || cv.height !== H || !rde3.depth) { cv.width = W; cv.height = H; if (rde3.depth) rde3.depth.destroy(); rde3.depth = dev.createTexture({ size: [W, H], format: "depth24plus", usage: GPUTextureUsage.RENDER_ATTACHMENT }); }
+  const { M, eye } = rdeMat(c), [lo, hi] = rdeRange(c), sc = 1 / Math.max(c.Do / 2, c.H) ;
+  const f = new Float32Array(48), u32 = new Uint32Array(f.buffer);
+  f.set(M, 0); f.set([...eye, 0], 16); f.set([(c.Di + c.Do) / 4, c.Di / 2, c.Do / 2, c.Lc], 20); f.set([c.H, Math.tan(c.half), sc, 0], 24);
+  f.set([c.gas.gam1, c.gas.R1, c.gas.q, 0], 28); f.set([c.gas.gam2, c.gas.R2, 0, 0], 32); f.set([lo, hi, st.rde.show === "T" ? 1 : 0, 0], 36); u32.set([c.nx, c.ny, 0, 0], 40);
+  dev.queue.writeBuffer(rde3.ubuf, 0, f);
+  const bg = dev.createBindGroup({ layout: rde3.bgl, entries: [{ binding: 0, resource: { buffer: rde3.ubuf } }, { binding: 1, resource: { buffer: s.state } }] });
+  const e = dev.createCommandEncoder();
+  const p = e.beginRenderPass({ colorAttachments: [{ view: rde3.ctx.getCurrentTexture().createView(), clearValue: { r: 0.03, g: 0.035, b: 0.045, a: 1 }, loadOp: "clear", storeOp: "store" }], depthStencilAttachment: { view: rde3.depth.createView(), depthClearValue: 1, depthLoadOp: "clear", depthStoreOp: "store" } });
+  p.setBindGroup(0, bg); p.setPipeline(rde3.pipe); p.draw(160 * 96 * 6, 1, 0, 0); p.setPipeline(rde3.line); p.draw((4 * 160 + 48) * 2, 1, 0, 1); p.end();
+  dev.queue.submit([e.finish()]);
+}
+function rdeStats() {
+  const h = rdeSim.hist, c = rdeSim.cfg; if (!h.length) return null;
+  const tail = h.slice(Math.floor(h.length / 2)), avg = (k) => tail.reduce((a, x) => a + x[k], 0) / tail.length;
+  const mIn = avg("mIn"), F = avg("F"), p = avg("p"), waves = tail.map((x) => x.waves).sort((a, b) => a - b)[tail.length >> 1], sp = [];
+  for (let k = 1; k < tail.length; k++) for (const a of tail[k - 1].peaks) { const ds = tail[k].peaks.map((b) => (b - a + c.nx) % c.nx).filter((d) => d > 0 && d < c.nx / 4); if (ds.length) sp.push((Math.min(...ds) * c.L) / c.nx / (tail[k].t - tail[k - 1].t)); }
+  sp.sort((a, b) => a - b);
+  return { mIn, F, p, isp: mIn > 0 ? F / (mIn * G0) : 0, waves, v: sp.length ? sp[sp.length >> 1] : NaN, t: h[h.length - 1].t };
 }
 function rdeReport() {
-  const h = rdeSim.hist, c = rdeSim.cfg; if (!h.length) return;
-  const tail = h.slice(Math.floor(h.length / 2)), avg = (k) => tail.reduce((a, x) => a + x[k], 0) / tail.length;
-  const mIn = avg("mIn"), F = avg("F"), p = avg("p"), isp = mIn > 0 ? F / (mIn * G0) : 0;
-  const waves = tail.map((x) => x.waves).sort((a, b) => a - b)[tail.length >> 1];
-  const sp = [];
-  for (let k = 1; k < tail.length; k++) for (const a of tail[k - 1].peaks) { const ds = tail[k].peaks.map((b) => (b - a + c.nx) % c.nx).filter((d) => d > 0 && d < c.nx / 4); if (ds.length) sp.push((Math.min(...ds) * c.L) / c.nx / (tail[k].t - tail[k - 1].t)); }
-  sp.sort((a, b) => a - b); const v = sp.length ? sp[sp.length >> 1] : NaN;
-  const pr = engPr(st.eng), ideal = pr.tab ? idealExpandedF({ ...pr, pc: Math.max(p, c.pa * 1.01) }, 1, c.pa, c.Ae / c.Ac).Isp : NaN;
+  const S = rdeStats(), c = rdeSim.cfg; if (!S) return;
+  const pr = { ...PROPELLANTS[c.key], of: st.rde.of, shift: true }, ideal = idealExpandedF({ ...pr, pc: Math.max(S.p, c.pa * 1.01) }, 1, c.pa, c.Ae / c.Ac).Isp;
   const row = (k, val) => `<dt>${k}</dt><dd>${val}</dd>`;
   $("#rdeInfo").innerHTML =
-    row("Simulated", `${(h[h.length - 1].t * 1e3).toFixed(2)} ms · averages over the second half`) +
-    row("Mass flow", `${mIn.toFixed(3)} kg/s · φ ${c.m.phi.toFixed(2)}`) +
-    row("Thrust · Isp", `${F.toFixed(0)} N · ${isp.toFixed(0)} s`) +
-    row("Waves", `${waves} · ${isFinite(v) ? v.toFixed(0) + " m/s (" + ((100 * v) / c.Dcj).toFixed(0) + "% of CJ)" : "—"}`) +
-    row("Chamber pressure", `${(p / 1e6).toFixed(3)} MPa near the exit`) +
-    row("Constant-pressure ideal", `${isFinite(ideal) ? ideal.toFixed(0) + " s at that pressure, expanded to ambient" : "—"}`);
+    row("Simulated", `${(S.t * 1e3).toFixed(3)} ms · averages over the second half`) +
+    row("Mass flow", `${S.mIn.toFixed(3)} kg/s · ${RDE_NAMES[c.key]} φ ${c.m.phi.toFixed(2)}`) +
+    row("Thrust · Isp", `${S.F.toFixed(0)} N · ${S.isp.toFixed(0)} s`) +
+    row("Waves", `${S.waves} · ${isFinite(S.v) ? S.v.toFixed(0) + " m/s, " + ((100 * S.v) / c.Dcj).toFixed(0) + "% of CJ (" + c.Dcj.toFixed(0) + ")" : "—"}`) +
+    row("Pressure, end of annulus", `${(S.p / 1e6).toFixed(3)} MPa`) +
+    row("Constant-pressure engine", `${isFinite(ideal) ? ideal.toFixed(0) + " s ideal at that pressure, expanded to ambient" : "—"}`);
+}
+function rdeDrawHist() {
+  const cv = $("#rdeHist"), h = rdeSim.hist; if (!cv || h.length < 2) return;
+  const dpr = devicePixelRatio || 1, W = Math.round(cv.clientWidth * dpr), H = Math.round(cv.clientHeight * dpr); if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  const x = cv.getContext("2d"); x.clearRect(0, 0, W, H);
+  const t1 = h[h.length - 1].t, Fs = h.map((e) => e.F), Fmax = Math.max(1, ...Fs) * 1.1, Fmin = Math.min(0, ...Fs);
+  const X = (t) => 8 * dpr + ((W - 16 * dpr) * t) / t1, Y = (F) => H - 16 * dpr - ((H - 28 * dpr) * (F - Fmin)) / (Fmax - Fmin);
+  x.strokeStyle = "#f29c4f"; x.lineWidth = 1.5 * dpr; x.beginPath(); h.forEach((e, i) => (i ? x.lineTo(X(e.t), Y(e.F)) : x.moveTo(X(e.t), Y(e.F)))); x.stroke();
+  x.fillStyle = "rgba(214,206,189,0.75)"; x.font = `${10.5 * dpr}px Archivo, system-ui, sans-serif`;
+  x.fillText(`thrust, N (peak ${Math.max(...Fs).toFixed(0)})`, 8 * dpr, 12 * dpr); x.textAlign = "right"; x.fillText(`${(t1 * 1e3).toFixed(2)} ms`, W - 8 * dpr, H - 4 * dpr); x.textAlign = "left";
 }
 function syncRdeUI() {
-  const R = st.rde; if (!$("#rdeBox")) return;
-  $("#rdeBox").style.display = st.eng.type === "rde" ? "" : "none";
-  $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdeNx").value = R.nx;
+  const R = st.rde; if (!$("#rdeDi")) return;
+  $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeShow").value = R.show;
 }
 function wireRde() {
-  for (const [id, k, lo] of [["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdeNx", "nx", 50]])
-    $(id).addEventListener("change", (e) => { st.rde[k] = Math.max(lo, +e.target.value || 0); if (rdeSim.run) rdeToggle(); });
+  const restart = () => { if (rdeSim.run) { rdeStop(); rdeToggle(); } };
+  for (const [id, k, lo] of [["#rdeOF", "of", 0.2], ["#rdeDi", "Di", 5], ["#rdeW", "w", 0.3], ["#rdeLc", "Lc", 5], ["#rdeHalf", "half", 5], ["#rdeAt", "AtAw", 0.01], ["#rdeP0", "p0", 0.05], ["#rdePa", "pa", 0.1], ["#rdeNx", "nx", 50]])
+    $(id).addEventListener("change", (e) => { st.rde[k] = Math.max(lo, +e.target.value || 0); restart(); });
+  $("#rdeProp").addEventListener("change", (e) => { st.rde.prop = e.target.value; st.rde.of = +(RDE_STOICH[st.rde.prop] / 1.1).toFixed(2); syncRdeUI(); restart(); });
+  $("#rdeShow").addEventListener("change", (e) => { st.rde.show = e.target.value; if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
   $("#rdeRun").addEventListener("click", rdeToggle);
+  $("#rdeGoto").addEventListener("click", () => { Object.assign(st.rde, { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325 }); syncRdeUI(); restart(); });
   syncRdeUI();
 }
 
