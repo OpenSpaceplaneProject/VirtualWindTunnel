@@ -224,6 +224,19 @@ With two-cell zones, a 1D detonation held, but in the Goto engine the starting w
 
 Real rigs run their waves at 70–90% of the CJ speed, mostly because of mixing. Expect the solver's waves to run faster than measured. See tests/VALIDATION.md for the comparison with the Goto et al. (2021) ethylene/oxygen sled-test engine.
 
+**Across the gap.** With one cell across the gap, the annulus is unrolled at its mean radius (above). With more cells, the gap is resolved on a mesh between the inner body and the outer casing. The inner body is the plug surface downstream, at the radius that gives the area A(y). Each cell is a ring sector, and its faces are computed exactly per unit angle:
+- Meridional area and ∫r dA from the vertex radii.
+- The sloped faces' radial and axial area components.
+- The axial faces' annular areas.
+
+A fourth momentum component carries the radial velocity. The cylindrical terms are added as sources: (p + ρu_θ²)/r̄ radially and −ρu_r u_θ/r̄ azimuthally. Together with the face areas, they keep gas at rest at rest exactly, including against the sloped plug (checked to 10⁻⁴ m/s after 400 steps). Both walls are slip walls.
+
+Near the plug tip the circumference shrinks towards zero, so the azimuthal metric holds the radius at no less than half the mean radius. Otherwise those cells would set a time step tens of times smaller.
+
+The mesh spreads its cells across the widening gap beyond the annulus, so the plug flow is coarser across than along. The 2D views show the gap-averaged state, plus one column across the gap just behind the leading wave. Flows and thrust are summed over the gap exactly.
+
+One cell reproduces the quasi-2D solver to rounding error on the Goto engine. With 4 cells, mass flow and peak pressure stay within about 3% of the one-cell run over the first 41 µs, the same times compared.
+
 **Wave count.** The model holds fewer waves than real engines at the same feed. The mass balance h = ṁ / (n ρ w D) gives the fresh-layer height each of n waves meets. A real wave needs h above about 12 detonation cells, and cells shrink as pressure rises, so higher pressure allows more waves. Here the smeared front needs a layer some number of grid cells deep instead. That depth doesn't shrink with pressure, so raising the plenum pressure adds density but not height. More waves need a finer grid.
 
 **MAV class.** The preset is NASA's 7K lbf RDRE (Teasley et al., AIAA 2023): 142 mm inner body, 8.4 mm gap, 69.5 mm from the injector to the throat and a 30° plug. It runs on methane/oxygen at O/F 3.5 and a 5 MPa plenum, about 8.7 kg/s. That is about one MAV engine's share of thrust. The start-up fill scales with the plenum pressure (0.1 p₀ when that is above ambient) so the igniter clears the ignition gate.
