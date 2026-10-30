@@ -108,7 +108,7 @@ async function run(cfg) {
     }
     return [+cdF.toFixed(4), +Fs.toFixed(4)];
   };
-  const T = cfg.T, total = Math.ceil(T / dt / 10) * 10, every = Math.max(10, Math.round(total / 8 / 10) * 10), hist = [];
+  const T = cfg.T, total = Math.ceil(T / dt / 10) * 10, every = Math.max(10, Math.round(total / 24 / 10) * 10), hist = [], late = [];
   const t0 = performance.now();
   for (let s = 0; s < total; s += 10) {
     const e = dev.createCommandEncoder(); const p = e.beginComputePass();
@@ -119,21 +119,27 @@ async function run(cfg) {
       p.setPipeline(pStage); p.setBindGroup(0, bBA); p.dispatchWorkgroups(X, Y);
     }
     p.end(); dev.queue.submit([e.finish()]); await dev.queue.onSubmittedWorkDone();
-    if (s > 0 && s % every === 0) hist.push([+(s * dt).toFixed(1), ...cdOf(await grab())]);
+    if (s > 0 && s % every === 0) { const U = await grab(); hist.push([+(s * dt).toFixed(1), ...cdOf(U)]); if (s >= (2 * total) / 3) late.push(meas(U)); }
+  }
+  function meas(U) {
+    const [cdF, cdS] = cdOf(U);
+    // stagnation line: shock where density first passes halfway to the normal-shock value; stagnation
+    // pressure from the line extrapolated to the wall
+    const row = NX * (Math.floor(cy) + NY * Math.floor(cz)), nose = cx - R0;
+    const r2 = cfg.rg ? null : ((g + 1) * M * M) / ((g - 1) * M * M + 2), half = cfg.rg ? null : 0.5 * (1 + r2);
+    let xs = null; const rho = (x) => U[row + x];
+    const thr = half || 1.5;
+    for (let x = 1; x < nose - 1; x++) if (rho(x) >= thr) { const a = rho(x - 1), b = rho(x); xs = x - 1 + 0.5 + (thr - a) / Math.max(b - a, 1e-9); break; }
+    const pW = tri(U, (n) => prOf(U, n), nose - 0.75, cy, cz);
+    let Tmax = 0, TmaxAt = 0, rmin = 1e9; for (let x = 1; x < nose; x++) { rmin = Math.min(rmin, rho(x)); const t = prOf(U, row + x) / rho(x) / pinf; if (t > Tmax) { Tmax = t; TmaxAt = nose - (x + 0.5); } }
+    return { cdFaces: cdF, cdSurface: cdS, standoffR: xs == null ? null : (nose - xs) / R0, cpStag: (pW - pinf) / 0.5, rhoStag: tri(U, (n) => U[n], nose - 0.75, cy, cz), rhoMinAxis: rmin, TmaxOverTinf: Tmax, TmaxCellsFromWall: TmaxAt };
   }
   const ve = await dev.popErrorScope(); if (ve) return { err: ve.message };
-  const U = await grab();
-  const [cdF, cdS] = cdOf(U);
-  // stagnation line: shock where density first passes halfway to the normal-shock value; stagnation
-  // pressure from the line extrapolated to the wall
-  const row = NX * (Math.floor(cy) + NY * Math.floor(cz)), nose = cx - R0;
-  const r2 = cfg.rg ? null : ((g + 1) * M * M) / ((g - 1) * M * M + 2), half = cfg.rg ? null : 0.5 * (1 + r2);
-  let xs = null; const rho = (x) => U[row + x];
-  const thr = half || 1.5;
-  for (let x = 1; x < nose - 1; x++) if (rho(x) >= thr) { const a = rho(x - 1), b = rho(x); xs = x - 1 + 0.5 + (thr - a) / Math.max(b - a, 1e-9); break; }
-  const pW = tri(U, (n) => prOf(U, n), nose - 0.75, cy, cz);
-  let Tmax = 0, rmin = 1e9; for (let x = 1; x < nose; x++) { rmin = Math.min(rmin, rho(x)); Tmax = Math.max(Tmax, prOf(U, row + x) / rho(x) / pinf); }
-  return { hist, steps: total, dt: +dt.toFixed(4), cdFaces: cdF, cdSurface: cdS, standoffR: xs == null ? null : +((nose - xs) / R0).toFixed(3), cpStag: +((pW - pinf) / 0.5).toFixed(4), rhoStag: +tri(U, (n) => U[n], nose - 0.75, cy, cz).toFixed(3), rhoMinAxis: +rmin.toFixed(3), TmaxOverTinf: +Tmax.toFixed(2), ms: Math.round(performance.now() - t0), nan: U.some((v) => !isFinite(v)) };
+  const U = await grab(); late.push(meas(U));
+  // every reported quantity is the mean over the last third of the run; *Spread is max − min there
+  const avg = {}, spread = {};
+  for (const k of Object.keys(late[0])) { const v = late.map((m) => m[k]).filter((x) => x != null && isFinite(x)); avg[k] = v.length ? +(v.reduce((a, b) => a + b, 0) / v.length).toFixed(4) : null; spread[k + "Spread"] = v.length ? +(Math.max(...v) - Math.min(...v)).toFixed(4) : null; }
+  return { hist, steps: total, dt: +dt.toFixed(4), samples: late.length, ...avg, ...spread, ms: Math.round(performance.now() - t0), nan: U.some((v) => !isFinite(v)) };
 }
 function makeEq(tab, rg) {
   const NR = 40, NE = 64, LR0 = -8.0, LR1 = 1.5, LE0 = 5.079181, LE1 = 7.90309;
