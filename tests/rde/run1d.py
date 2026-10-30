@@ -4,7 +4,7 @@ from playwright.sync_api import sync_playwright
 HERE = os.path.dirname(os.path.abspath(__file__))
 subprocess.run(['node', os.path.join(HERE, 'gen.js')], check=True)
 CJ = json.load(open(os.path.join(HERE, '../../tools/cj.json')))
-THETA = 20.0
+THETA = 8.0
 FLAGS = ['--enable-unsafe-webgpu', '--enable-features=Vulkan,WebGPU', '--use-vulkan=swiftshader', '--use-webgpu-adapter=swiftshader', '--disable-vulkan-surface', '--ignore-gpu-blocklist']
 def model(name, dx, cells_rz=4, EaRT=8.0):
     c = CJ[name]; m = c['model']; D = c['cj']['D']; T0, p1 = 300.0, 101325.0
@@ -14,7 +14,7 @@ def model(name, dx, cells_rz=4, EaRT=8.0):
     # particle speed behind the lead shock (shock frame) sets the reaction length: L = u_vN · τ
     uvN = D * ((g1 - 1) * M * M + 2) / ((g1 + 1) * M * M)
     k = uvN / (cells_rz * dx) * math.exp(EaRT)
-    return dict(gas=m, chem=dict(theta=THETA, TvN=TvN, tau=dx / uvN, k=uvN / dx), Dcj=D, TvN=TvN)
+    return dict(gas=m, chem=dict(theta=THETA, TvN=TvN, tau=dx / uvN, k=uvN / dx, Tign=0.6 * TvN), Dcj=D, TvN=TvN)
 res = {}
 with sync_playwright() as pw:
     b = pw.chromium.launch(args=FLAGS); pg = b.new_page(); pg.set_default_timeout(3600000)
