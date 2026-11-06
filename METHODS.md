@@ -261,6 +261,25 @@ First test, Goto engine, quasi-2D, 0.5% potassium, compared at 61 µs:
 - 50 kW absorbed on the spike raises thrust by 4 N (+2.3%). That is about what 4% more enthalpy gives.
 - The coil at 2 T and at 10 T lowers thrust by 0.2–0.3 N and takes 0.02–0.05% of the kinetic energy. That matches the interaction parameter of about 0.01 from the map.
 
+**Electrodes.** The casing is the anode and the plug the cathode, along the annulus. The set current spreads over the axial rows in proportion to their Pedersen conductance, σ/(1 + β_e²), averaged round the ring. Within a row, each cell carries its share in proportion to its own Pedersen conductivity.
+
+Conventional current runs inward through the gas and back up the plug to the supply at the injector end. The plug therefore carries the current collected downstream of each row, which adds a self-field B_θ = −μ₀ I_down / 2πr.
+
+The azimuthal current comes from the generalised Ohm's law with E_θ = 0: J_θ = σ (u×B)_θ + β_e J_r B_y/|B|, the induced current plus the Hall current. Insulated walls (no current set) block the radial current, so the induced current sees the full σ. An earlier version used σ/(1 + β²) there, which understated it 2–10 times.
+
+The gas gains J·E = J²/σ + u·(J×B). The report gives the electrical power, the voltage (power over current) and the magnetic axial force. With insulated walls the electrical power stays at zero, as it must.
+
+Goto engine, quasi-2D, 0.5% potassium, compared at 61 µs:
+
+| Case | Thrust | Electrical power | Magnetic axial force |
+|---|---|---|---|
+| Off | 175.6 N | — | — |
+| Coil 2 T, insulated walls | 174.6 N | 0 | −1.3 N |
+| 1000 A, coil 2 T | 175.2 N | 26 kW (26 V) | −2.8 N |
+| 1000 A, no coil | 176.3 N | 8 kW (8 V) | +0.01 N |
+
+At this current the self-field push is negligible, because it scales as I². The applied field turns the power into swirl and heat, not axial thrust, within these short runs.
+
 ### Air-breathing engine
 
 The intake is solved by the high-speed flow solver, above Mach 0.6.
