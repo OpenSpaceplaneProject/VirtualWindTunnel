@@ -606,7 +606,7 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
               <summary>Mass, layout and engines</summary>
               <dl class="kv" id="bldInfo"></dl>
             </details>
-            <div class="row2"><button class="btn primary" id="btnBldCad">Export for CAD</button><button class="btn" id="btnBldJson">Copy design as JSON</button></div>
+            <div class="row3"><button class="btn primary" id="btnBldCad">Export for CAD</button><button class="btn" id="btnBldBom">Export BOM</button><button class="btn" id="btnBldJson">Copy design as JSON</button></div>
           </div>
         </section>
 
@@ -5924,6 +5924,7 @@ function buildBuilderUI() {
     BLD.int.order = r.order; bldFields(); bldEdited();
     toast(`Order ${r.order}: balance point moves ${(r.shift * BLD.L).toFixed(2)} m from full to landing${r.fits ? "" : " · still does not fit"}.`);
   });
+  $("#btnBldBom").addEventListener("click", () => saveFile(`${(BLD.name || "spaceplane").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.bom.csv`, designBom(BLD)));
   $("#btnBldCad").addEventListener("click", () => saveFile(`${(BLD.name || "spaceplane").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.design.json`, JSON.stringify(cadPackage(BLD), null, 1)));
   $("#bldProp").addEventListener("change", (e) => { BLD.int.prop = e.target.value; bldEdited(); });
   $("#bldCont").addEventListener("change", (e) => { BLD.int.cont = e.target.value; bldEdited(); });
@@ -5999,6 +6000,46 @@ function bldFields() {
 // The hand-off to the CAD stage: the design record (the source of truth), what the tunnel derived from
 // it (stations, planform corners, boxes, engines, mass), and what the analysis found, in one file the
 // CAD agent reads (cad/AGENT.md in the repository). Lengths in metres unless a key says otherwise.
+// Design bill of materials, from the same package the CAD stage builds from: every part the design record
+// states, with count, size and the tunnel's mass model. No prices or suppliers: those belong to the
+// programme that sources it. basis says where each figure comes from.
+function designBom(d) {
+  const P = cadPackage(d), D = P.derived, M = D.mass.breakdown, rows = [], n2 = (v) => +v.toFixed(2), m0 = (v) => (v > 0 ? Math.round(v) : "");
+  const add = (sub, item, qty, unit, mass, basis, notes = "") => rows.push([rows.length + 1, sub, item, qty, unit, mass, basis, notes]);
+  const S = D.structure;
+  if (S) {
+    add("Structure", "Primary structure, all items below", 1, "set", m0(M.Structure), "mass model", `wetted ${n2(D.areas.wettedM2)} m², planform ${n2(D.areas.planformM2)} m²`);
+    const byKind = {}; S.frames.forEach((f) => (byKind[f.name] = (byKind[f.name] || []).concat(n2(f.x))));
+    for (const [k, xs] of Object.entries(byKind)) add("Structure", k, xs.length, "each", "", "design record", `x = ${xs.join(", ")} m`);
+    S.longerons.forEach((l) => add("Structure", `Longeron: ${l.name}`, /keel/i.test(l.name) ? 1 : 2, "each", "", "design record", `${n2(l.x[1] - l.x[0])} m long`));
+    S.wingSpars.forEach((sp) => add("Structure", `Wing spar: ${sp.name}`, 2, "each", "", "design record", `${Math.round(sp.chordFraction * 100)}% chord${sp.carriedThrough ? ", carried through the body" : ""}`));
+    if (S.wingRibsY.length) add("Structure", "Wing rib", 2 * S.wingRibsY.length, "each", "", "design record", `y = ${S.wingRibsY.map(n2).join(", ")} m, each side`);
+    if (S.thrustStructure.length) add("Structure", "Thrust structure strut", S.thrustStructure.length, "each", "", "design record");
+  }
+  if (M["Heat shield"] > 0) add("Thermal protection", "Heat shield", 1, "set", m0(M["Heat shield"]), "mass model", `over ${n2(D.areas.wettedM2)} m² wetted; layers and material from Test › Mission › Heat shield`);
+  D.boxes.forEach((b) => {
+    const V = (b.x[1] - b.x[0]) * (b.y[1] - b.y[0]) * (b.z[1] - b.z[0]) * (b.shape === "cylinder" ? Math.PI / 4 : 1), tank = /^(fu|ox|tank)/.test(b.kind);
+    add(tank ? "Tanks" : "Internal", b.name, b.mirrored ? 2 : 1, "each", "", "design record", `${n2(b.x[1] - b.x[0])} m long, ${n2(V)} m³ envelope${tank ? "" : " (volume reserved)"}`);
+  });
+  if (M.Tanks > 0) add("Tanks", "Tank structure, all tanks", 1, "set", m0(M.Tanks), "mass model", `${n2(D.volumes.tanksM3)} m³ of tankage`);
+  if (D.engines.length && D.enginePerformance) {
+    const E = D.enginePerformance;
+    add("Propulsion", `Rocket engine, ${D.engines[0].type}: ${E.chemistry}`, D.engines.length, "each", m0(E.massKg), "engine model", `vacuum ${n2(E.vacuum.thrustN / 1000)} kN, Isp ${Math.round(E.vacuum.isp)} s; sea level Isp ${Math.round(E.seaLevel.isp)} s; throat Ø ${n2(2 * D.engines[0].throatRadius)} m, exit Ø ${n2(2 * D.engines[0].exitRadius)} m`);
+  }
+  if (D.nacelles) add("Propulsion", "Nacelle", 2, "each", "", "design record", `${n2(D.nacelles.length)} m long, Ø ${n2(2 * D.nacelles.radius)} m`);
+  if (D.rcs) add("Reaction control", "RCS thruster", D.rcs.clusters.length * D.rcs.perCluster, "each", "", "design record", `${D.rcs.clusters.length} clusters of ${D.rcs.perCluster}, ${D.rcs.thrusterN} N each`);
+  if (M.RCS > 0) add("Reaction control", "RCS, all", 1, "set", m0(M.RCS), "mass model");
+  if (D.elevons) add("Flight controls", "Elevon", 2, "each", "", "design record", `${Math.round(D.elevons.chordFraction * 100)}% chord, ${D.elevons.spanFrom}–${D.elevons.spanTo} of the exposed span`);
+  if (D.bodyFlap) add("Flight controls", "Body flap", 1, "each", "", "design record", `${n2(D.bodyFlap.length)} m long`);
+  D.fins.filter((f) => f.rudder).forEach(() => add("Flight controls", "Rudder", 1, "each", "", "design record"));
+  if (D.canards) add("Flight controls", "Canard", 2, "each", "", "design record");
+  if (D.tailplane) add("Flight controls", "Tailplane half", 2, "each", "", "design record");
+  for (const [k, v] of Object.entries(M)) if (!["Structure", "Heat shield", "Tanks", "Engines", "RCS"].includes(k) && v > 0) add("Systems", k, 1, "lot", m0(v), "mass model");
+  add("Propellant", "Propellant load", 1, "load", m0(D.mass.propellantKg), "mass model");
+  add("Totals", "Dry mass", "", "", m0(D.mass.dryKg), "mass model"); add("Totals", "Gross mass", "", "", m0(D.mass.grossKg), "mass model");
+  const q = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : v);
+  return ["line,subsystem,item,qty,unit,mass_kg,basis,notes"].concat(rows.map((r) => r.map(q).join(","))).join("\n") + "\n";
+}
 function cadPackage(d) {
   const { m, ...rec } = d, M = m || bldMass(d), S = bldStations(d.fus), L = d.L, yr = d.wing.on ? wingRootY(d, S) : 0, NZ = nozzleLayout(d, S);
   const xs = Array.from({ length: 41 }, (_, i) => i / 40);
@@ -12235,6 +12276,7 @@ async function agentCapture(fn) {
 const AGENT_EXPORTS = {
   design: () => saveFile("design.json", JSON.stringify(BLD, null, 1)),
   cad_package: () => saveFile("design.json", JSON.stringify(cadPackage(BLD), null, 1)),
+  bom: () => saveFile("bom.csv", designBom(BLD)),
   trajectory: () => exportTraj(), aerothermal: () => exportHyp(), heat_shield: () => exportTps(), aero_table: () => aeroSweep(),
 };
 const AGENT_TOOLS = [
@@ -12254,7 +12296,7 @@ const AGENT_TOOLS = [
   { name: "get_design", description: "The builder's design record (the vehicle and its engines), as the Build screen holds it.", input: {}, run: () => JSON.parse(JSON.stringify(BLD)) },
   { name: "set_design", description: "Replace the builder's design record and rebuild the vehicle. Missing fields take the builder's defaults. Switches the tunnel to the builder design.", input: { design: { type: "object" } }, required: ["design"],
     run: async (a) => { BLD = bldFill(JSON.parse(JSON.stringify(a.design))); bldFields(); bldApply(); await AGENT_WAIT(300); return { name: BLD.name, L: BLD.L }; } },
-  { name: "export", description: "Export data as text: design (the record), cad_package (osp-spaceplane-design v1 for cad/build_spaceplane.py), trajectory, aerothermal (surface heating, needs the high-speed analysis), heat_shield (through-thickness temperatures), aero_table (runs an α sweep, -10° to 60°).", input: { kind: { type: "string", enum: Object.keys(AGENT_EXPORTS) } }, required: ["kind"],
+  { name: "export", description: "Export data as text: design (the record), bom (design bill of materials as CSV: parts, counts, sizes and the mass model; no prices), cad_package (osp-spaceplane-design v1 for cad/build_spaceplane.py), trajectory, aerothermal (surface heating, needs the high-speed analysis), heat_shield (through-thickness temperatures), aero_table (runs an α sweep, -10° to 60°).", input: { kind: { type: "string", enum: Object.keys(AGENT_EXPORTS) } }, required: ["kind"],
     run: async (a) => { const got = await agentCapture(AGENT_EXPORTS[a.kind]); if (!got.length) throw new Error("nothing to export yet: run the analysis it needs first"); return got[0]; } },
   { name: "engine_run", description: "Run the rotating detonation engine stand for sim_ms of simulated time (default 0.5), after applying any engine controls in values (ids from find_controls, e.g. rdeP0, rdeIgn, rdeNr, ionOn). Returns thrust, Isp, waves, locked mode and every engine readout.", input: { sim_ms: { type: "number" }, values: { type: "object" } },
     run: async (a) => { if (st.mode !== "engine") setMode("engine"); if (rdeSim.run) rdeStop(); if (a.values) await ctrlLoad({ values: a.values }); if (rdeSim.run) rdeStop();

@@ -1,0 +1,45 @@
+--- a/skill/SKILL.md	2026-11-06 08:04:34.830962084 +0000
++++ b/skill/SKILL.md	2026-11-06 08:04:34.852737516 +0000
+@@ -31,6 +31,8 @@
+ 
+ The default target is **stage 5 (realisation)** — the thing exists, ready to be verified. Stages 6–9 run as substrate permits. Override the default only on explicit request from the user.
+ 
++**Two tracks.** Stages 1–3 are the *design track*: engineering only. Stages 4–9 are the *programme track*: spending, contracting, authorising, building. Non-technical gaps (licensing, export control, sourcing, cost, contract terms) never halt the design track: they are written to `programme_flags.md` and the design carries on. The programme track picks them up when it starts. A brief that asks for a design, a BOM or "is this feasible" runs the design track only (`stage_target` 3) and needs no `authorities.json`. Where the Virtual Windtunnel's `osa-design` skill and MCP server are in the catalogue, the design track runs on them.
++
+ ## How the agent works
+ 
+ ### Step 0: Spin up the programme directory
+@@ -80,7 +82,7 @@
+ 
+ Don't force a constraints answer. If the user says "none", proceed. Specific concerns surface when they arise.
+ 
+-Read back what you understood in plain language. Confirm. Write `contract.json`.
++Read back what you understood in plain language. Confirm. Write `contract.json` (for the design track, the brief and `stage_target`; authorities are written when the programme track starts, not before).
+ 
+ ### Step 2: Concept
+ 
+@@ -106,13 +108,13 @@
+ 
+ 3. **Acquire a new capability.** Only when neither catalogue nor partner is a fit, draft a new procedural skill for the subsystem. See "Growing the catalogue" below.
+ 
+-Run simulation (aerodynamic, structural, thermal, dynamic — whichever applies). Resolve the bill of materials. Plan fabrication per part. Shortlist suppliers with capability evidence. Draft regulatory submissions for the relevant jurisdiction and class.
++Run simulation (aerodynamic, structural, thermal, dynamic — whichever applies). Resolve the bill of materials. Plan fabrication per part. Shortlist suppliers with capability evidence. Record the regulatory class and likely pathway in `programme_flags.md`; drafting the submissions belongs to the programme track and does not hold up design closure.
+ 
+ **Standards check.** Before the design is treated as closed, walk it against the catalogue's international standards reference (docking, refuelling/fluid transfer, communications, cross-cutting frameworks — materials safety, debris mitigation, treaty obligations — and rendezvous/proximity operations and on-orbit servicing). For each applicable domain, record which standard applies, the vehicle's posture against it (compliant, planned, not applicable, gap), and why. A domain is "not applicable" only with a stated reason tied to the mission profile (e.g. a suborbital vehicle that never reaches orbit has no debris-mitigation disposal obligation) — never a silent omission. Gaps that affect the current build (an unselected onboard protocol, an unspecified refuelling interface for a vehicle that will need one) route through the normal catalogue-gap procedure; gaps that only matter for a future orbital or crewed variant are logged for that variant's Step 2, not chased now.
+ 
+ Each artefact carries provenance: the tool or skill that produced it, the inputs it consumed (by content-hash), the model that ran the skill, when.
+ 
+-Produces: `cad/`, `sim/`, `bom.csv`, `fabrication_plan.md`, `supplier_shortlist.md`, `regulatory_drafts/`, `partner_engagements/` (where engaged), `standards_compliance.md`.
++Produces: `cad/`, `sim/`, `bom.csv`, `fabrication_plan.md`, `supplier_shortlist.md`, `partner_engagements/` (where engaged), `standards_compliance.md`, `programme_flags.md`. A standards or regulatory gap is a flag, not a halt, while the design itself closes.
+ 
+ ### Step 4: Acquire
+ 
+@@ -227,7 +229,7 @@
+ 
+ ## When you're stuck
+ 
+-The same gap reports three times running, without the world model gaining a new catalogue entry or a new composition of existing entries, is stuck.
++The same gap reports three times running, without the world model gaining a new catalogue entry or a new composition of existing entries, is stuck. In the design track only technical gaps count: a missing licence class or an export restriction is a programme flag, logged once, and never a reason to halt the design.
+ 
+ - Halt.
+ - Tell the user where you got stuck, what you tried, what you'd need.
