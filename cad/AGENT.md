@@ -24,6 +24,9 @@ The design record is the source of truth. Never edit geometry in a way that cann
 
 ## Baseline
 
+Through the tunnel's MCP server (`mcp/vwt-mcp.mjs`), `cad_build` exports the current builder design and runs this baseline in one call. `set_design` and the analysis tools then let you send a changed record back and re-analyse it.
+
+
 `python cad/build_spaceplane.py <name>.design.json --out build/` gives the deterministic starting point. It's written with build123d (OpenCascade) and produces:
 
 - **`<name>.step`:** the outer mould line, elevons and body flap as separate solids (deflected), the nozzle bells, nacelles, and the internal boxes as named solids.

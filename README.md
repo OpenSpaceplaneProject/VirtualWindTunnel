@@ -24,6 +24,17 @@ Engine is a bench for a closer look at one component, at higher fidelity than th
 
 **Find and setups.** Press `/`, or the magnifier on the headline card, to search every setting by name. Picking one opens the right mode, tab and section and highlights it. In the same box, Copy setup puts the whole setup on the clipboard as JSON (mode, builder design, every control's value), and Load setup applies one pasted in. Scripts and agents get the same through `window.vwt`: `list()`, `find(text)`, `get(id)`, `set(id, value)`, `state()`, `load(setup)`, `show(id)`. Setting a value goes through the control itself, so it behaves exactly like a user's edit.
 
+**Agents and MCP.** Agents get the app's solvers as tools. `vwt.tools` lists them and `vwt.call(name, args)` runs one:
+- read and set controls, switch screens, and load or save whole setups;
+- read the results a person would see;
+- wait for the wind tunnel to converge;
+- get or replace the builder's design;
+- export the design, the CAD package, trajectory, surface heating, heat-shield temperatures or an α table;
+- run the engine stand for a set simulated time or sweep its lock range;
+- run the shape optimiser.
+
+Browsers that offer a model context (WebMCP) get the same tools from the page. For any other MCP client, `mcp/vwt-mcp.mjs` drives the app in a Chromium it starts and serves those tools plus three of its own: `screenshot`, `run_test` (the verification suites in `tests/`) and `cad_build` (the current design through `cad/build_spaceplane.py` to STEP, STL and a report checked against the tunnel). Set it up with `cd mcp && npm install`, after which `.mcp.json` at the repo root registers it for Claude Code. `VWT_HEADED=1` shows the browser; `VWT_SOFTWARE=1` uses software WebGPU on machines without a GPU, which is slow; `VWT_URL` points it at the live site instead of this checkout.
+
 **Engine stand.** The Engine mode, next to Build and Test, runs a rotating detonation engine of your own geometry on the GPU. It has a 3D cutaway of the chamber and plug, open on the side facing you, and the unrolled annulus beside it. The cutaway shows the gas against the inner body and plug, against the outer casing, and across the gap on the two cut faces. The feed is either a fixed pressure or a resonant plenum, and you can add injector teeth and an exit throat. Its outputs are thrust, Isp, the azimuthal mode spectrum with the cavity frequencies marked, and a lock-range sweep that maps which mode the engine settles into as the feed changes. The Waves strip under the views sets the igniters, injector teeth and feed for a chosen number of waves, scaled from the one wave the model holds on the Goto et al. rig, and the panel fields it changes flash as it moves. Across gap resolves the channel gap in 3D (1 is the quasi-2D model), with a column across the gap drawn beside the unrolled view. MAV class loads a NASA RDRE-sized annulus. The Ionisation and magnet section maps, from the run's averaged flow, the thermal electrons, the microwave power a target conductivity needs, the Hall parameters and the magnetic interaction parameter, on the 2D view through Show. Switched on to the flow, the microwave power heats the gas and a coil at the end of the annulus pushes on the ionised exhaust during the run. METHODS.md › Rotating detonation engine has the model and its limits.
 
 **VR.** In a WebXR browser (Quest Browser, or Chrome with a PC headset), Setup › Display › View in VR headset appears. In the headset:

@@ -7,3 +7,5 @@ tests/solver-accuracy/cases_realgas.json
 tests/rde/rde_src.js
 tools/propellant_tables.js
 tools/__pycache__/
+mcp/node_modules/
+mcp/package-lock.json

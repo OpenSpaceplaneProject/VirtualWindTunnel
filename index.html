@@ -680,6 +680,9 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="field" title="Microwave power absorbed in the gas"><span class="k">Absorbed, kW</span><input type="number" id="ionP" min="0" step="5"></label>
             <label class="field"><span class="k">Into</span><select id="ionInto"><option value="0">Spike</option><option value="1">Annulus</option><option value="0.5">Both</option></select></label>
           </div>
+          <div class="row3">
+            <label class="field" title="Driven from the casing (anode) through the gas to the plug (cathode) along the annulus; 0 for insulated walls"><span class="k">Current, A</span><input type="number" id="ionI" min="0" step="50"></label>
+          </div>
           <dl class="kv" id="ionInfo"></dl>
         </section>
 
@@ -3512,7 +3515,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, nr: 1, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, ign: 1, sweepT: 0.5, ion: { seed: "K", xs: 0.5, Te: 1, sig: 10, B: 2, f: 2.45, on: 0, P: 50, into: 0 } }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, nr: 1, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, ign: 1, sweepT: 0.5, ion: { seed: "K", xs: 0.5, Te: 1, sig: 10, B: 2, f: 2.45, on: 0, P: 50, into: 0, I: 0 } }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -3615,6 +3618,8 @@ async function init() {
   buildUI();
   const ok = await startGPU();
   if (ok) { requestAnimationFrame(frame); loadDefaultModel(); }
+  // agents wait for this (vwt.ready): the GPU is up, or it failed and gpu says so
+  window.vwt.ready = true; window.vwt.gpu = !!ok;
 }
 let lostCount = 0, devGen = 0;
 async function startGPU() {
@@ -8283,6 +8288,8 @@ struct P {
 @group(0) @binding(6) var<storage, read> Pin: array<f32>;  // plenum step: old
 @group(0) @binding(7) var<storage, read_write> Pout: array<f32>;  // plenum step: new
 @group(0) @binding(8) var<storage, read_write> Q2: array<f32>;    // gap-averaged state and per-column flows
+// electrodes, per axial row: radial current per unit Pedersen conductivity (× 1/r), then μ₀ I_c / 2π
+@group(0) @binding(9) var<storage, read> El: array<f32>;
 // injector open-area ratio round the circumference: n teeth of the given depth, same mean
 fn atw(i: u32) -> f32 {
   let th = (f32(i) + 0.5) / f32(C.dims.x) * 6.2831853;
@@ -8335,28 +8342,38 @@ fn hlle(L: W, R: W, n: vec3f) -> array<f32, 7> {
   for (var k = 0; k < 7; k++) { f[k] = (sR * fL[k] - sL * fR[k] + sR * sL * (qR[k] - qL[k])) / d; }
   return f;
 }
-// Ionisation and magnet, coupled: electrons from the seed's Saha equilibrium plus those the absorbed
-// microwave power holds against recombination (50 eV each, 2e-13 m³/s); conductivity from electron–
-// neutral collisions (1e-19 m²); a coil's paraxial field; with no electrodes only the azimuthal current
-// flows, J_θ = σ/(1+β²) (u×B)_θ, and its force J×B. That force only takes kinetic energy and turns it
-// to heat (J·E = 0), so the total energy gains just the microwave power.
-fn mhd(c: W, y: f32, r: f32) -> vec4f {   // radial force, axial force, energy source, -
-  let inA = y <= C.mh3.z;
-  let pw = select(C.mh3.y, C.mh3.x, inA);
-  if (C.mh1.w < 0.5) { return vec4f(0.0, 0.0, pw, 0.0); }
+// Ionisation and magnet, coupled. Electrons: the seed's Saha equilibrium plus those the absorbed microwave
+// power holds against recombination (50 eV each, 2e-13 m³/s). Conductivity σ from electron–neutral
+// collisions (1e-19 m²), electron Hall parameter β = ω_ce/ν at the local field. Field: the coil's
+// paraxial field plus, with electrodes, the self-field of the current still in the cathode (plug),
+// B_θ = μ₀ I_c / 2πr. Current: radial from the casing (anode) to the plug (cathode), spread along the
+// annulus by the host in proportion to Pedersen conductance σ/(1+β²); with insulated walls instead,
+// none. Generalised Ohm's law with E_θ = 0 (azimuthally averaged) gives the azimuthal current,
+// J_θ = σ (u×B)_θ + β J_r B_y/|B|: induced current plus the Hall current. Force J×B; the gas gains
+// J·E = J²/σ + u·(J×B), plus the microwave power.
+struct M { f: vec3f, e: f32 };   // force (radial, azimuthal, axial) per volume, energy per volume
+fn mhd(c: W, j: u32, y: f32, r: f32) -> M {
+  let pw = select(C.mh3.y, C.mh3.x, y <= C.mh3.z);
+  if (C.mh1.w < 0.5) { return M(vec3f(0.0), pw); }
   let T = max(c.p / (c.r * gasR(c.y)), 200.0); let Nn = c.p / (1.380649e-23 * T);
   let K = 2.415e21 * pow(T, 1.5) * C.mh2.y * exp(-C.mh2.x * 11604.5 / T); let ns = C.mh2.z * Nn;
   let nT = 2.0 * ns / (1.0 + sqrt(1.0 + 4.0 * ns / max(K, 1e-30)));
-  let nM = sqrt(pw) / 1.2649e-15;                  // √(W β)
+  let nM = sqrt(pw) / 1.2649e-15;                  // √(W β_rec)
   let hi = max(nT, nM); let lo = min(nT, nM); let ne = hi * sqrt(1.0 + (lo / max(hi, 1.0)) * (lo / max(hi, 1.0)));
   let Te = select(T / 11604.5, max(C.mh2.w, T / 11604.5), pw > 0.0);
-  let nu = Nn * 1e-19 * 6.6955e5 * sqrt(Te);       // v_e = √(8 k Te / π m_e)
-  let sig = ne * 2.8179e-8 / max(nu, 1.0); let be = 1.7588e11 * C.mh1.x / max(nu, 1.0);
+  let nu = max(Nn * 1e-19 * 6.6955e5 * sqrt(Te), 1.0);   // v_e = √(8 k Te / π m_e)
+  let sig = max(ne * 2.8179e-8 / nu, 1e-9);
   let s = (y - C.mh1.y) / C.mh1.z; let f = 1.0 / (1.0 + s * s);
   let By = C.mh1.x * f * sqrt(f); let Br = 1.5 * r * C.mh1.x * s / C.mh1.z * f * f * sqrt(f);
-  let J = sig / (1.0 + be * be) * (c.v * Br - c.w * By);
-  return vec4f(J * By, -J * Br, pw, 0.0);
+  let Bt = El[ny2() + j] / r;
+  let Bm = max(length(vec3f(Br, Bt, By)), 1e-9); let be = 1.7588e11 * Bm / nu;
+  let Jr = El[j] * sig / (1.0 + be * be) / r;
+  let Jt = sig * (c.v * Br - c.w * By) + be * Jr * By / Bm;
+  let F = vec3f(Jt * By, -Jr * By, Jr * Bt - Jt * Br);
+  let uF = c.w * F.x + c.u * F.y + c.v * F.z;
+  return M(F, pw + (Jr * Jr + Jt * Jt) / sig + uF);
 }
+fn ny2() -> u32 { return C.dims.y; }
 fn wallF(p: f32, n: vec3f) -> array<f32, 7> { return array<f32, 7>(0.0, p * n.x, p * n.y, 0.0, 0.0, 0.0, p * n.z); }
 // injector face flux into the first cell. Fixed plenum: isentropic from (p0, T0) to the larger of the
 // cell and critical pressures. Dynamic plenum: the neck's own mass flux, at the plenum's temperature.
@@ -8442,7 +8459,7 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   // azimuthal faces, both ∝ meridional area / volume = 1 / mean radius
   var src = array<f32, 7>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
   if (rad) { src[6] = (c0.p + c0.r * c0.u * c0.u) * Ary / Vq; src[1] = -c0.r * c0.u * c0.w * Ary / Vq; }
-  if (C.mh1.w > 0.5 || C.mh3.x > 0.0 || C.mh3.y > 0.0) { let m = mhd(c0, (f32(j) + 0.5) * dy, Vq / Ary); src[6] += m.x; src[2] += m.y; src[3] += m.z; }
+  if (C.mh1.w > 0.5 || C.mh3.x > 0.0 || C.mh3.y > 0.0) { let m = mhd(c0, gid.y, (f32(j) + 0.5) * dy, Vq / Ary); src[6] += m.f.x; src[1] += m.f.y; src[2] += m.f.z; src[3] += m.e; }
   // induction, then reaction
   let T = c0.p / (c0.r * gasR(c0.y));
   if (c0.y > 1e-4 && c0.z < 1.0 && T > C.ch.w && c0.p > C.r1.w) { src[5] = c0.r * C.ch.z * exp(min(C.ch.y - C.ch.x / max(T, 1.0), 30.0)); }
@@ -8470,17 +8487,20 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
 fn slice(@builtin(global_invocation_id) gid: vec3u) {
   let nx = C.dims.x; let ny = C.dims.y; let nr = C.d2.x; let N2 = C.d2.z;
   if (gid.x >= nx || gid.y >= ny) { return; }
-  var s = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0); var V = 0.0; var mi = 0.0; var mo = 0.0; var F = 0.0; var sg = 0.0;
+  var s = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0); var V = 0.0; var mi = 0.0; var mo = 0.0; var F = 0.0; var sg = 0.0; var pe = 0.0; var fy = 0.0;
   for (var k = 0u; k < nr; k++) {
     let n = idx(i32(gid.x), i32(k), i32(gid.y)); let vq = cellA(k, gid.y).y;
     for (var v = 0u; v < 6u; v++) { s[v] += Us[v * C.dims.z + n] * vq; }
     V += vq; let wc = prim(n); sg = max(sg, length(vec3f(wc.u, wc.v, wc.w)) + sound(wc));
+    if (C.mh1.w > 0.5) { let ca = cellA(k, gid.y); let yy = (f32(gid.y) + 0.5) * C.g.y; let m = mhd(wc, gid.y, yy, ca.y / ca.x); pe += (m.e - select(C.mh3.y, C.mh3.x, yy <= C.mh3.z)) * vq; fy += m.f.z * vq; }
     if (gid.y == 0u) { mi += injFlux(prim(n), gid.x)[0] * jFace(k, 0u); }
     if (gid.y == ny - 1u) { let w = prim(n); let a = jFace(k, ny); mo += w.r * w.v * a; F += (w.r * w.v * w.v + w.p - C.g.w) * a; }
   }
   let o = gid.x + nx * gid.y;
   for (var v = 0u; v < 6u; v++) { Q2[v * N2 + o] = s[v] / V; }
   Q2[6u * N2 + 3u * nx + o] = sg;
+  // electrical power into the gas and the magnetic axial force, per cell column summed across the gap
+  let g1 = 7u * N2 + 3u * nx + 3u * nr * ny; Q2[g1 + o] = pe * C.g2.x; Q2[g1 + N2 + o] = fy * C.g2.x;
   // the chosen column across the gap: pressure, temperature and reactant fraction per cell
   if (gid.x == C.d2.w) {
     let g0 = 7u * N2 + 3u * nx; let m = nr * ny;
@@ -8581,8 +8601,8 @@ async function rdeCreate(dev, cfg) {
   for (let i = 0; i < nx; i++) { Pq[i] = r0; Pq[nx + i] = 0; Pq[2 * nx + i] = cfg.p0 / (g1 - 1); Pq[3 * nx + i] = G0n; }
   const S = GPUBufferUsage.STORAGE, CD = GPUBufferUsage.COPY_DST, CS = GPUBufferUsage.COPY_SRC;
   const buf = (d, u) => { const b = dev.createBuffer({ size: d.byteLength, usage: u | CD }); dev.queue.writeBuffer(b, 0, d); return b; };
-  const nQ = 6 * N2 + 3 * nx + N2 + 3 * nr * ny;   // gap average, per-column flows, per-cell fastest signal, one column across the gap
-  const B = [buf(U, S | CS), buf(U, S | CS), buf(U, S | CS)], Ab = buf(Gm, S), PB = [buf(Pq, S | CS), buf(Pq, S | CS)], QB = dev.createBuffer({ size: nQ * 4, usage: S | CS });
+  const nQ = 6 * N2 + 3 * nx + N2 + 3 * nr * ny + 2 * N2;   // gap average, per-column flows, per-cell fastest signal, one column across the gap, electrical power and magnetic force
+  const B = [buf(U, S | CS), buf(U, S | CS), buf(U, S | CS)], Ab = buf(Gm, S), PB = [buf(Pq, S | CS), buf(Pq, S | CS)], QB = dev.createBuffer({ size: nQ * 4, usage: S | CS }), EB = buf(new Float32Array(2 * ny), S);
   const mod = dev.createShaderModule({ code: RDE_WGSL });
   const info = await mod.getCompilationInfo(); const errs = info.messages.filter((m) => m.type === "error");
   if (errs.length) throw new Error(errs.map((e) => e.lineNum + ": " + e.message).join("\n"));
@@ -8603,7 +8623,7 @@ async function rdeCreate(dev, cfg) {
   const writeU = () => { dev.queue.writeBuffer(UB[0], 0, uni(0)); dev.queue.writeBuffer(UB[1], 0, uni(1)); };
   writeU();
   const ent = (pl, list) => dev.createBindGroup({ layout: pl.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
-  const bg = (u, a, b, c, pl) => ent(pipe, [[0, UB[u]], [1, B[a]], [2, B[b]], [3, B[c]], [4, Ab], [5, PB[pl]]]);
+  const bg = (u, a, b, c, pl) => ent(pipe, [[0, UB[u]], [1, B[a]], [2, B[b]], [3, B[c]], [4, Ab], [5, PB[pl]], [9, EB]]);
   const bgp = (a, pin, pout) => ent(ppl, [[0, UB[0]], [2, B[a]], [6, PB[pin]], [7, PB[pout]]]);
   // each step: plenum old → new (reading the chamber's head pressure), then the chamber's two stages with
   // the new plenum. Chamber: stage 0 U0=B0, Us=B0 → B1; stage 1 U0=B0, Us=B1 → B2; B2 is the new state.
@@ -8618,6 +8638,8 @@ async function rdeCreate(dev, cfg) {
     dx: hmin, dy, N: N2, nr,
     get t() { return t; }, get dt() { return dt; }, get steps() { return steps; }, get state() { return B[order[0]]; }, nx, ny,
     setDt(v) { dt = v; writeU(); },
+    // electrodes, per axial row (see the El binding)
+    setElectrodes(a) { dev.queue.writeBuffer(EB, 0, a); },
     // the azimuthal column read() returns across the gap
     set gapCol(i) { const v = ((i % nx) + nx) % nx; if (v !== gapCol) { gapCol = v; writeU(); } }, get gapCol() { return gapCol; },
     step(n) {
@@ -8633,11 +8655,12 @@ async function rdeCreate(dev, cfg) {
     // the gap-averaged state (6 fields, nx × ny) with per-column flows (q.ext) and the plenum (q.pl)
     async read() {
       const e = dev.createCommandEncoder(), p = e.beginComputePass();
-      p.setPipeline(spl); p.setBindGroup(0, ent(spl, [[0, UB[0]], [2, B[order[0]]], [4, Ab], [5, PB[dyn ? par : 0]], [8, QB]])); p.dispatchWorkgroups(wx, wy); p.end();
+      p.setPipeline(spl); p.setBindGroup(0, ent(spl, [[0, UB[0]], [2, B[order[0]]], [4, Ab], [5, PB[dyn ? par : 0]], [8, QB], [9, EB]])); p.dispatchWorkgroups(wx, wy); p.end();
       e.copyBufferToBuffer(QB, 0, rd, 0, nQ * 4); e.copyBufferToBuffer(PB[dyn ? par : 0], 0, rd, nQ * 4, 4 * nx * 4); dev.queue.submit([e.finish()]);
       await rd.mapAsync(GPUMapMode.READ); const all = new Float32Array(rd.getMappedRange().slice(0)); rd.unmap();
       const q = all.subarray(0, 6 * N2); q.ext = all.subarray(6 * N2, 6 * N2 + 3 * nx); q.sig = all.subarray(6 * N2 + 3 * nx, 7 * N2 + 3 * nx);
       if (nr > 1) { const g0 = 7 * N2 + 3 * nx, m = nr * ny; q.gap = { p: all.subarray(g0, g0 + m), T: all.subarray(g0 + m, g0 + 2 * m), y: all.subarray(g0 + 2 * m, g0 + 3 * m), nr, col: gapCol }; }
+      { const g1 = 7 * N2 + 3 * nx + 3 * nr * ny; q.pe = all.subarray(g1, g1 + N2); q.fy = all.subarray(g1 + N2, g1 + 2 * N2); }
       q.pl = all.subarray(nQ); return q;
     },
     // diagnostics from a snapshot: flows from the exact per-column sums, the rest from the gap average
@@ -8652,7 +8675,7 @@ async function rdeCreate(dev, cfg) {
       let pPl = 0; if (dyn) for (let i = 0; i < nx; i++) { const r = q.pl[i], u = q.pl[nx + i] / r; pPl += ((g1 - 1) * (q.pl[2 * nx + i] - 0.5 * r * u * u)) / nx; }
       return { mIn, mOut, F, smax, nan, pHead, pProbe, pPl };
     },
-    destroy() { B.forEach((b) => b.destroy()); PB.forEach((b) => b.destroy()); Ab.destroy(); QB.destroy(); rd.destroy(); UB.forEach((b) => b.destroy()); },
+    destroy() { B.forEach((b) => b.destroy()); PB.forEach((b) => b.destroy()); Ab.destroy(); QB.destroy(); EB.destroy(); rd.destroy(); UB.forEach((b) => b.destroy()); },
   };
 }
 // ── end RDE ──
@@ -8680,7 +8703,7 @@ function rdeConfig() {
   const area = (y) => (y <= Lc ? (y > Lc - 2e-3 ? Ac * Math.min(1, R.throat) : Ac) : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
   const plenum = { on: R.feed === "res", mdot: R.mdot / 1000, V: R.Vp * 1e-6, neck: R.neck / 1000, Cd: 0.7 };
   const I = R.ion, sd = ION_SEED[I.seed] || ION_SEED.none;
-  const mhd = I.on ? { on: true, B: I.B, yc: Lc, Rc: Do / 2, IP: sd.IP, g: sd.g, xs: I.seed === "none" ? sd.x : I.xs / 100, Te: I.Te, P: I.P * 1e3, inA: +I.into, Lc } : null;
+  const mhd = I.on ? { on: true, B: I.B, yc: Lc, Rc: Do / 2, IP: sd.IP, g: sd.g, xs: I.seed === "none" ? sd.x : I.xs / 100, Te: I.Te, P: I.P * 1e3, inA: +I.into, Lc, I: I.I } : null;
   return { key: R.prop, nr: +R.nr || 1, mhd, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 0.06 * m.pr * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
     Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { n: R.ign || 1, h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4, 0.1 * R.p0 * 1e6), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * Math.max(101325, 0.1 * R.p0 * 1e6), TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
@@ -8698,6 +8721,7 @@ async function rdeToggle() {
     const s = rdeSim.run; s.step(st.rde.spf);
     const t0 = performance.now(); rdeSim.reading = s.read(); const q = await rdeSim.reading; rdeSim.reading = null; if (gen !== rdeSim.gen) return;
     const d = s.diag(q); rdeSim.q = q; rdeAvg(q);
+    if (c.mhd && c.mhd.I > 0) s.setElectrodes(rdeElectrodes(q, c));
     if (d.nan) { $("#rdeInfo").innerHTML = "<dt>Stopped</dt><dd>the solution blew up; try more cells or a lower plenum pressure</dd>"; rdeStop(); return; }
     if ((d.smax * s.dt) / Math.min(s.dx, s.dy) > 0.45) s.setDt((0.35 * Math.min(s.dx, s.dy)) / d.smax);
     const ph = d.pHead, mean = ph.reduce((a, b) => a + b, 0) / ph.length, pk = [];
@@ -8746,9 +8770,10 @@ function rdeColour(a, y) {
 // What it would take to hold the exhaust conductive enough for a magnet to act on it, from the run's
 // time-averaged flow. Per cell: thermal electrons (Saha, for the seed), the electron density a target
 // conductivity needs, the microwave power to sustain the difference against recombination, the
-// electron and ion Hall parameters, and the magnetic interaction parameter S = σ_eff B² L / ρ|u|.
+// electron and ion Hall parameters, and the magnetic interaction parameter S = σ B² L / ρ|u|.
 // Order-of-magnitude constants, stated in METHODS: electron–neutral cross-section 1e-19 m², ion–neutral
-// 1e-18 m², 50 eV per electron made, recombination 2e-13 m³/s, Hall currents free (σ_eff = σ/(1+βe²)).
+// 1e-18 m², 50 eV per electron made, recombination 2e-13 m³/s. Insulated walls block the radial (Hall)
+// current, so the induced azimuthal current sees the full σ.
 const ION_SEED = { none: { IP: 12.07, g: 0.5, m: 32, x: 1e-2 }, K: { IP: 4.34, g: 1, m: 39.1 }, Cs: { IP: 3.89, g: 1, m: 132.9 } };
 const KB = 1.380649e-23, QE = 1.602177e-19, ME = 9.10938e-31, AMU = 1.66054e-27, MU0 = 1.256637e-6, EPS0 = 8.8541878e-12;
 function rdeAvg(q) {
@@ -8760,6 +8785,39 @@ function rdeAvg(q) {
     A.r[n] += w * (r - A.r[n]); A.p[n] += w * (f.p - A.p[n]); A.T[n] += w * (f.T - A.T[n]); A.sp[n] += w * (sp - A.sp[n]);
   }
   if (A.k % 10 === 1) rdeIon();
+}
+// Electrodes: the casing is the anode and the plug the cathode, along the annulus. The set current
+// spreads over the axial rows in proportion to their Pedersen conductance σ/(1+β²), averaged round the
+// ring; within a row each cell carries its share by its own Pedersen conductivity (see the kernel's El).
+// Conventional current runs inward through the gas, then back up the plug to the supply at the injector
+// end, so the plug carries what was collected downstream of each row: B_θ = −μ₀ I_down / 2πr.
+function rdeElectrodes(q, c) {
+  const M = c.mhd, nx = c.nx, ny = c.ny, N = nx * ny, dy = c.H / ny, out = new Float32Array(2 * ny);
+  if (!M || !(M.I > 0)) return out;
+  const ve = (Te) => 6.6955e5 * Math.sqrt(Te), rM = c.L / (2 * Math.PI);
+  let vA = 0, vS = 0; for (let j = 0; j < ny; j++) { const v = c.area((j + 0.5) * dy) * dy; if ((j + 0.5) * dy <= M.Lc) vA += v; else vS += v; }
+  const pwA = (M.P * M.inA) / vA, sP = new Float64Array(ny);
+  for (let j = 0; j < ny; j++) {
+    const y = (j + 0.5) * dy; if (y > M.Lc) break;
+    const s0 = (y - M.yc) / M.Rc, f = 1 / (1 + s0 * s0), By = M.B * f * Math.sqrt(f), Br = 1.5 * rM * M.B * s0 / M.Rc * f * f * Math.sqrt(f), Bm = Math.hypot(By, Br);
+    let acc = 0;
+    for (let i = 0; i < nx; i++) {
+      const fl = rdeField(q, i + nx * j, N, c.gas), T = Math.max(fl.T, 200), Nn = fl.p / (KB * T);
+      const K = 2.415e21 * T ** 1.5 * M.g * Math.exp((-M.IP * 11604.5) / T), ns = M.xs * Nn, nT = (2 * ns) / (1 + Math.sqrt(1 + (4 * ns) / Math.max(K, 1e-30)));
+      const ne = Math.hypot(nT, Math.sqrt(pwA) / 1.2649e-15), Te = pwA > 0 ? Math.max(M.Te, T / 11604.5) : T / 11604.5;
+      const nu = Math.max(Nn * 1e-19 * ve(Te), 1), sig = (ne * 2.8179e-8) / nu, be = (1.7588e11 * Bm) / nu;
+      acc += sig / (1 + be * be);
+    }
+    sP[j] = acc / nx;
+  }
+  const tot = sP.reduce((a, b) => a + b, 0); if (!(tot > 0)) return out;
+  let down = M.I;
+  for (let j = 0; j < ny; j++) {
+    const dI = (M.I * sP[j]) / tot; down -= dI;
+    out[j] = sP[j] > 0 ? -dI / (dy * 2 * Math.PI * sP[j]) : 0;
+    out[ny + j] = (-MU0 * Math.max(down + dI / 2, 0)) / (2 * Math.PI);
+  }
+  return out;
 }
 function rdeIon() {
   const A = rdeSim.avg, c = rdeSim.cfg; if (!A) return null;
@@ -8774,7 +8832,7 @@ function rdeIon() {
       const K = 2.415e21 * T ** 1.5 * sd.g * Math.exp((-sd.IP * 11604.5) / T), ns = xs * Nn, nT = (-K + Math.sqrt(K * K + 4 * K * ns)) / 2;
       const nu = Nn * 1e-19 * ve, nReq = (I.sig * ME * nu) / (QE * QE), be = (QE * B) / (ME * nu);
       const bi = (QE * B) / (mi * Nn * 1e-18 * Math.sqrt((8 * KB * T) / (Math.PI * mi)));
-      const pw = nReq > nT ? W * beta * (nReq * nReq - nT * nT) : 0, fB = (I.sig / (1 + be * be)) * B * B * L, mf = A.r[n] * A.sp[n], Sx = fB / Math.max(mf, 1e-6);
+      const pw = nReq > nT ? W * beta * (nReq * nReq - nT * nT) : 0, fB = I.sig * B * B * L, mf = A.r[n] * A.sp[n], Sx = fB / Math.max(mf, 1e-6);
       ne[n] = nT; pmw[n] = pw; S[n] = Sx; hall[n] = be;
       const g = R[k]; g.V += V; g.P += pw * V; g.Sn += fB * V; g.Sd += mf * V; g.ne += nT * V; g.be += be * V; g.bi += bi * V; g.nu += nu * V;
     }
@@ -8796,7 +8854,9 @@ function rdeIonReport() {
     row(`At ${I.f} GHz`, `skin depth ${(skin * 1e3).toFixed(1)} mm · collisions ${(pl.nu / X.w).toFixed(0)}× the wave frequency · cutoff ${e(nc)} /m³`) +
     row(`Hall parameters, ${I.B} T, spike`, `electrons ${pl.be.toPrecision(2)} · ions ${pl.bi.toPrecision(2)}`) +
     row("Interaction S", `chamber ${ch.S.toPrecision(2)} · spike ${pl.S.toPrecision(2)}`) +
-    (c.mhd ? row("On the flow", `${W(c.mhd.P)} absorbed in the ${["spike", "annulus", "annulus and spike"][[0, 1, 0.5].indexOf(c.mhd.inA)]} · coil ${c.mhd.B} T at the end of the annulus`) : "");
+    (c.mhd ? row("On the flow", `${W(c.mhd.P)} absorbed in the ${["spike", "annulus", "annulus and spike"][[0, 1, 0.5].indexOf(c.mhd.inA)]} · coil ${c.mhd.B} T at the end of the annulus`) : "") +
+    (c.mhd && rdeSim.q && rdeSim.q.pe ? (() => { const q = rdeSim.q, Pe = q.pe.reduce((a, b) => a + b, 0), Fm = q.fy.reduce((a, b) => a + b, 0);
+      return row("Electrical", c.mhd.I > 0 ? `${c.mhd.I} A · ${(Pe / c.mhd.I).toFixed(0)} V · ${W(Pe)} into the gas` : `${W(Pe)} (induced, heats the gas)`) + row("Magnetic axial force", `${Fm.toFixed(1)} N`); })() : "");
 }
 function rdeDraw2d(q) {
   const cv = $("#eng2d"), c = rdeSim.cfg, N = c.nx * c.ny, G = c.gas, W = c.nx, H = c.ny;
@@ -9138,7 +9198,7 @@ function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
   syncWaves();
   $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat; $("#rdeIgn").value = R.ign;
-  const I = R.ion; $("#ionSeed").value = I.seed; $("#ionXs").value = I.xs; $("#ionTe").value = I.Te; $("#ionSig").value = I.sig; $("#ionB").value = I.B; $("#ionF").value = I.f; $("#ionXs").disabled = I.seed === "none"; $("#ionOn").value = I.on; $("#ionP").value = I.P; $("#ionInto").value = I.into;
+  const I = R.ion; $("#ionSeed").value = I.seed; $("#ionXs").value = I.xs; $("#ionTe").value = I.Te; $("#ionSig").value = I.sig; $("#ionB").value = I.B; $("#ionF").value = I.f; $("#ionXs").disabled = I.seed === "none"; $("#ionOn").value = I.on; $("#ionP").value = I.P; $("#ionI").value = I.I; $("#ionI").disabled = $("#ionP").disabled = $("#ionInto").disabled = !I.on; $("#ionInto").value = I.into;
   document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
   $("#rdeFromDesign").hidden = !(st.preset === "builder" && BLD && ["hydrolox", "ghydrox", "methalox", "gmethox", "ethox"].includes(engKey(BLD)));
   $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeNr").value = R.nr; $("#rdeShow").value = R.show;
@@ -9158,6 +9218,7 @@ function wireRde() {
   $("#ionOn").addEventListener("change", (e) => { st.rde.ion.on = +e.target.value; restart(); });
   $("#ionInto").addEventListener("change", (e) => { st.rde.ion.into = +e.target.value; restart(); });
   $("#ionP").addEventListener("change", (e) => { st.rde.ion.P = Math.max(0, +e.target.value || 0); if (st.rde.ion.on) restart(); });
+  $("#ionI").addEventListener("change", (e) => { st.rde.ion.I = Math.max(0, +e.target.value || 0); if (st.rde.ion.on) restart(); });
   $("#rdeMav").addEventListener("click", () => { Object.assign(st.rde, { prop: "gmethox", of: 3.5, Di: 142, w: 8.4, Lc: 69.5, half: 30, AtAw: 0.2, p0: 5, pa: 101.325, nx: 800, teeth: 0, throat: 1, ign: 1, feed: "fixed" }); syncRdeUI(); restart(); });
   $("#rdeRun").addEventListener("click", () => { if (rdeSw.on) rdeSw.on = false; rdeToggle(); });
   $("#rdeSweep").addEventListener("click", rdeSweep);
@@ -10704,6 +10765,7 @@ function blobDownload(name, text) {
   } catch { return false; }
 }
 async function saveFile(name, text) {
+  if (saveFile.capture) { saveFile.capture.push({ name, text }); return; }
   try {
     const dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null;
     if (dl) { await dl.save({ filename: name, data: new Blob([text]) }); toast(`Saved ${name}`); return; }
@@ -12133,6 +12195,86 @@ function wireFind() {
 // for agents and scripts: vwt.list(), vwt.get(id), vwt.set(id, v), vwt.state(), vwt.load(setup), vwt.find(text), vwt.show(id)
 window.vwt = { list: () => ctrlList().map(({ get, set, el, ...e }) => e), get: ctrlGet, set: ctrlSet, state: ctrlState, load: ctrlLoad, find: (t) => ctrlFind(t).map(({ get, set, el, ...e }) => e), show: ctrlReveal };
 // ── end Controls ──
+
+// ── Agent tools ──
+// One set of tool definitions for agents: vwt.tools (name, description, JSON-schema input) and
+// vwt.call(name, args). The page registers them with the browser's model context where there is one
+// (WebMCP), and mcp/vwt-mcp.mjs serves them over MCP from a browser it drives. Everything a tool does
+// goes through the same controls and solvers a person uses, so a setup an agent builds can be loaded by hand.
+const AGENT_WAIT = (ms) => new Promise((r) => setTimeout(r, ms));
+// the key–value readouts of the current screen's panes (all four tabs in test): { panelId: { label: value } }
+function agentPanels() {
+  const out = {}, panes = st.mode === "test" ? ["model", "heat", "loads", "solver"] : [st.mode];
+  document.querySelectorAll("dl.kv[id]").forEach((dl) => {
+    const pn = dl.closest("[data-pane]"); if (!pn || !panes.includes(pn.dataset.pane)) return;
+    const o = {}; const dts = dl.querySelectorAll("dt");
+    dts.forEach((dt) => { const dd = dt.nextElementSibling; if (dd) o[dt.textContent.trim()] = dd.textContent.trim(); });
+    if (Object.keys(o).length) out[dl.id] = o;
+  });
+  return out;
+}
+function agentResults() {
+  const hl = ["hlReg", "hlSub", "hlMach", "hlSpd", "hlAlt", "hlStat"].reduce((o, k) => { const e = $("#" + k); if (e && e.textContent.trim()) o[k.slice(2).toLowerCase()] = e.textContent.trim(); return o; }, {});
+  const R = { mode: st.mode, headline: hl };
+  if (st.mode === "engine" && rdeSim.run) {
+    const S = rdeStats(), M = rdeModeStats();
+    if (S) R.engine = { t_ms: S.t * 1e3, thrust_N: S.F, isp_s: S.isp, mdot_kg_s: S.mIn, waves: S.waves, wave_speed_m_s: S.v, mode: M ? { n: M.n, f_Hz: M.f, held: M.held } : null };
+  } else if (st.mode === "test") {
+    const c = (k) => { const T = trackStat(k); return T ? { mean: T.mean, sd: T.sd, state: T.state } : null; };
+    R.coefficients = st.regime === "hyp" && hy.aero ? { CL: hy.aero.CL, CD: hy.aero.CD, LD: hy.aero.LD, Cm: hy.aero.Cm, CY: hy.aero.CY, friction: hy.fric || null } : { CL: c("cl"), CD: c("cd") };
+  }
+  R.panels = agentPanels();
+  return R;
+}
+// exports go through saveFile; a tool captures the text instead of downloading it
+async function agentCapture(fn) {
+  const was = saveFile.capture; const got = []; saveFile.capture = got;
+  try { await fn(); } finally { saveFile.capture = was; }
+  return got;
+}
+const AGENT_EXPORTS = {
+  design: () => saveFile("design.json", JSON.stringify(BLD, null, 1)),
+  cad_package: () => saveFile("design.json", JSON.stringify(cadPackage(BLD), null, 1)),
+  trajectory: () => exportTraj(), aerothermal: () => exportHyp(), heat_shield: () => exportTps(), aero_table: () => aeroSweep(),
+};
+const AGENT_TOOLS = [
+  { name: "state", description: "The current setup: mode, preset, the builder design (when one is in use) and every control's value. Load it back with load_setup.", input: {}, run: () => ctrlState() },
+  { name: "find_controls", description: "Search the controls by label, section or id. Returns id, label, section, mode, tab, kind, value, options and limits for each.", input: { query: { type: "string" } }, required: ["query"], run: (a) => vwt.find(a.query) },
+  { name: "list_controls", description: "Every control: id, label, section, mode (build, test or engine), tab, kind, value, options and limits.", input: {}, run: () => vwt.list() },
+  { name: "set_controls", description: "Set controls by id, e.g. {\"aoa\": 10, \"rdeP0\": 1.2}. Selects are applied first, as they reshape the panels. Returns the values that took effect.", input: { values: { type: "object" } }, required: ["values"],
+    run: async (a) => { await ctrlLoad({ values: a.values }); return Object.fromEntries(Object.keys(a.values).map((k) => [k, ctrlGet(k)])); } },
+  { name: "load_setup", description: "Load a whole setup as state returns it (mode, design and values).", input: { setup: { type: "object" } }, required: ["setup"], run: async (a) => { await ctrlLoad(a.setup); return ctrlState(); } },
+  { name: "set_mode", description: "Switch screen: build (vehicle and propulsion design), test (wind tunnel, mission, results, setup) or engine (rotating detonation engine stand). For test, tab picks conditions (model), mission (heat), results (loads) or setup (solver).", input: { mode: { type: "string", enum: ["build", "test", "engine"] }, tab: { type: "string", enum: ["model", "heat", "loads", "solver"] } }, required: ["mode"],
+    run: async (a) => { setMode(a.mode); if (a.tab) { const tb = document.querySelector(`.tab[data-tab="${a.tab}"]`); if (tb) tb.click(); } await AGENT_WAIT(200); return { mode: st.mode }; } },
+  { name: "results", description: "What the screen shows now: the headline, the force coefficients with their convergence state (test), the engine's thrust, Isp, waves and locked mode (engine), and every readout panel as label–value pairs.", input: {}, run: () => agentResults() },
+  { name: "wait_converged", description: "Wait for the wind-tunnel forces to settle (or show steady unsteadiness), up to timeout_s. Returns the convergence state of CL and CD.", input: { timeout_s: { type: "number" } },
+    run: async (a) => { const t0 = performance.now(), lim = (a.timeout_s || 120) * 1000; let s;
+      while (performance.now() - t0 < lim) { const qs = gridQuantities().map((k) => [k, trackStat(k)]); s = Object.fromEntries(qs.map(([k, T]) => [k, T ? { mean: T.mean, sd: T.sd, state: T.state } : null])); if (qs.every(([, T]) => T && (T.state === "settled" || T.state === "unsteady"))) return { converged: true, ...s }; await AGENT_WAIT(1000); }
+      return { converged: false, ...s }; } },
+  { name: "get_design", description: "The builder's design record (the vehicle and its engines), as the Build screen holds it.", input: {}, run: () => JSON.parse(JSON.stringify(BLD)) },
+  { name: "set_design", description: "Replace the builder's design record and rebuild the vehicle. Missing fields take the builder's defaults. Switches the tunnel to the builder design.", input: { design: { type: "object" } }, required: ["design"],
+    run: async (a) => { BLD = bldFill(JSON.parse(JSON.stringify(a.design))); bldFields(); bldApply(); await AGENT_WAIT(300); return { name: BLD.name, L: BLD.L }; } },
+  { name: "export", description: "Export data as text: design (the record), cad_package (osp-spaceplane-design v1 for cad/build_spaceplane.py), trajectory, aerothermal (surface heating, needs the high-speed analysis), heat_shield (through-thickness temperatures), aero_table (runs an α sweep, -10° to 60°).", input: { kind: { type: "string", enum: Object.keys(AGENT_EXPORTS) } }, required: ["kind"],
+    run: async (a) => { const got = await agentCapture(AGENT_EXPORTS[a.kind]); if (!got.length) throw new Error("nothing to export yet: run the analysis it needs first"); return got[0]; } },
+  { name: "engine_run", description: "Run the rotating detonation engine stand for sim_ms of simulated time (default 0.5), after applying any engine controls in values (ids from find_controls, e.g. rdeP0, rdeIgn, rdeNr, ionOn). Returns thrust, Isp, waves, locked mode and every engine readout.", input: { sim_ms: { type: "number" }, values: { type: "object" } },
+    run: async (a) => { if (st.mode !== "engine") setMode("engine"); if (rdeSim.run) rdeStop(); if (a.values) await ctrlLoad({ values: a.values }); if (rdeSim.run) rdeStop();
+      await rdeToggle(); const lim = (a.sim_ms || 0.5) * 1e-3; let last = 0, t0 = performance.now();
+      while (rdeSim.run) { const S = rdeStats(); const t = S ? S.t : 0; if (t >= lim) break; if (t > last) { last = t; t0 = performance.now(); } else if (performance.now() - t0 > 60000) throw new Error("the engine stopped advancing"); await AGENT_WAIT(250); }
+      const R = agentResults(); rdeStop(); return R; } },
+  { name: "engine_lock_range", description: "Run the engine's lock-range sweep (Lock range on the Engine screen) and return its table.", input: {},
+    run: async () => { if (st.mode !== "engine") setMode("engine"); await rdeSweep(); return { info: agentPanels().rdeSweepInfo || null }; } },
+  { name: "optimise", description: "Start the shape optimiser (Build › Optimise shape) and wait up to timeout_s, then stop it and return the best design and its score history.", input: { timeout_s: { type: "number" } },
+    run: async (a) => { optStart("opt"); const t0 = performance.now(); while (OPT.on && performance.now() - t0 < (a.timeout_s || 300) * 1000) await AGENT_WAIT(1000); if (OPT.on) optStop("Stopped by an agent"); return { evals: OPT.evals, best: OPT.best ? { f: OPT.best.f, design: OPT.best.P } : null, panels: agentPanels() }; } },
+];
+vwt.tools = AGENT_TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: { type: "object", properties: t.input, required: t.required || [] } }));
+vwt.call = async (name, args = {}) => { const t = AGENT_TOOLS.find((x) => x.name === name); if (!t) throw new Error("no tool " + name); return await t.run(args || {}); };
+// WebMCP: browsers that offer a model context get the same tools
+try {
+  const mc = navigator.modelContext;
+  if (mc && typeof mc.registerTool === "function")
+    for (const t of vwt.tools) mc.registerTool({ ...t, execute: async (a) => ({ content: [{ type: "text", text: JSON.stringify(await vwt.call(t.name, a)) }] }) });
+} catch (e) { console.warn("WebMCP registration failed", e); }
+// ── end Agent tools ──
 
 // ── VR ──
 // WebXR on headsets (Quest Browser and other WebXR browsers). The solver keeps running on WebGPU; the
