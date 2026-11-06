@@ -12,7 +12,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -60,8 +60,9 @@ const OWN = [
       const pkg = await (await app()).evaluate(() => vwt.call("export", { kind: "cad_package" }));
       const dir = a.out_dir || mkdtempSync(path.join(tmpdir(), "vwt-cad-")), f = path.join(dir, "design.json"); writeFileSync(f, pkg.text);
       const r = await run("python3", ["cad/build_spaceplane.py", f, "--out", dir], { timeout_s: 1800 });
-      const rep = path.join(dir, "design.cad-report.json");
-      return text({ exit: r.code, dir, report: existsSync(rep) ? JSON.parse(readFileSync(rep, "utf8")) : null, output: r.out.slice(-4000) });
+      // the build names its files after the design
+      const files = readdirSync(dir).filter((f) => f !== "design.json").map((f) => path.join(dir, f)), rep = files.find((f) => f.endsWith(".cad-report.json"));
+      return text({ exit: r.code, files, report: rep ? JSON.parse(readFileSync(rep, "utf8")) : null, output: rep ? undefined : r.out.slice(-4000) });
     } },
 ];
 const text = (o) => ({ content: [{ type: "text", text: typeof o === "string" ? o : JSON.stringify(o, null, 1) }] });
