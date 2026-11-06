@@ -251,6 +251,16 @@ One cell reproduces the quasi-2D solver to rounding error on the Goto engine. Wi
 
 The constants are order-of-magnitude. The power scales as density squared, so the expanded flow on the spike is far cheaper to ionise than the chamber.
 
+**On the flow.** With On the flow switched on, the next run couples the microwaves and the magnet to the solver:
+- The absorbed microwave power is spread evenly by volume over the annulus, the spike or both, and heats the gas.
+- Electrons are the seed's Saha equilibrium combined with those the absorbed power holds against recombination, √(p_abs / Wβ).
+- The coil is a single loop of the casing's radius at the end of the annulus, with its paraxial field: B_y = B₀ (1 + s²)^-3/2 and B_r = −(r/2) dB_y/dy.
+- There are no electrodes, so only the azimuthal current flows: J_θ = σ/(1 + β_e²) (u_y B_r − u_r B_y). Its force J×B acts radially and axially. It only converts kinetic energy to heat (J·E = 0), so the total energy gains only the microwave power.
+
+First test, Goto engine, quasi-2D, 0.5% potassium, compared at 61 µs:
+- 50 kW absorbed on the spike raises thrust by 4 N (+2.3%). That is about what 4% more enthalpy gives.
+- The coil at 2 T and at 10 T lowers thrust by 0.2–0.3 N and takes 0.02–0.05% of the kinetic energy. That matches the interaction parameter of about 0.01 from the map.
+
 ### Air-breathing engine
 
 The intake is solved by the high-speed flow solver, above Mach 0.6.

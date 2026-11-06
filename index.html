@@ -675,6 +675,11 @@ select, input[type="number"], input[type="text"], textarea { background: rgba(0,
             <label class="field"><span class="k">Field, T</span><input type="number" id="ionB" min="0" step="0.1"></label>
             <label class="field"><span class="k">Microwaves, GHz</span><input type="number" id="ionF" min="0.1" step="0.05"></label>
           </div>
+          <div class="row3">
+            <label class="field" title="Off: a map of the run. On: the absorbed microwave power heats the gas and the coil's force acts on it, from the next run"><span class="k">On the flow</span><select id="ionOn"><option value="0">Off</option><option value="1">On</option></select></label>
+            <label class="field" title="Microwave power absorbed in the gas"><span class="k">Absorbed, kW</span><input type="number" id="ionP" min="0" step="5"></label>
+            <label class="field"><span class="k">Into</span><select id="ionInto"><option value="0">Spike</option><option value="1">Annulus</option><option value="0.5">Both</option></select></label>
+          </div>
           <dl class="kv" id="ionInfo"></dl>
         </section>
 
@@ -3507,7 +3512,7 @@ const st = {
   preset: "loading", aoa: 0, beta: 0, size: 1,
   grid: LITE ? "low" : "med",
   re: 4.3, mach: 0.14, les: true, spfAuto: true, spf: LITE ? 2 : 6,
-  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, nr: 1, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, ign: 1, sweepT: 0.5, ion: { seed: "K", xs: 0.5, Te: 1, sig: 10, B: 2, f: 2.45 } }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
+  lV: true, lS: true, lP: false, lH: false, dep: { on: false, src: "spot", P: 1, d: 0.2, r: 0.03, f: 35, mw: 2, tally: null }, rde: { prop: "ethox", of: 3.11, Di: 60.5, w: 3.2, Lc: 48, half: 30, AtAw: 0.12, p0: 0.85, pa: 101.325, nx: 400, nr: 1, show: "p", spf: 20, feed: "fixed", mdot: 125, Vp: 30, neck: 5, teeth: 0, depth: 0.5, throat: 1, ign: 1, sweepT: 0.5, ion: { seed: "K", xs: 0.5, Te: 1, sig: 10, B: 2, f: 2.45, on: 0, P: 50, into: 0 } }, qthr: 0.9, vop: 0.6, vcol: 0, rstyle: 0,
   sax: 0, sfield: 0, spos: 0.6, cpmin: -1.2, cpmax: 0.8,
   rq: LITE ? 0.5 : 0.75, rqMax: LITE ? 0.5 : 0.75, rqAuto: true, avg: false, showMean: false, refA: "plan",
   spd: { set: false, V: 0, h: 0, M: 0, band: "" },
@@ -8262,6 +8267,9 @@ struct P {
   sup: vec4f,      // supply mass flow per cell (kg/s), head-end area per cell (m²), injector teeth, teeth depth (0–1)
   d2: vec4u,       // nr (cells across the gap), radial flow on (> 0), nx·ny, -
   g2: vec4f,       // Δθ, smallest radius the θ metric uses, -, -
+  mh1: vec4f,      // coil peak field (T), coil axial position (m), coil radius (m), coupled (> 0.5)
+  mh2: vec4f,      // seed ionisation energy (eV), statistical-weight factor, seed fraction, microwave electron temperature (eV)
+  mh3: vec4f,      // absorbed microwave power per volume in the annulus and beyond it (W/m³), annulus length (m), -
 };
 @group(0) @binding(0) var<uniform> C: P;
 @group(0) @binding(1) var<storage, read> U0: array<f32>;   // state at the start of the step
@@ -8326,6 +8334,28 @@ fn hlle(L: W, R: W, n: vec3f) -> array<f32, 7> {
   let d = max(sR - sL, 1e-9);
   for (var k = 0; k < 7; k++) { f[k] = (sR * fL[k] - sL * fR[k] + sR * sL * (qR[k] - qL[k])) / d; }
   return f;
+}
+// Ionisation and magnet, coupled: electrons from the seed's Saha equilibrium plus those the absorbed
+// microwave power holds against recombination (50 eV each, 2e-13 m³/s); conductivity from electron–
+// neutral collisions (1e-19 m²); a coil's paraxial field; with no electrodes only the azimuthal current
+// flows, J_θ = σ/(1+β²) (u×B)_θ, and its force J×B. That force only takes kinetic energy and turns it
+// to heat (J·E = 0), so the total energy gains just the microwave power.
+fn mhd(c: W, y: f32, r: f32) -> vec4f {   // radial force, axial force, energy source, -
+  let inA = y <= C.mh3.z;
+  let pw = select(C.mh3.y, C.mh3.x, inA);
+  if (C.mh1.w < 0.5) { return vec4f(0.0, 0.0, pw, 0.0); }
+  let T = max(c.p / (c.r * gasR(c.y)), 200.0); let Nn = c.p / (1.380649e-23 * T);
+  let K = 2.415e21 * pow(T, 1.5) * C.mh2.y * exp(-C.mh2.x * 11604.5 / T); let ns = C.mh2.z * Nn;
+  let nT = 2.0 * ns / (1.0 + sqrt(1.0 + 4.0 * ns / max(K, 1e-30)));
+  let nM = sqrt(pw) / 1.2649e-15;                  // √(W β)
+  let hi = max(nT, nM); let lo = min(nT, nM); let ne = hi * sqrt(1.0 + (lo / max(hi, 1.0)) * (lo / max(hi, 1.0)));
+  let Te = select(T / 11604.5, max(C.mh2.w, T / 11604.5), pw > 0.0);
+  let nu = Nn * 1e-19 * 6.6955e5 * sqrt(Te);       // v_e = √(8 k Te / π m_e)
+  let sig = ne * 2.8179e-8 / max(nu, 1.0); let be = 1.7588e11 * C.mh1.x / max(nu, 1.0);
+  let s = (y - C.mh1.y) / C.mh1.z; let f = 1.0 / (1.0 + s * s);
+  let By = C.mh1.x * f * sqrt(f); let Br = 1.5 * r * C.mh1.x * s / C.mh1.z * f * f * sqrt(f);
+  let J = sig / (1.0 + be * be) * (c.v * Br - c.w * By);
+  return vec4f(J * By, -J * Br, pw, 0.0);
 }
 fn wallF(p: f32, n: vec3f) -> array<f32, 7> { return array<f32, 7>(0.0, p * n.x, p * n.y, 0.0, 0.0, 0.0, p * n.z); }
 // injector face flux into the first cell. Fixed plenum: isentropic from (p0, T0) to the larger of the
@@ -8412,6 +8442,7 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   // azimuthal faces, both ∝ meridional area / volume = 1 / mean radius
   var src = array<f32, 7>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
   if (rad) { src[6] = (c0.p + c0.r * c0.u * c0.u) * Ary / Vq; src[1] = -c0.r * c0.u * c0.w * Ary / Vq; }
+  if (C.mh1.w > 0.5 || C.mh3.x > 0.0 || C.mh3.y > 0.0) { let m = mhd(c0, (f32(j) + 0.5) * dy, Vq / Ary); src[6] += m.x; src[2] += m.y; src[3] += m.z; }
   // induction, then reaction
   let T = c0.p / (c0.r * gasR(c0.y));
   if (c0.y > 1e-4 && c0.z < 1.0 && T > C.ch.w && c0.p > C.r1.w) { src[5] = c0.r * C.ch.z * exp(min(C.ch.y - C.ch.x / max(T, 1.0), 30.0)); }
@@ -8539,6 +8570,10 @@ async function rdeCreate(dev, cfg) {
     }
     for (let j = 0; j <= ny; j++) for (let kk = 0; kk < nr; kk++) { const ra = rv(kk, j * dy), rb = rv(kk + 1, j * dy); Gm[oJ + kk + nr * j] = (rb * rb - ra * ra) / 2; }
   }
+  // volumes of the annulus and of the flow beyond it, for spreading the microwave power
+  const vol = [0, 0], Lc = cfg.mhd ? cfg.mhd.Lc : cfg.H;
+  for (let j = 0; j < ny; j++) for (let kk = 0; kk < nr; kk++) vol[(j + 0.5) * dy <= Lc ? 0 : 1] += Gm[2 * (kk + nr * j) + 1] * 2 * Math.PI;
+  vol[0] = vol[0] || 1; vol[1] = vol[1] || 1;
   // plenum: initial pressure p0 at T0, necks at the steady orifice flux into the fill pressure
   const g1 = G.gam1, PL = cfg.plenum || {}, dyn = !!PL.on, Vc = (PL.V || 30e-6) / nx, ln = PL.neck || 5e-3, Cd = PL.Cd || 0.7;
   const Pq = new Float32Array(4 * nx), r0 = cfg.p0 / (G.R1 * cfg.T0);
@@ -8557,12 +8592,14 @@ async function rdeCreate(dev, cfg) {
   let dt = cfg.dt || 0.3 * hmin / (1.8 * cfg.Dcj), gapCol = 0;
   const X = cfg.chem;
   const uni = (stage) => {
-    const ab = new ArrayBuffer(160), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]);
+    const ab = new ArrayBuffer(208), u = new Uint32Array(ab), f = new Float32Array(ab); u.set([nx, ny, N, stage]);
     f.set([dx, dy, dt, cfg.pa, G.gam1, G.R1, G.q, X.pign || 0, G.gam2, G.R2, X.k, cfg.AtAw, cfg.p0, cfg.T0, cfg.closed ? 1 : 0, 0, X.theta * X.TvN, X.theta, 1 / X.tau, X.Tign || 0,
       Vc, ln, Cd, dyn ? 1 : 0, (PL.mdot || 0) / nx, cfg.area(0) / nx, (cfg.teeth && cfg.teeth.n) || 0, (cfg.teeth && cfg.teeth.depth) || 0], 4);
-    u.set([nr, nr > 1 ? 1 : 0, N2, gapCol], 32); f.set([dth, rFloor, 0, 0], 36); return ab;
+    u.set([nr, nr > 1 ? 1 : 0, N2, gapCol], 32); f.set([dth, rFloor, 0, 0], 36);
+    const M = cfg.mhd; if (M) f.set([M.B, M.yc, M.Rc, M.on ? 1 : 0, M.IP, M.g, M.xs, M.Te, (M.P * M.inA) / vol[0], (M.P * (1 - M.inA)) / vol[1], M.Lc, 0], 40);
+    return ab;
   };
-  const UB = [0, 1].map(() => dev.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | CD }));
+  const UB = [0, 1].map(() => dev.createBuffer({ size: 208, usage: GPUBufferUsage.UNIFORM | CD }));
   const writeU = () => { dev.queue.writeBuffer(UB[0], 0, uni(0)); dev.queue.writeBuffer(UB[1], 0, uni(1)); };
   writeU();
   const ent = (pl, list) => dev.createBindGroup({ layout: pl.getBindGroupLayout(0), entries: list.map(([binding, buffer]) => ({ binding, resource: { buffer } })) });
@@ -8642,7 +8679,9 @@ function rdeConfig() {
   const uvN = (m.D * ((g1 - 1) * Mn * Mn + 2)) / ((g1 + 1) * Mn * Mn);
   const area = (y) => (y <= Lc ? (y > Lc - 2e-3 ? Ac * Math.min(1, R.throat) : Ac) : (Math.PI / 4) * (Do * Do - Math.max(Di - 2 * (y - Lc) * Math.tan(half), 0) ** 2));
   const plenum = { on: R.feed === "res", mdot: R.mdot / 1000, V: R.Vp * 1e-6, neck: R.neck / 1000, Cd: 0.7 };
-  return { key: R.prop, nr: +R.nr || 1, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 0.06 * m.pr * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
+  const I = R.ion, sd = ION_SEED[I.seed] || ION_SEED.none;
+  const mhd = I.on ? { on: true, B: I.B, yc: Lc, Rc: Do / 2, IP: sd.IP, g: sd.g, xs: I.seed === "none" ? sd.x : I.xs / 100, Te: I.Te, P: I.P * 1e3, inA: +I.into, Lc } : null;
+  return { key: R.prop, nr: +R.nr || 1, mhd, plenum, teeth: { n: R.teeth | 0, depth: R.teeth > 0 ? R.depth : 0 }, m, nx, ny, L, H, Lc, Ac, Ae: area(H), area, Di, Do, half, gas: m.gas, chem: { theta: 0, TvN, tau: (0.5 * dx) / uvN, k: uvN / (0.5 * dx), Tign: 0.65 * TvN, pign: 0.06 * m.pr * R.p0 * 1e6 }, AtAw: R.AtAw, p0: R.p0 * 1e6, T0, pa,
     Dcj: m.D, probeY: Math.max(0, Lc - 8e-3), init: { n: R.ign || 1, h: Math.min(10e-3, 0.4 * Lc), pFresh: Math.max(pa, 2e4, 0.1 * R.p0 * 1e6), wIgn: 10e-3, back: 0.3 * L, pIgn: m.pr * 1.5 * Math.max(101325, 0.1 * R.p0 * 1e6), TIgn: m.T, uIgn: m.D * (1 - 1 / m.dr), TBurn: 2500 } };
 }
 function rdeStop() { rdeSim.gen++; const r = rdeSim.run; if (r) (rdeSim.reading || Promise.resolve()).then(() => r.destroy()); rdeSim.run = null; const b = $("#rdeRun"); if (b) b.textContent = "Run"; }
@@ -8756,7 +8795,8 @@ function rdeIonReport() {
     row(`Microwaves for ${I.sig} S/m`, `chamber ${W(ch.P)} · spike ${W(pl.P)} · chemical ${W(chem)}`) +
     row(`At ${I.f} GHz`, `skin depth ${(skin * 1e3).toFixed(1)} mm · collisions ${(pl.nu / X.w).toFixed(0)}× the wave frequency · cutoff ${e(nc)} /m³`) +
     row(`Hall parameters, ${I.B} T, spike`, `electrons ${pl.be.toPrecision(2)} · ions ${pl.bi.toPrecision(2)}`) +
-    row("Interaction S", `chamber ${ch.S.toPrecision(2)} · spike ${pl.S.toPrecision(2)}`);
+    row("Interaction S", `chamber ${ch.S.toPrecision(2)} · spike ${pl.S.toPrecision(2)}`) +
+    (c.mhd ? row("On the flow", `${W(c.mhd.P)} absorbed in the ${["spike", "annulus", "annulus and spike"][[0, 1, 0.5].indexOf(c.mhd.inA)]} · coil ${c.mhd.B} T at the end of the annulus`) : "");
 }
 function rdeDraw2d(q) {
   const cv = $("#eng2d"), c = rdeSim.cfg, N = c.nx * c.ny, G = c.gas, W = c.nx, H = c.ny;
@@ -9098,7 +9138,7 @@ function syncRdeUI() {
   const R = st.rde; if (!$("#rdeDi")) return;
   syncWaves();
   $("#rdeSweepT").value = R.sweepT; $("#rdeFeed").value = R.feed; $("#rdeMdot").value = R.mdot; $("#rdeVp").value = R.Vp; $("#rdeNeck").value = R.neck; $("#rdeTeeth").value = R.teeth; $("#rdeDepth").value = R.depth; $("#rdeThroat").value = R.throat; $("#rdeIgn").value = R.ign;
-  const I = R.ion; $("#ionSeed").value = I.seed; $("#ionXs").value = I.xs; $("#ionTe").value = I.Te; $("#ionSig").value = I.sig; $("#ionB").value = I.B; $("#ionF").value = I.f; $("#ionXs").disabled = I.seed === "none";
+  const I = R.ion; $("#ionSeed").value = I.seed; $("#ionXs").value = I.xs; $("#ionTe").value = I.Te; $("#ionSig").value = I.sig; $("#ionB").value = I.B; $("#ionF").value = I.f; $("#ionXs").disabled = I.seed === "none"; $("#ionOn").value = I.on; $("#ionP").value = I.P; $("#ionInto").value = I.into;
   document.querySelectorAll(".rde-res").forEach((x) => (x.style.opacity = R.feed === "res" ? 1 : 0.45));
   $("#rdeFromDesign").hidden = !(st.preset === "builder" && BLD && ["hydrolox", "ghydrox", "methalox", "gmethox", "ethox"].includes(engKey(BLD)));
   $("#rdeProp").value = R.prop; $("#rdeOF").value = R.of; $("#rdeDi").value = R.Di; $("#rdeW").value = R.w; $("#rdeLc").value = R.Lc; $("#rdeHalf").value = R.half; $("#rdeAt").value = R.AtAw; $("#rdeP0").value = R.p0; $("#rdePa").value = R.pa; $("#rdeNx").value = R.nx; $("#rdeNr").value = R.nr; $("#rdeShow").value = R.show;
@@ -9111,10 +9151,13 @@ function wireRde() {
   $("#rdeFeed").addEventListener("change", (e) => { st.rde.feed = e.target.value; syncRdeUI(); restart(); });
   $("#rdeShow").addEventListener("change", (e) => { st.rde.show = e.target.value; if (rdeSim.q) { rdeDraw2d(rdeSim.q); rdeDraw3d(); } });
   // the ionisation settings act on the averaged flow, so they re-evaluate without a restart
-  const reIon = () => { syncRdeUI(); if (rdeSim.avg) { rdeIon(); rdeIonReport(); if (rdeSim.q) rdeDraw2d(rdeSim.q); } };
+  const reIon = () => { syncRdeUI(); if (st.rde.ion.on) return restart(); if (rdeSim.avg) { rdeIon(); rdeIonReport(); if (rdeSim.q) rdeDraw2d(rdeSim.q); } };
   $("#ionSeed").addEventListener("change", (e) => { st.rde.ion.seed = e.target.value; reIon(); });
   for (const [id, k, lo] of [["#ionXs", "xs", 0], ["#ionTe", "Te", 0.1], ["#ionSig", "sig", 0.01], ["#ionB", "B", 0], ["#ionF", "f", 0.01]])
     $(id).addEventListener("change", (e) => { st.rde.ion[k] = Math.max(lo, +e.target.value || 0); reIon(); });
+  $("#ionOn").addEventListener("change", (e) => { st.rde.ion.on = +e.target.value; restart(); });
+  $("#ionInto").addEventListener("change", (e) => { st.rde.ion.into = +e.target.value; restart(); });
+  $("#ionP").addEventListener("change", (e) => { st.rde.ion.P = Math.max(0, +e.target.value || 0); if (st.rde.ion.on) restart(); });
   $("#rdeMav").addEventListener("click", () => { Object.assign(st.rde, { prop: "gmethox", of: 3.5, Di: 142, w: 8.4, Lc: 69.5, half: 30, AtAw: 0.2, p0: 5, pa: 101.325, nx: 800, teeth: 0, throat: 1, ign: 1, feed: "fixed" }); syncRdeUI(); restart(); });
   $("#rdeRun").addEventListener("click", () => { if (rdeSw.on) rdeSw.on = false; rdeToggle(); });
   $("#rdeSweep").addEventListener("click", rdeSweep);
@@ -12218,7 +12261,7 @@ async function vrEnter(opts = {}) {
   if (VR.on) { VR.session && VR.session.end(); return; }
   const preview = !!opts.preview;   // the headset scene on the page, for checking without a headset
   if (!R || st.mode !== "test") setMode("test");
-  const T = VR.three || (VR.three = await import("https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"));
+  const T = VR.three || (VR.three = await import("https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js"));
   const renderer = new T.WebGLRenderer({ antialias: true, alpha: false }); renderer.xr.enabled = true; renderer.setPixelRatio(1);
   if (preview) { renderer.setSize(opts.w || 900, opts.h || 600); Object.assign(renderer.domElement.style, { position: "fixed", left: "0", top: "0", zIndex: 50 }); } else renderer.domElement.style.display = "none";
   document.body.appendChild(renderer.domElement);
